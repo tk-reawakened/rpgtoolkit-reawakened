@@ -199,14 +199,10 @@ async function reviewInBrowser(transform: ScriptTransformId, options: { readonly
   return { root, element, running, bench, dialogText: `${detail}\n${outcome}\n${failures}` };
 }
 
-/** VS Code's questions, answered by the test: the project scope, then the programs to apply. */
+/** VS Code's questions after scope selection, answered by the test. */
 function vscodeUi(options: { readonly untick?: readonly string[]; readonly cancel?: boolean; readonly details?: string[]; readonly retry?: () => boolean }) {
-  const seen = { scopes: [] as (string | null)[], items: [] as readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[], reports: [] as string[], leftAsWritten: [] as readonly string[] };
+  const seen = { items: [] as readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[], reports: [] as string[], leftAsWritten: [] as readonly string[] };
   const ui = {
-    async scope(_transform: ScriptTransformId, activeProgram: string | null) {
-      seen.scopes.push(activeProgram);
-      return "project" as const;
-    },
     progress: () => () => {},
     async review(_transform: ScriptTransformId, items: typeof seen.items, leftAsWritten: readonly string[]) {
       seen.items = items;
@@ -243,14 +239,13 @@ test("both host presenters apply the same reviewed bytes through their ordinary 
   ok(leased.ok);
   const client = leased.lease.client;
   try {
-    const summary = await runScriptWorkflow("format", {
+    const summary = await runScriptWorkflow("format", { kind: "project" }, {
       fs: web.services.fs,
       provider: scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path)),
       history: createWizardHistory(web.workspace.checkpoints),
       openPrograms: () => [],
       root: "",
-      activeProgram: null,
-    }, ui as never);
+    }, ui);
     equal(summary.kind, "applied");
   } finally {
     leased.lease.release();
@@ -268,14 +263,13 @@ test("the VS Code review lists only programs that change, with the comparison in
   const details: string[] = [];
   const { ui, seen } = vscodeUi({ cancel: true, details });
   const provider = scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path));
-  const result = await runScriptWorkflow("cleanup", {
+  const result = await runScriptWorkflow("cleanup", { kind: "project" }, {
     fs: web.services.fs,
     provider,
     history: null,
     openPrograms: () => [],
     root: "",
-    activeProgram: null,
-  }, ui as never);
+  }, ui);
   leased.lease.release();
   equal(result.kind, "cancelled");
   deepEqual(seen.items.map((item) => item.path), ["Prg/messy.prg", "Prg/second.prg"]);
@@ -331,14 +325,13 @@ test("cancelling in either host writes nothing and records nothing", async () =>
   ok(leased.ok);
   const { ui } = vscodeUi({ cancel: true });
   try {
-    const result = await runScriptWorkflow("format", {
+    const result = await runScriptWorkflow("format", { kind: "project" }, {
       fs: web.services.fs,
       provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
       history: null,
       openPrograms: () => [],
       root: "",
-      activeProgram: null,
-    }, ui as never);
+    }, ui);
     equal(result.kind, "cancelled");
   } finally {
     leased.lease.release();
@@ -356,14 +349,13 @@ test("in VS Code, an open program receives one edit and no direct write", async 
   let documentText = MESSY;
   const { ui } = vscodeUi({ untick: ["Prg/second.prg"] });
   try {
-    const result = await runScriptWorkflow("format", {
+    const result = await runScriptWorkflow("format", { kind: "project" }, {
       fs: web.services.fs,
       provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
       history: null,
       openPrograms: () => [{ path: "Prg/messy.prg", text: () => documentText, replace: async (label, next) => { edits.push({ label, text: next }); documentText = next; return { ok: true }; } }],
       root: "",
-      activeProgram: "Prg/messy.prg",
-    }, ui as never);
+    }, ui);
     equal(result.kind, "applied");
   } finally {
     leased.lease.release();
@@ -382,7 +374,7 @@ test("native review surfaces the refusal and fragment before apply, then reports
   let attempts = 0;
   const { ui, seen } = vscodeUi({ retry: () => attempts === 1 });
   try {
-    const finished = await runScriptWorkflow("cleanup", {
+    const finished = await runScriptWorkflow("cleanup", { kind: "project" }, {
       fs: { ...web.services.fs, async write(path, bytes) {
         if (path === "Prg/second.prg" && ++attempts === 1) return { ok: false, error: { code: "io-error", message: "write refused once" } };
         return await web.services.fs.write(path, bytes);
@@ -397,7 +389,6 @@ test("native review surfaces the refusal and fragment before apply, then reports
       history: createWizardHistory(web.workspace.checkpoints),
       openPrograms: () => [],
       root: "",
-      activeProgram: null,
     }, ui);
     equal(finished.kind, "applied");
     deepEqual(seen.leftAsWritten, ["Prg/clean.prg: Cannot move this fragment; line 3: contains a quote"]);

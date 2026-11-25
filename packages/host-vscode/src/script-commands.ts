@@ -150,20 +150,21 @@ async function review(transform: ScriptTransformId, items: readonly ScriptReview
   return picked?.map((item) => item.path);
 }
 
+async function askScope(transform: ScriptTransformId, activeProgram: string | null): Promise<"program" | "project" | undefined> {
+  const items = [
+    ...(activeProgram === null ? [] : [{ label: activeProgram, description: "the program in the editor", id: "program" as const }]),
+    { label: "Every program in the project", description: "checks every .prg and .rnc below the project root", id: "project" as const },
+  ];
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `${SCRIPT_TRANSFORM_INFO[transform].name}: which programs?`,
+    placeHolder: SCRIPT_TRANSFORM_INFO[transform].plain,
+    ignoreFocusOut: true,
+  });
+  return picked?.id;
+}
+
 function ui(): ScriptWorkflowUi {
   return {
-    scope: async (transform, activeProgram) => {
-      const items = [
-        ...(activeProgram === null ? [] : [{ label: activeProgram, description: "the program in the editor", id: "program" as const }]),
-        { label: "Every program in the project", description: "checks every .prg and .rnc below the project root", id: "project" as const },
-      ];
-      const picked = await vscode.window.showQuickPick(items, {
-        title: `${SCRIPT_TRANSFORM_INFO[transform].name}: which programs?`,
-        placeHolder: SCRIPT_TRANSFORM_INFO[transform].plain,
-        ignoreFocusOut: true,
-      });
-      return picked?.id;
-    },
     progress,
     review,
     report: async (summary, problems, failed, stage) => {
@@ -191,51 +192,72 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
   };
   for (const transform of Object.keys(ids) as ScriptTransformId[]) {
     context.subscriptions.push(vscode.commands.registerCommand(ids[transform], async () => {
-      // Activating the language extension can yield while VS Code loads the running project setting.
-      // Capture that setting and the workspace only after activation, not before.
       const extension = await activatedLanguageExtension();
-      const folders = vscode.workspace.workspaceFolders ?? [];
-      if (folders.length === 0) {
+      if (extension === undefined) {
+        await vscode.window.showErrorMessage("The RPGCode language extension is not installed, so programs cannot be formatted or updated here. Nothing was changed.");
+        return;
+      }
+      if ((vscode.workspace.workspaceFolders?.length ?? 0) === 0) {
         await vscode.window.showErrorMessage("Open a project folder first: the workflows read the project's programs.");
         return;
       }
-      const main = configuredMain(folders[0]!.uri);
-      const folder = main === undefined ? (folders.length === 1 ? folders[0] : await pickFolder(folders)) : vscode.workspace.getWorkspaceFolder(main);
-      if (main !== undefined && folder === undefined) {
-        await vscode.window.showErrorMessage("The selected RPGCode project is outside the open workspace. Open its project folder before reviewing programs.");
+      const active = vscode.window.activeTextEditor?.document;
+      const activeFolder = active === undefined ? undefined : vscode.workspace.getWorkspaceFolder(active.uri);
+      const activeLabel = activeFolder === undefined ? null : openPrograms(activeFolder.uri).find(({ document }) => document === active)?.path ?? null;
+      const asked = await askScope(transform, activeLabel);
+      if (asked === undefined) return;
+
+      // The virtual filesystem may have loaded workspace settings while the scope picker was open.
+      let folders = vscode.workspace.workspaceFolders ?? [];
+      if (folders.length === 0) return;
+      let main = configuredMain(folders[0]!.uri);
+      let fallback = asked === "program" ? activeFolder : folders.length === 1 ? folders[0] : undefined;
+      if (main === undefined && asked === "project" && fallback === undefined) {
+        const picked = await pickFolder(folders);
+        if (picked === undefined) return;
+        folders = vscode.workspace.workspaceFolders ?? [];
+        if (folders.length === 0) return;
+        main = configuredMain(folders[0]!.uri);
+        fallback = folders.find(({ uri }) => uri.toString() === picked.uri.toString());
+      }
+      const folder = main === undefined
+        ? folders.find(({ uri }) => uri.toString() === fallback?.uri.toString())
+        : vscode.workspace.getWorkspaceFolder(main);
+      if (folder === undefined) {
+        await vscode.window.showErrorMessage("The selected project folder is no longer open. Nothing was changed.");
         return;
       }
-      if (folder === undefined) return;
       const folderUri = folder.uri.toString();
+      const root = projectRootIn(folder.uri, main);
+      const activePath = asked === "program" ? openPrograms(folder.uri).find(({ document }) => document === active)?.path : undefined;
+      if (asked === "program" && (activePath === undefined || (root !== "" && !activePath.startsWith(`${root}/`)))) {
+        await vscode.window.showErrorMessage("That program is no longer open in the selected project. Nothing was changed.");
+        return;
+      }
       const services = createVscodeServices(folder.uri, context, generation);
       const workspace = workspaceFor(folder.uri);
-      const open = openPrograms(folder.uri);
-      const active = vscode.window.activeTextEditor?.document;
-      const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;
       let retired = false;
       const removal = vscode.workspace.onDidChangeWorkspaceFolders(({ removed }) => {
         if (removed.some((candidate) => candidate.uri.toString() === folderUri)) retired = true;
       });
       await runScriptWorkflow(
         transform,
+        activePath === undefined ? { kind: "project" } : { kind: "program", path: activePath },
         {
           fs: { ...services.fs, write: (path, bytes) => services.fs.writeProject(folderUri, path, bytes) },
-          provider: extension === undefined
-            ? null
-            : {
-              async transform(question) {
-                const path = question.workspacePath ?? question.path;
-                const opened = openPrograms(folder.uri).find((program) => program.path === path)?.document;
-                return await vscode.commands.executeCommand(TRANSFORM_COMMAND, {
-                  transform: question.transform,
-                  textDocument: { uri: (opened?.uri ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"))).toString(), ...(opened?.languageId === "rpgcode-tk2" ? { languageId: "rpgcode-tk2" } : {}) },
-                  text: question.text,
-                  indentWidth: question.indentWidth,
-                  ...(question.projectMainUri === undefined ? {} : { project: { main: question.projectMainUri } }),
-                });
-              },
+          provider: {
+            async transform(question) {
+              const path = question.workspacePath ?? question.path;
+              const opened = openPrograms(folder.uri).find((program) => program.path === path)?.document;
+              return await vscode.commands.executeCommand(TRANSFORM_COMMAND, {
+                transform: question.transform,
+                textDocument: { uri: (opened?.uri ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"))).toString(), ...(opened?.languageId === "rpgcode-tk2" ? { languageId: "rpgcode-tk2" } : {}) },
+                text: question.text,
+                indentWidth: question.indentWidth,
+                ...(question.projectMainUri === undefined ? {} : { project: { main: question.projectMainUri } }),
+              });
             },
-          ...(extension === undefined ? { unavailableReason: "The RPGCode language extension is not installed, so programs cannot be formatted or updated here. Nothing was changed." } : {}),
+          },
           history: createWizardHistory(workspace.checkpoints),
           // Resolved per call: a program opened while the review is open must be seen before it is written.
           openPrograms: (): readonly OpenScriptProgram[] => openPrograms(folder.uri).map((program) => ({
@@ -243,8 +265,7 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
             text: () => lfText(program.document),
             replace: (label, text) => replaceDocument(program.document, label, text),
           })),
-          root: projectRootIn(folder.uri, main),
-          activeProgram: activePath,
+          root,
           ...(main === undefined ? {} : { projectMainUri: main.toString(), projectMainPath: main.path.slice(folder.uri.path.replace(/\/?$/, "/").length) }),
           isProjectCurrent: () => {
             const currentFolders = vscode.workspace.workspaceFolders;

@@ -14,7 +14,7 @@ import {
 
 /**
  * The reviewed script workflows in VS Code (story 13.16, docs/spec/engine/rpgcode-tooling.md#tool-11), as the questions VS
- * Code can ask: which programs, then one multi-select list in which every program that would change starts selected (the
+ * Code can ask: after scope selection, one multi-select list in which every program that would change starts selected (the
  * per-file opt-out), each with its comparison readable before anything is written. The model plans, holds the choices and
  * applies; this module only asks and reports, so VS Code and the browser apply the same plan by the same rules.
  */
@@ -33,8 +33,6 @@ export interface ScriptReviewItem {
 }
 
 export interface ScriptWorkflowUi {
-  /** Ask which programs to check; `undefined` when the question is dismissed. */
-  scope(transform: ScriptTransformId, activeProgram: string | null): Promise<"program" | "project" | undefined>;
   /** Show work in progress; the returned function hides it. */
   progress(message: string): () => void;
   /** Ask which programs to apply; the picked ones are applied, so a dismissed list writes nothing. */
@@ -43,20 +41,17 @@ export interface ScriptWorkflowUi {
   report(summary: string, problems: readonly string[], failed: boolean, stage?: "plan"): Promise<void>;
   /** Ask whether to try the files that failed again; `undefined`/false ends the run. */
   retry(problems: readonly string[]): Promise<boolean>;
-  /** The workflow cannot run here: no language server, or the project could not be listed. */
+  /** The project could not be listed. */
   tellUnavailable(message: string): Promise<void>;
 }
 
 export interface ScriptWorkflowHostEnvironment {
   readonly fs: ScriptWorkflowEnvironment["fs"];
-  /** `null` when this host cannot reach a language server; the workflow then says so and writes nothing. */
-  readonly provider: ScriptWorkflowEnvironment["provider"] | null;
-  readonly unavailableReason?: string;
+  readonly provider: NonNullable<ScriptWorkflowEnvironment["provider"]>;
   readonly history: WizardHistory | null;
   /** Resolved again at every check, so a program opened during the run is seen (never a fixed list). */
   readonly openPrograms: () => readonly OpenScriptProgram[];
   readonly root: string;
-  readonly activeProgram: string | null;
   /** The selected main file's URI, so the request is matched to that project. */
   readonly projectMainUri?: string;
   readonly projectMainPath?: string;
@@ -133,7 +128,6 @@ function environmentOf(env: ScriptWorkflowHostEnvironment): ScriptWorkflowEnviro
   return {
     fs: env.fs,
     provider: env.provider,
-    ...(env.unavailableReason === undefined ? {} : { unavailableReason: env.unavailableReason }),
     history: env.history,
     openPrograms: () => env.openPrograms(),
     root: env.root,
@@ -151,18 +145,10 @@ function summaryOf(transform: ScriptTransformId, scope: ScriptWorkflowScope, pla
 }
 
 /**
- * Run one workflow: ask the scope, plan, ask which programs to apply, apply and report. Nothing is written unless the
- * author picks programs in the review list; dismissing any question changes nothing.
+ * Plan the accepted scope, ask which programs to apply, apply and report. Nothing is written unless the
+ * author picks programs in the review list; dismissing that list changes nothing.
  */
-export async function runScriptWorkflow(transform: ScriptTransformId, env: ScriptWorkflowHostEnvironment, ui: ScriptWorkflowUi): Promise<ScriptWorkflowSummary> {
-  if (env.provider === null) {
-    const message = env.unavailableReason ?? "This host has no language server, so programs cannot be formatted or updated here. Nothing was changed.";
-    await ui.tellUnavailable(message);
-    return { kind: "unavailable", message };
-  }
-  const asked = await ui.scope(transform, env.activeProgram);
-  if (asked === undefined) return { kind: "cancelled" };
-  const scope: ScriptWorkflowScope = asked === "program" && env.activeProgram !== null ? { kind: "program", path: env.activeProgram } : { kind: "project" };
+export async function runScriptWorkflow(transform: ScriptTransformId, scope: ScriptWorkflowScope, env: ScriptWorkflowHostEnvironment, ui: ScriptWorkflowUi): Promise<ScriptWorkflowSummary> {
   const hide = ui.progress(`Checking ${scope.kind === "program" ? scope.path : "the project's programs"}…`);
   let plan: ScriptWorkflowPlan;
   try {

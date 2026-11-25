@@ -17,6 +17,12 @@ const UPPER = '  MWIN("case only")\n';
 const CLEANUP = 'x! = 1\n#MWIN("leave prefix")\nMWIN("cleanup")\n';
 const OLD_TEXT = '#MWIN(legacy review)\n';
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+const FIXTURE_FS = /^http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]{64}$/;
+function isFixtureRead(route: Route, path: string): boolean {
+  const request = route.request();
+  const call: { op?: string; path?: string } | null = request.method() === "POST" ? request.postDataJSON() : null;
+  return call?.op === "readFile" && call.path === path;
+}
 
 export function scriptWorkflowProofFiles(): readonly { readonly path: string; readonly bytes: Uint8Array }[] {
   const main = (name: string): Uint8Array => new Uint8Array(readFileSync(new URL(`../../docs/spec/examples/versions/main/${name}`, import.meta.url)));
@@ -34,8 +40,6 @@ export async function runVscodeScriptWorkflowProof(
   read: (path: string) => Promise<Uint8Array>, write: (path: string, bytes: Uint8Array) => Promise<void>,
   groups: (root?: string) => Promise<readonly string[]>,
 ): Promise<void> {
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".monaco-workbench")).toBeVisible();
   const quick = page.locator(".quick-input-widget");
   const row = (path: string) => quick.locator(".monaco-list-row").filter({ hasText: path });
   const dispatch = async (title: string): Promise<void> => await runCommandMatching(page, expect, title, title, false, false);
@@ -80,8 +84,34 @@ export async function runVscodeScriptWorkflowProof(
     await expect(row(OLD)).toContainText(COPY);
   };
 
-  // The modern main was configured on disk; no RPGCode command or editor has activated its extension yet.
-  await start("Format");
+  // Hold the provider's real workspace settings read until after opening the scope picker in a fresh window.
+  // No other RPGCode action opens the extension; accepting the scope must use the main that arrives meanwhile.
+  const waiting: Route[] = [];
+  let holdSettings = true;
+  const interceptSettings = async (route: Route): Promise<void> => {
+    if (holdSettings && isFixtureRead(route, "/.vscode/settings.json")) {
+      waiting.push(route);
+      return;
+    }
+    await route.fallback();
+  };
+  await page.context().route(FIXTURE_FS, interceptSettings);
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".monaco-workbench")).toBeVisible();
+    await expect.poll(() => waiting.length).toBeGreaterThan(0);
+    await dispatch("TK Reawakened: Format (reviewed)…");
+    const scope = row("Every program in the project");
+    await expect(scope).toBeVisible();
+    await expect(page.getByRole("button", { name: /RPGCode: no running project/ })).toBeVisible();
+    holdSettings = false;
+    await Promise.all(waiting.splice(0).map((route) => route.continue()));
+    await expect(page.getByRole("button", { name: /Running project: .*review-modern\.gam/ })).toBeVisible();
+    await scope.click();
+  } finally {
+    for (const route of waiting) await route.abort();
+    await page.context().unroute(FIXTURE_FS, interceptSettings);
+  }
   await review(FORMAT);
   await row(FORMAT).hover();
   await row(FORMAT).getByLabel("Show changes").click();
@@ -155,18 +185,15 @@ export async function runVscodeScriptWorkflowProof(
   await expect.poll(configuredMain).toMatch(/^tkr-testfs:.*review-modern\.gam$/);
   const selectedMain = await configuredMain();
   await expect(page.getByRole("button", { name: /Running project: .*review-modern\.gam/ })).toBeVisible();
-  const endpoint = /^http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]{64}$/;
   let gate: Route | undefined;
   const intercept = async (route: Route): Promise<void> => {
-    const request = route.request();
-    const call: { op?: string; path?: string } | null = request.method() === "POST" ? request.postDataJSON() : null;
-    if (call?.op === "readFile" && call.path === "/Main/__tkr_remove_script_folder") {
+    if (isFixtureRead(route, "/Main/__tkr_remove_script_folder")) {
       gate = route;
       return;
     }
     await route.fallback();
   };
-  await page.context().route(endpoint, intercept);
+  await page.context().route(FIXTURE_FS, intercept);
   try {
     await dispatch("Test: Arm Script Proof Folder Removal");
     await expect(quick).toBeHidden();
@@ -184,6 +211,6 @@ export async function runVscodeScriptWorkflowProof(
     expect(await bytes(FORMAT)).toBe(MESSY);
     expect(await groups(ROOT)).toEqual(nestedGroups);
   } finally {
-    await page.context().unroute(endpoint, intercept);
+    await page.context().unroute(FIXTURE_FS, intercept);
   }
 }
