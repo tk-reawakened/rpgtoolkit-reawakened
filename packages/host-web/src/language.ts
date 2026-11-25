@@ -1,4 +1,4 @@
-import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, type ProjectSnapshot, type ProjectSnapshotFile } from "@tk-reawakened/lsp/protocol";
+import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, SCRIPT_TRANSFORM_REQUEST, type ProjectSnapshot, type ProjectSnapshotFile, type ScriptTransformParams } from "@tk-reawakened/lsp/protocol";
 import {
   platformError,
   platformOk,
@@ -20,7 +20,7 @@ import {
 
 /** A bound on the inventory, so a mis-selected folder is reported instead of read (the early extension's limit). */
 const MAX_FILES = 20_000;
-const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-history", ".tkr-exports"]);
+const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-history", ".tkr-exports", ".tkr-migrated"]);
 const SNAPSHOT_DEBOUNCE_MS = 500;
 
 /** The URI the server knows project file `path` by: `file:///project/` and the encoded path, so a name with a space is one URI. */
@@ -33,7 +33,7 @@ function messageOf(error: unknown): string {
 }
 
 /** The folder, relative to the project, that holds the running project's files (TOOL-1 "Root"). */
-function rootFolderOf(main: string): string {
+export function rootFolderOf(main: string): string {
   const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/")) : "";
   const name = folder.slice(folder.lastIndexOf("/") + 1);
   if (name.toLowerCase() === "main") return folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
@@ -154,6 +154,21 @@ export function createWebLanguageService(fs: FileSystemService, options: WebLang
       return platformOk<LanguageConnection>({
         send(message) {
           if (closed !== null) return;
+          if (message.method === SCRIPT_TRANSFORM_REQUEST) {
+            const params = message.params as (Omit<ScriptTransformParams, "project"> & { readonly project?: { readonly main: string } }) | undefined;
+            const project = params?.project;
+            if (project !== undefined) {
+              if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+                sendSnapshot();
+              }
+              void sending.then(() => {
+                if (closed === null) worker.postMessage({ ...message, params: { ...params, project: { main: project.main, revision } } });
+              });
+              return;
+            }
+          }
           worker.postMessage(message);
           if (message.method === "initialized" && !ready) {
             ready = true;

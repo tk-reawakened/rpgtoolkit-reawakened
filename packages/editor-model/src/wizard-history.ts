@@ -1,5 +1,5 @@
 import type { FileSystemService } from "@tk-reawakened/platform-services";
-import { createCheckpointGroups, type CheckpointGroups } from "./checkpoint-groups.ts";
+import { createCheckpointGroups, type CheckpointGroups, type CheckpointTarget } from "./checkpoint-groups.ts";
 import { sha256Hex } from "./document-history.ts";
 
 /**
@@ -8,6 +8,8 @@ import { sha256Hex } from "./document-history.ts";
  */
 export interface WizardHistory {
   begin(name: string, planned: readonly string[]): Promise<{ readonly ok: true; readonly groupId: string } | { readonly ok: false; readonly message: string }>;
+  /** Record the complete reviewed batch in one restore-only checkpoint. */
+  prepareScripts?(name: string, targets: readonly CheckpointTarget[], isCurrent?: () => boolean): Promise<{ readonly ok: true; readonly groupId: string } | { readonly ok: false; readonly message: string }>;
   written(groupId: string, path: string, bytes: Uint8Array): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
 
@@ -15,6 +17,10 @@ export function createWizardHistory(groups: CheckpointGroups): WizardHistory {
   return {
     async begin(name, planned) {
       const result = await groups.begin(planned, name);
+      return result.ok ? { ok: true, groupId: result.value.id } : { ok: false, message: result.error.message };
+    },
+    async prepareScripts(name, targets, isCurrent) {
+      const result = await groups.prepareScripts(targets, name, isCurrent);
       return result.ok ? { ok: true, groupId: result.value.id } : { ok: false, message: result.error.message };
     },
     async written(groupId, path, bytes) {

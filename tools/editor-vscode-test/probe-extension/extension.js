@@ -67,6 +67,38 @@ function activate(context) {
     const target = path.startsWith("/") ? workspace.uri.with({ path }) : vscode.Uri.joinPath(workspace.uri, ...path.split("/"));
     await vscode.commands.executeCommand("vscode.open", target, { preview: false });
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.openScriptMultiRoot", async () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (root === undefined) throw new Error("The proof workspace is not open");
+    const uri = vscode.Uri.joinPath(root, "script-review.code-workspace");
+    const content = {
+      folders: [{ path: "Main", name: "Proof first folder" }, { path: "Game 100%", name: "Proof reviewed folder" }],
+      // Select the main through the real picker after reopening. Pre-seeding that same value can
+      // make the picker a no-op even when the virtual workspace's settings have not loaded.
+      settings: { "files.autoSave": "off" },
+    };
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(content)));
+    await vscode.commands.executeCommand("vscode.openFolder", uri, { forceReuseWindow: true });
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.armScriptProjectSetting", () => {
+    const first = vscode.workspace.workspaceFolders?.[0];
+    const reviewed = vscode.workspace.workspaceFolders?.find((folder) => folder.name === "Proof reviewed folder");
+    if (first === undefined || reviewed === undefined) throw new Error("The multi-root proof workspace is not open");
+    // Hold the real settings update until the user has reached the native workspace-folder picker.
+    void vscode.workspace.fs.readFile(vscode.Uri.joinPath(first.uri, "__tkr_script_project_setting")).then(() => {
+      const main = vscode.Uri.joinPath(reviewed.uri, "Main", "review-modern.gam");
+      return vscode.workspace.getConfiguration("rpgcode", first.uri).update("project", main.toString(), vscode.ConfigurationTarget.Workspace);
+    }).catch((error) => vscode.window.showErrorMessage(String(error)));
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.armScriptFolderRemoval", () => {
+    const first = vscode.workspace.workspaceFolders?.[0];
+    const reviewed = vscode.workspace.workspaceFolders?.find((folder) => folder.name === "Proof reviewed folder");
+    if (first === undefined || reviewed === undefined || reviewed.index === 0) throw new Error("The multi-root proof workspace is not open");
+    // The proof runner holds this read until the real checkpoint dialog is showing. No editor state is injected.
+    void vscode.workspace.fs.readFile(vscode.Uri.joinPath(first.uri, "__tkr_remove_script_folder")).then(() => {
+      if (!vscode.workspace.updateWorkspaceFolders(reviewed.index, 1)) throw new Error("VS Code refused to remove the proof workspace folder");
+    }).catch((error) => vscode.window.showErrorMessage(String(error)));
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.saveAll", async () => {
     console.info("[vscode-web-proof-probe] invoking VS Code's native Save All command");
     await vscode.commands.executeCommand("workbench.action.files.saveAll");

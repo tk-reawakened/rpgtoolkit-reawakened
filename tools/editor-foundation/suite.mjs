@@ -51,7 +51,7 @@ try {
   ]);
   part("PWA: workspace, pickers, new project, History, program language and fixture execution", pnpm, [
     "browser:test", "tools/browser/tests/editor-web-host.spec.ts", "tools/browser/tests/editor-history.spec.ts",
-    "tools/browser/tests/editor-program.spec.ts", "tools/browser/tests/editor-creator-tests.spec.ts", "tools/browser/tests/editor-native-clip.spec.ts", "--workers=1",
+    "tools/browser/tests/editor-program.spec.ts", "tools/browser/tests/editor-script-workflow.spec.ts", "tools/browser/tests/editor-creator-tests.spec.ts", "tools/browser/tests/editor-native-clip.spec.ts", "--workers=1",
   ], { ...process.env, PLAYWRIGHT_PORT: process.env.PLAYWRIGHT_PORT ?? String(await freePort()) });
   part("actual VS Code web: native program language and debugger", pnpm, ["vscode-web:test"], {
     ...process.env, VSCODE_WEB_PORT: process.env.VSCODE_WEB_PORT ?? String(await freePort()),
@@ -85,6 +85,9 @@ try {
   delete nativeEnv.TKR_VSCODE_CONNECTED_AUTHORING_PROOF;
   nativeEnv.TKR_VSCODE_CREATOR_TESTS_PROOF = "1";
   part("actual VS Code web: saved creator tests and headless parity", nativeCommand, nativeArgs(workspace), nativeEnv);
+  delete nativeEnv.TKR_VSCODE_CREATOR_TESTS_PROOF;
+  nativeEnv.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF = "1";
+  part("actual VS Code web: reviewed script workflows", nativeCommand, nativeArgs(workspace), nativeEnv);
 
   console.log("\neditor:acceptance results");
   for (const result of results) console.log(`  ${result.ok ? "PASS" : "FAIL"} ${result.name}`);

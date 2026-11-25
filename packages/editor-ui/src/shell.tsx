@@ -1,4 +1,4 @@
-import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow, WorkbenchCommand } from "@tk-reawakened/editor-model";
 import type { FileSystemService, RunHandle } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ViewHandle } from "./mount.ts";
@@ -32,6 +32,8 @@ export interface ShellProps {
   readonly workspace?: DocumentWorkspace;
   /** Optional shared command registry for the application menu and command palette (#2703). */
   readonly commands?: CommandRegistry;
+  /** Host commands added to the default menu and palette, such as the reviewed script workflows. */
+  readonly extraCommands?: readonly WorkbenchCommand[];
   /** A file was opened from the Files panel (a document, or the OS took it). */
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */
@@ -84,7 +86,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, extraCommands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -102,6 +104,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
           tabs={tabs}
           {...(workspace === undefined ? {} : { workspace })}
           {...(commands === undefined ? {} : { commands })}
+          {...(extraCommands === undefined ? {} : { extraCommands })}
           fs={fs}
           projectLayout={projectLayout}
           onOpenPath={onOpenPath}

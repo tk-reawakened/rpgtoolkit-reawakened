@@ -42,6 +42,7 @@ import { TerrainSceneView, type TerrainSceneViewProps } from "./terrain-scene-vi
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { TerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
+import { ScriptWorkflowView, type ScriptWorkflowViewProps } from "./script-workflow-view.tsx";
 import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
@@ -376,6 +377,11 @@ function TerrainDocumentView({ document, ...props }: TerrainDocumentProps) {
 }
 export function mountTerrainScene(el: HTMLElement, props: TerrainDocumentProps): ViewHandle {
   return mountElement(el, createElement(TerrainDocumentView, props));
+}
+
+/** Render the reviewed script workflow (story 13.16, TOOL-11) into `el`. */
+export function mountScriptWorkflow(el: HTMLElement, props: ScriptWorkflowViewProps): ViewHandle {
+  return mountElement(el, createElement(ScriptWorkflowView, props));
 }
 
 /** Render the new-project wizard into `el` (T-04). */

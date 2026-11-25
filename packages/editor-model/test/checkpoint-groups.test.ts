@@ -143,3 +143,143 @@ test("torn capture entries remain diagnosable and deletable without hiding valid
   const remaining = await groups.list(); ok(remaining.ok); equal(remaining.value.length, 2);
   ok(remaining.value.every((entry) => !("error" in entry)));
 });
+
+test("reviewed script capture publishes every intent or none and never replays a partial batch on restart", async () => {
+  const { host, env } = fixture();
+  let writes = 0;
+  const fs: FileSystemService = { ...host.fs, async writeProject(project, path, data) {
+    if (path.startsWith(".tkr-history/contents/") && ++writes === 2) return platformError("io-error", "interrupted before capture completed");
+    return await host.fs.writeProject(project, path, data);
+  } };
+  const batch = [{ ...targets[0]!, expectedBefore: null }, { ...targets[1]!, expectedBefore: bytes("original") }];
+  const interrupted = await createCheckpointGroups({ ...env, fs }).prepareScripts(batch, "Format");
+  equal(interrupted.ok, false);
+  const restarted = createCheckpointGroups(env);
+  const empty = await restarted.list(); ok(empty.ok); deepEqual(empty.value, []);
+  const captured = await restarted.prepareScripts(batch, "Format"); ok(captured.ok);
+  const id = captured.value.id;
+  const afterCrash = createCheckpointGroups(env);
+  // The process died after writing the first file but before recording its receipt.
+  host.seed(batch[0]!.path, batch[0]!.bytes);
+  host.seed(batch[1]!.path, bytes("edited externally"));
+  const first = await afterCrash.preview(id, batch[0]!.path, "after"); ok(first.ok);
+  const second = await afterCrash.preview(id, batch[1]!.path, "after"); ok(second.ok);
+  deepEqual(first.value?.bytes, batch[0]!.bytes);
+  deepEqual(second.value?.bytes, batch[1]!.bytes);
+  equal((await afterCrash.retry(id)).ok, false);
+  equal((await afterCrash.apply(id)).ok, false);
+  deepEqual(host.bytesOf(batch[0]!.path), batch[0]!.bytes);
+  const restored = await afterCrash.restore(id); ok(restored.ok);
+  deepEqual(host.bytesOf(batch[0]!.path), batch[0]!.bytes, "a matching intent without a write receipt does not prove ownership");
+  deepEqual(host.bytesOf(batch[1]!.path), bytes("edited externally"), "restore does not touch an unrelated edit");
+  deepEqual(restored.value.files.map((file) => file.status), ["kept-uncertain", "kept-changed"]);
+  const recorded = await afterCrash.registerWritten(id, batch[0]!.path, batch[0]!.bytes); ok(recorded.ok);
+  const restoredWithReceipt = await afterCrash.restore(id); ok(restoredWithReceipt.ok);
+  equal(host.bytesOf(batch[0]!.path), undefined, "a restore removes a matching copy once its write was recorded");
+  deepEqual(restoredWithReceipt.value.files.map((file) => file.status), ["written", "kept-changed"]);
+  const forced = await afterCrash.restore(id, { only: [batch[1]!.path], deleteUncertain: [batch[1]!.path] }); ok(forced.ok);
+  equal(forced.value.files[0]?.status, "kept-changed");
+  deepEqual(host.bytesOf(batch[1]!.path), bytes("edited externally"));
+});
+
+test("a reviewed checkpoint never accepts receipts for another spelling or restores a renamed alias", async () => {
+  const { host, env } = fixture();
+  const groups = createCheckpointGroups(env);
+  const path = "Misc/a.anm";
+  const alias = "Misc/A.anm";
+  const reviewed = bytes("reviewed");
+  equal((await groups.prepareScripts([{ path: alias, bytes: reviewed }], "Format")).ok, false);
+  const group = await groups.prepareScripts([{ path, bytes: reviewed }], "Format"); ok(group.ok);
+  host.seed(path, reviewed);
+  equal((await groups.registerWritten(group.value.id, alias, reviewed)).ok, false);
+  ok((await groups.registerWritten(group.value.id, path, reviewed)).ok);
+  ok((await host.fs.rename(path, alias)).ok);
+  const restored = await groups.restore(group.value.id); ok(restored.ok);
+  equal(restored.value.files[0]?.status, "kept-changed");
+  deepEqual(restored.value.files.map(({ before, after }) => [before, after]), [[null, null]]);
+  deepEqual(host.bytesOf(alias), reviewed);
+});
+
+test("Undo Restore ignores a generated copy refused by the late open-file guard", async () => {
+  const { host, env } = fixture();
+  const path = "Prg/generated.prg";
+  const rendered = bytes("output");
+  let guardCallsAfterSource = 0;
+  const groups = createCheckpointGroups({ ...env, async guard(candidate, removing) {
+    if (candidate === path && removing && ++guardCallsAfterSource === 3) return `${candidate} opened before removal.`;
+    return null;
+  } });
+  const source = await groups.prepareScripts([{ path, bytes: rendered }], "Update older syntax"); ok(source.ok);
+  host.seed(path, rendered);
+  ok((await groups.registerWritten(source.value.id, path, rendered)).ok);
+  const restored = await groups.restore(source.value.id); ok(restored.ok);
+  equal(guardCallsAfterSource, 3);
+  equal(restored.value.files[0]?.status, "failed");
+  ok(restored.value.files[0]?.before !== null, "the failed row retains the intended transfer for diagnosis");
+  host.seed(path, bytes("new work after refusal"));
+  const reverse = await createCheckpointGroups(env).restore(restored.value.id); ok(reverse.ok);
+  equal(reverse.value.files[0]?.status, "kept-changed");
+  deepEqual(host.bytesOf(path), bytes("new work after refusal"));
+});
+
+test("Undo Restore does not reverse a pending checkpoint reopened before the first dispatch", async () => {
+  const { host, env } = fixture();
+  const path = "Prg/generated.prg";
+  const rendered = bytes("output");
+  let reached!: () => void;
+  let abandon!: () => void;
+  const pending = new Promise<void>((resolve) => { reached = resolve; });
+  const gate = new Promise<void>((resolve) => { abandon = resolve; });
+  let calls = 0;
+  const running = createCheckpointGroups({ ...env, async guard(candidate, removing) {
+    if (candidate === path && removing && ++calls === 2) {
+      reached();
+      await gate;
+      return "Original restore interrupted before dispatch.";
+    }
+    return null;
+  } });
+  const source = await running.prepareScripts([{ path, bytes: rendered }], "Update older syntax"); ok(source.ok);
+  host.seed(path, rendered);
+  ok((await running.registerWritten(source.value.id, path, rendered)).ok);
+  const original = running.restore(source.value.id);
+  await pending;
+  try {
+    // Use fresh adapter identity and reload the on-disk manifest, with no in-process operation state.
+    const reopened = createCheckpointGroups({ ...env, fs: { ...env.fs } });
+    const listed = await reopened.list(); ok(listed.ok);
+    const captured = listed.value.find((entry) => "files" in entry && entry.reason === "before-restore");
+    ok(captured !== undefined && "files" in captured && captured.files[0]?.status === "pending");
+    host.seed(path, bytes("new work after interruption"));
+    const reverse = await reopened.restore(captured.id); ok(reverse.ok);
+    equal(reverse.value.files[0]?.status, "kept-changed");
+    deepEqual(host.bytesOf(path), bytes("new work after interruption"));
+  } finally {
+    abandon();
+    await original;
+  }
+});
+
+test("consenting after a reviewed project retires creates neither History directories nor a capture", async () => {
+  const { host, env } = fixture();
+  let current = true;
+  let asked = false;
+  const groups = createCheckpointGroups({
+    ...env,
+    consent: async (_paths, purpose) => {
+      equal(purpose, "reviewed-scripts");
+      asked = true;
+      current = false;
+      return true;
+    },
+  });
+  const result = await groups.prepareScripts(targets, "Reviewed workflow", () => current);
+  equal(asked, true);
+  ok(!result.ok);
+  equal(result.error.message, "The selected project changed; no further files were written.");
+  const historyDir = await host.fs.stat(".tkr-history");
+  ok(!historyDir.ok);
+  equal(historyDir.error.code, "not-found");
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"));
+  equal(host.bytesOf("Bitmap/frame.tbm"), undefined);
+});

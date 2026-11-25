@@ -16,9 +16,17 @@ Before the first target write, the shared provider records all previous contents
 
 A failed target write stops the commit. The editor lists each written, failed, skipped or pending file, retains the staged remaining contents, and offers **Retry remaining** and **Leave as is**. Failure may have left partial bytes; it never proves durable success merely because a read returns the attempted contents. Retrying must detect intervening changes and obtain fresh consent rather than overwrite them silently. Closing the view does not destroy the persistent group or recovery information.
 
+For a reviewed script batch ([TOOL-11](engine/rpgcode-tooling.md#tool-11-review)), a `before-script` group publishes all prior and intended bytes together and is restore-only. Recovery does not replay the rewrite without its live review. Restore reports `kept-changed` and offers no deletion when an existing destination no longer matches either reviewed version. An uncertain new copy remains `kept-uncertain`; automatic deletion requires its write receipt.
+
+Restore uses exact path spelling, including when reversing a previous restore. If a destination was renamed, the report keeps that file unchanged and restores the other selected files without reading or writing the alias.
+
 **Restore group** is one action with a separate result for every file: restored, already as wanted or failed. It reinstates the original bytes and removes only files recorded as created by that operation. Before restoring, it records a new `before-restore` group, including any file it will remove, so restoring the restore can reinstate those files. Every restore remains retryable and no cross-file atomic rollback is promised.
 
 Recovery must coordinate with authoritative open documents. Existing content is restored through accepted edits and the normal save lifecycle, preserving unsaved work and conflicts. A file that cannot safely be replaced or removed while open is refused with instructions to resolve or close that document; recovery must never write underneath an unsaved document or redirect a deletion after a project switch.
+
+A refusal is a per-file result in reviewed script recovery, not a reason to stop restoring eligible files. For example, a generated copy that is open cannot be removed; close it and retry that file from the original checkpoint. The reverse checkpoint records files that were not changed as no-ops, including refusals, files already as wanted, and files kept because they changed or were uncertain. Reversing must never write or delete such a file, even if it has since changed again. The dedicated animation wizard's native-document guard still refuses its operation outright.
+
+Undo Restore reverses only entries with a durable `written` receipt, and only while the destination still matches that receipt. Pending, interrupted, failed and already-matching rows may have stored intent, but intent does not authorize reversing them. Report the files kept for this reason without touching their current bytes.
 
 Group manifests and their referenced contents remain until the author explicitly deletes the group. This scoped provider does not select an autosave merge window, retention floor, capacity cap or thinning policy. The editor offers to ignore its history folder without silently changing ignore files. Distribution export excludes all history manifests and contents.
 
