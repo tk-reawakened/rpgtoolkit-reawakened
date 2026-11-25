@@ -162,6 +162,28 @@ test("an acknowledged numeric start preserves an unrelated staged property draft
   deepEqual(s.doc.getSnapshot().layerTitles, originalLayerTitles, "applying unchanged multiline layer titles preserves the model list");
 });
 
+test("typing a board link immediately after a start update preserves the new draft", async () => {
+  const s = await setup();
+  const snapshot = s.doc.getSnapshot();
+  const start = { ...cellCentre(snapshot, 1, 1), layer: 1 };
+  await act(async () => {
+    const applied = await s.doc.apply({
+      type: "set-board-fields",
+      fields: { properties: { ...snapshot.properties, start } },
+    });
+    ok(applied.ok);
+    s.renderView();
+    // Type before the passive effects from the newly rendered document snapshot flush.
+    const north = input(s.root, "North link");
+    north.value = "north.prg";
+    north.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  equal(input(s.root, "North link").value, "north.prg");
+  await click(s.root, "Apply");
+  equal(s.doc.getSnapshot().links.north, "north.prg");
+  deepEqual(s.doc.getSnapshot().properties.start, start);
+});
+
 test("the audition buttons run their registry commands and do not drive the controls directly", async () => {
   const ran: string[] = [];
   const direct: string[] = [];

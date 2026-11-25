@@ -1,7 +1,7 @@
 import { cellOnBoard, createEditTracker, pixelToCell } from "@tk-reawakened/editor-model";
 import type { BoardDocumentSnapshot, PendingEdits, SetBoardFieldsCommand } from "@tk-reawakened/editor-model";
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { AuditionPanel } from "./board-audition.ts";
@@ -46,7 +46,9 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
   const [confirmInitial, setConfirmInitial] = useState(false);
   const [dirtyDraft, setDirtyDraft] = useState(false);
   const initialDialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  // Sync a clean draft in the same commit as the board update. A passive reset can still be queued when the next
+  // input marks the draft dirty, and would overwrite that input using the previous render's clean state.
+  useLayoutEffect(() => {
     if (dirtyDraft) {
       setSettings((current) => ({ ...current, start: snapshot.properties.start }));
       return;
