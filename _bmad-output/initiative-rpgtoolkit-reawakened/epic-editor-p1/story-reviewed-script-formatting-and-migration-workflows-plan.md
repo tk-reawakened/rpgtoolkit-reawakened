@@ -2,7 +2,7 @@
 type: feature
 title: "Reviewed script formatting and migration workflows"
 ticket: 16
-status: built
+status: done
 risk: high
 ---
 
@@ -58,7 +58,7 @@ Lands in: `docs/spec/engine/rpgcode-tooling.md#tool-4` (separable jobs) and the 
 
 ## Review status
 
-Draft PR #3363 requires independent review and CI before merge. No owner approval is claimed for the implementation choices below.
+Both independent reviewers cleared `60a1fac039a96bd550ee86c5b77533fac3f428a2`. The required gate passed on that tree before PR #3363 merged. The implementation choices below follow the specs; the explicit owner decision is recorded under the approved local filesystem policy above.
 
 - **#3399 — batch recovery and live write checks.** A single `before-script` capture publishes all prior and review-approved result bytes before the first write. It is restore-only; a fresh script apply requires a live review. The restart regression interrupts staging between content records, then interrupts a two-file apply before its first receipt. It verifies no partial manifest, no retry, no deletion of an unreceipted new copy, and no overwrite of external edits. Model regressions cover source bytes, open source text, open destinations and a project switch during confirmation. Both hosts resolve live buffers and check immediately before delegating the write; this is not a cross-file filesystem transaction.
 - **#3398 — snapshot identity.** Both transports finish sending the snapshot before forwarding the bound main URI and revision. The server rejects a mismatched, stale, or failed generation without waiting for a future notification. The server tests interleave two mains with different dialects under one root; the native proof switches to the legacy main in the same nested percent-bearing folder.
@@ -86,3 +86,20 @@ Draft PR #3363 requires independent review and CI before merge. No owner approva
 ## Defect filed
 
 #3364 tracks the reported review overlay loss. The script review now mounts outside the shell and only its own callback may tear it down; this does not establish the cause of other workbench dialogs disappearing.
+
+## Closure verification (2026-11-25)
+
+[#3363](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3363) merged at `fe0757ce0eb64b823e413b7b6a0a5bbc68d6b95b`. Its tree is identical to the independently reviewed head that passed [the required CI gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45524380615/attempts/2). [#1741](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1741) closed as completed by that PR, and its Roadmap card is `done`.
+
+| Acceptance clause | Assertions run at the merge |
+| --- | --- |
+| Correct provider results | `packages/script-tools/test/transform.test.ts:38–68,95–130` checks all four transforms against exact expected text. `tools/editor-vscode-test/test/script-workflow-hosts.test.ts:227–256` runs both hosts against the real provider and compares what each saves. Native proof `tools/editor-vscode-test/script-workflow-proof.ts:66–77,128–173` also checks actual format, canonical case, cleanup and migration writes. |
+| Per-file opt-out | Native proof `tools/editor-vscode-test/script-workflow-proof.ts:128–138` unticks two programs, confirms Apply and reads their unchanged bytes. `packages/editor-ui/test/script-workflow-view.test.ts:141–156` and `tools/editor-vscode-test/test/script-workflow-hosts.test.ts:227–256` check the Monaco-side selection and persisted result. |
+| Original and result diff | Native proof `tools/editor-vscode-test/script-workflow-proof.ts:116–121` opens the real native diff and reads both panes. `tools/browser/tests/editor-script-workflow.spec.ts:91–101,163–165` checks the removed and added text in the real Monaco workbench. |
+| Unsupported fragments | Native proof `tools/editor-vscode-test/script-workflow-proof.ts:142–148` shows the skipped source line and verifies that it survives cleanup. `tools/editor-vscode-test/test/script-workflow-hosts.test.ts:367–397` checks the native refusal and line details; `packages/editor-ui/test/script-workflow-view.test.ts:119–138` checks the same class of refusal in the Monaco workbench view. |
+| Cancel without mutation | Native proof `tools/editor-vscode-test/script-workflow-proof.ts:122–126` cancels the reviewed diff and checks bytes and History. `tools/browser/tests/editor-script-workflow.spec.ts:116–142` cancels checkpoint consent, closes the review with Escape and checks both files and zero History groups. |
+| Accepted changes preserve behaviour | `packages/script-tools/test/transform.test.ts:57–69,95–130` compares original and transformed output in the real engine. Native proof `tools/editor-vscode-test/script-workflow-proof.ts:164–173` and real Monaco proof `tools/browser/tests/editor-script-workflow.spec.ts:145–173` verify that the accepted conversion writes the expected nested copy and leaves the Toolkit 2.x original byte-identical. |
+
+On the merge, `node --test` passed 72 focused provider, LSP, shared model, view and cross-host tests with no skips; `PLAYWRIGHT_PORT=<free-port> pnpm exec playwright test tools/browser/tests/editor-script-workflow.spec.ts --workers=1` passed 3/3. `TKR_VSCODE_SCRIPT_WORKFLOW_PROOF=1 node tools/editor-vscode-test/run.mjs --extension extensions/editor --workspace <fixture> --game Main/example.gam` passed the real native workflow on the identical built tree with a fresh fixture. Strict passed 5,988 tests on the same tree before merge.
+
+This closes only the reviewed-script workflow acceptance. The broader native Board Properties and Board Objects proof failures ([#3447](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3447), [#3448](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3448)) remain open. The closure does not claim atomic writes or protection against a racing local process.
