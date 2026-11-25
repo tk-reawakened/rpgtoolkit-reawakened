@@ -98,6 +98,8 @@ export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath,
   const activeLayout = projectLayoutForPath?.(active) ?? projectLayout;
   const activeMain = mainForPath === undefined ? main ?? null : mainForPath(active);
   const activeBrowser = browser === undefined ? undefined : { ...browser, layout: activeLayout };
+  const runLayout = activeMain === null ? projectLayout : activeLayout;
+  const runMain = activeMain ?? main ?? null;
   const [returnMessage, setReturnMessage] = useState<string | null>(null);
   const historyPanel = (workspace as ShellWorkspace | undefined)?.historyPanel;
   return (
@@ -123,10 +125,10 @@ export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath,
           <RunControl
             launcher={launcher}
             fs={fs}
-            layout={activeLayout}
+            layout={runLayout}
             active={active}
             version={[version, tabsSnapshot.tabs.length]}
-            {...(activeMain === null ? {} : { main: activeMain })}
+            {...(runMain === null ? {} : { main: runMain })}
             {...(runSetups === undefined ? {} : { store: runSetups })}
             {...(runMemory === undefined ? {} : { memory: runMemory })}
             {...(onRun === undefined ? {} : { onRun })}

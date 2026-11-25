@@ -307,3 +307,55 @@ test("VS Code upgrade refuses a copy in a nested game's project root even when i
   harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
 });
 
+test("VS Code pre-vector picker refuses distinct board paths that collide after case folding", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const modernPath = "Boards/Modern.brd";
+  const upperPath = "Boards/Old.brd";
+  const lowerPath = "Boards/old.brd";
+  const destination = "Boards/Old.upgraded.brd";
+  const harness = boardUpgradeHarness({
+    [modernPath]: boardExample,
+    [upperPath]: oldBytes,
+    [lowerPath]: oldBytes,
+  }, destination, upperPath);
+  const originalList = harness.host.fs.listProject.bind(harness.host.fs);
+  Object.defineProperty(harness.host.fs, "listProject", {
+    configurable: true,
+    value: async (projectId: string, path: string) => {
+      const result = await originalList(projectId, path);
+      if (!result.ok || path.toLowerCase() !== "boards") return result;
+      return {
+        ok: true,
+        value: [...result.value.filter(({ name }) => name !== lowerPath.split("/").at(-1)), { name: "old.brd", kind: "file" as const }],
+      };
+    },
+  });
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri(`/project/${modernPath}`));
+  equal(harness.host.bytesOf(destination), undefined);
+  deepEqual(harness.host.bytesOf(upperPath), oldBytes);
+  deepEqual(harness.host.bytesOf(lowerPath), oldBytes);
+  ok(harness.errors.some((message) => /differ only by case/.test(message)));
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+
+test("VS Code refuses a board owned by a nested game when it lies outside that game's Boards folder", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Region" });
+  ok(mainA.ok, mainA.ok ? "" : mainA.error.message);
+  ok(mainB.ok, mainB.ok ? "" : mainB.error.message);
+  const source = "Game/A/Boards/Region/Outside.brd";
+  const destination = "Game/A/Boards/Region/Copy.brd";
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Boards/Modern.brd": boardExample,
+    "Game/A/Boards/Region/Prg/start.prg": new Uint8Array([1]),
+    [source]: oldBytes,
+  }, destination, source);
+  await harness.executeCommand("tkr.upgradeBoardTileToPixel", harness.makeUri(`/project/${source}`));
+  equal(harness.host.bytesOf(destination), undefined);
+  deepEqual(harness.host.bytesOf(source), oldBytes);
+  ok(harness.errors.some((message) => /not a board inside an open project folder/.test(message)));
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});

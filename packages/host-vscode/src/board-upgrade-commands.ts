@@ -81,10 +81,15 @@ async function boardChoice(
   if (!/\.brd$/i.test(path)) return undefined;
   const discovered = await projectBoardRoots(api, folder, fileSystem);
   if (discovered.failures.length > 0) return undefined;
-  const boardsRoot = discovered.roots
-    .filter((candidate) => isWithin(path, candidate))
-    .sort((left, right) => right.length - left.length)[0];
-  return boardsRoot === undefined ? undefined : { uri, path, boardsRoot };
+  const owner = projectLayoutOwnerForDocumentPath(path, discovered.owners);
+  if (owner === null) return undefined;
+  const fs = fileSystem(folder.uri);
+  const resolved = await resolveReservedFolderPath(
+    { list: (candidate) => fs.listProject(folder.uri.toString(), candidate) },
+    reservedFolder(owner.layout, "boards"),
+  );
+  if (resolved.failure !== null || !isWithin(path, resolved.path)) return undefined;
+  return { uri, path, boardsRoot: resolved.path };
 }
 
 async function projectBoards(
@@ -97,6 +102,8 @@ async function projectBoards(
   if (failures.length > 0) return { boards: [], failures, owners: discovered.owners };
   const fs = fileSystem(folder.uri);
   const byPath = new Map<string, BoardChoice>();
+  const ownerRoots = new Map<string, string | null>();
+  const collisionKeys = new Set<string>();
   for (const boardsRoot of discovered.roots) {
     const rootListing = await fs.listProject(folder.uri.toString(), boardsRoot);
     if (!rootListing.ok) {
@@ -113,13 +120,47 @@ async function projectBoards(
       for (const entry of entries.value) {
         const child = [...segments, entry.name];
         const childPath = [...boardsRoot.split("/"), ...child].filter(Boolean).join("/");
-        if (entry.kind === "directory") await walk(child);
-        else if (entry.kind === "file" && /\.brd$/i.test(entry.name)) {
-          const key = foldPath(childPath);
-          const choice = { uri: api.Uri.joinPath(folder.uri, ...childPath.split("/")), path: childPath, boardsRoot };
-          const previous = byPath.get(key);
-          if (previous === undefined || boardsRoot.length > previous.boardsRoot.length) byPath.set(key, choice);
+        if (entry.kind === "directory") {
+          await walk(child);
+          continue;
         }
+        if (entry.kind !== "file" || !/\.brd$/i.test(entry.name)) continue;
+        const owner = projectLayoutOwnerForDocumentPath(childPath, discovered.owners);
+        if (owner === null) {
+          failures.push(`${childPath}: more than one game claims this board path.`);
+          continue;
+        }
+        const ownerKey = owner.mainPath ?? "<loose>";
+        let ownerBoardsRoot = ownerRoots.get(ownerKey);
+        if (ownerBoardsRoot === undefined) {
+          const resolved = await resolveReservedFolderPath(
+            { list: (candidate) => fs.listProject(folder.uri.toString(), candidate) },
+            reservedFolder(owner.layout, "boards"),
+          );
+          if (resolved.failure !== null) {
+            failures.push(`${resolved.failure.path}: ${resolved.failure.error.message}`);
+            ownerRoots.set(ownerKey, null);
+            continue;
+          }
+          ownerBoardsRoot = resolved.path;
+          ownerRoots.set(ownerKey, ownerBoardsRoot);
+        }
+        if (ownerBoardsRoot === null || !isWithin(childPath, ownerBoardsRoot)) continue;
+        const key = foldPath(childPath);
+        const choice = {
+          uri: api.Uri.joinPath(folder.uri, ...childPath.split("/")),
+          path: childPath,
+          boardsRoot: ownerBoardsRoot,
+        };
+        const previous = byPath.get(key);
+        if (previous !== undefined && previous.path !== choice.path) {
+          if (!collisionKeys.has(key)) {
+            failures.push(`${previous.path} and ${choice.path} differ only by case; board selection is ambiguous.`);
+            collisionKeys.add(key);
+          }
+          continue;
+        }
+        if (previous === undefined || choice.boardsRoot.length > previous.boardsRoot.length) byPath.set(key, choice);
       }
     };
     await walk([]);
@@ -230,9 +271,20 @@ export function registerBoardUpgradeCommands(
           if (discovered.failures.length > 0) return false;
           const sourceOwner = projectLayoutOwnerForDocumentPath(choice.path, discovered.owners);
           const destinationOwner = projectLayoutOwnerForDocumentPath(destination, discovered.owners);
-          return sourceOwner !== null && destinationOwner !== null
-            && sourceOwner.mainPath === destinationOwner.mainPath
-            && foldPath(sourceOwner.layout.projectFolder) === foldPath(destinationOwner.layout.projectFolder);
+          if (sourceOwner === null || destinationOwner === null
+            || sourceOwner.mainPath !== destinationOwner.mainPath
+            || foldPath(sourceOwner.layout.projectFolder) !== foldPath(destinationOwner.layout.projectFolder)) return false;
+          const sourceBoards = await resolveReservedFolderPath(
+            { list: (candidate) => fs.listProject(projectId, candidate) },
+            reservedFolder(sourceOwner.layout, "boards"),
+          );
+          const destinationBoards = await resolveReservedFolderPath(
+            { list: (candidate) => fs.listProject(projectId, candidate) },
+            reservedFolder(destinationOwner.layout, "boards"),
+          );
+          return sourceBoards.failure === null && destinationBoards.failure === null
+            && isWithin(choice.path, sourceBoards.path)
+            && isWithin(destination, destinationBoards.path);
         },
         createExclusive: null,
       });

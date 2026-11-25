@@ -191,6 +191,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
     return declaredLayouts;
   };
+  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[]> => {
+    const owners = await declaredProjectLayouts(project, main);
+    knownLayouts = owners;
+    declaredLayouts = Promise.resolve(owners);
+    return owners;
+  };
   const fallbackOwnerForPath = (path: string): ProjectLayoutOwner => {
     const selectedFolder = foldPath(projectLayout.projectFolder).replace(/^\/+|\/+$/g, "");
     const foldedPath = foldPath(path);
@@ -525,10 +531,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       hasPendingEditsNow: isPending,
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       isDestinationOwnedBySource: async (destination) => {
-        const destinationOwner = projectLayoutOwnerForDocumentPath(destination, await layouts());
-        return destinationOwner !== null
-          && destinationOwner.mainPath === owner.mainPath
-          && foldPath(destinationOwner.layout.projectFolder) === foldPath(owner.layout.projectFolder);
+        const freshOwners = await refreshLayouts();
+        const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
+        const destinationOwner = projectLayoutOwnerForDocumentPath(destination, freshOwners);
+        return sourceOwner !== null
+          && destinationOwner !== null
+          && destinationOwner.mainPath === sourceOwner.mainPath
+          && foldPath(destinationOwner.layout.projectFolder) === foldPath(sourceOwner.layout.projectFolder);
       },
       createExclusive: null,
     });
@@ -596,14 +605,25 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       category: "File",
       label: "Upgrade a pre-vector board…",
       run: async () => {
-        const owners = await layouts();
+        const owners = await refreshLayouts();
         const candidateLayouts = [{ projectFolder: "" }, projectLayout, ...owners.map(({ layout }) => layout)];
         const byPath = new Map<string, { readonly path: string; readonly reference: string }>();
         const failures: { readonly path: string; readonly error: { readonly message: string } }[] = [];
         for (const candidateLayout of candidateLayouts) {
           const found = await listCandidates(services.fs, candidateLayout, "boards", [".brd"]);
           failures.push(...found.failures);
-          for (const candidate of found.candidates) byPath.set(foldPath(candidate.path), candidate);
+          for (const candidate of found.candidates) {
+            const key = foldPath(candidate.path);
+            const previous = byPath.get(key);
+            if (previous !== undefined && previous.path !== candidate.path) {
+              failures.push({
+                path: candidate.path,
+                error: { message: `Case-fold collision with ${previous.path}; board selection is ambiguous.` },
+              });
+              continue;
+            }
+            byPath.set(key, candidate);
+          }
         }
         if (failures.length > 0) {
           await tell(`Could not list all board files: ${failures.map(({ path, error }) => `${path}: ${error.message}`).join("; ")}`);
@@ -615,7 +635,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           return;
         }
         const choices = [
-          ...candidates.map(({ path, reference }) => ({ id: path, label: reference })),
+          ...candidates.map(({ path }) => ({ id: path, label: path })),
           { id: "cancel", label: "Cancel" },
         ];
         const selected = await services.dialogs.ask<string>({
