@@ -3,6 +3,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
 import { asMainDocument, createDocumentWorkspace } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { recoverMainDocument, resolveRecoveryConflict } from "@tk-reawakened/host-vscode/testing";
@@ -261,6 +262,48 @@ test("registered VS Code pre-vector command from a modern-board URI selects a le
   equal(copy.model.kind, "board");
   deepEqual(harness.errors, []);
   copy.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+test("nested VS Code board discovery keeps the most-specific owner for a board found under parent and child roots", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Region" });
+  ok(mainA.ok, mainA.ok ? "" : mainA.error.message);
+  ok(mainB.ok, mainB.ok ? "" : mainB.error.message);
+  const nestedPath = "Game/A/Boards/Region/Boards/Old.brd";
+  const copyPath = "Game/A/Boards/Region/Boards/Old.upgraded.brd";
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Boards/Modern.brd": boardExample,
+    [nestedPath]: oldBytes,
+  }, copyPath, nestedPath);
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri("/project/Boards/Modern.brd"));
+  ok(harness.host.bytesOf(copyPath), `nested board was not copied; errors=${harness.errors.join("; ")}`);
+  deepEqual(harness.host.bytesOf(nestedPath), oldBytes, "the nested source remains unchanged");
+  deepEqual(harness.errors, []);
+  harness.provider.openDocument(harness.makeUri(`/project/${copyPath}`))?.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+test("VS Code upgrade refuses a copy in a nested game's project root even when it is inside the parent Boards folder", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Region" });
+  ok(mainA.ok, mainA.ok ? "" : mainA.error.message);
+  ok(mainB.ok, mainB.ok ? "" : mainB.error.message);
+  const source = "Game/A/Boards/Old.brd";
+  const destination = "Game/A/Boards/Region/Copy.brd";
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Boards/Modern.brd": boardExample,
+    "Game/A/Boards/Region/Prg/start.prg": new Uint8Array([1]),
+    [source]: oldBytes,
+  }, destination, source);
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri("/project/Boards/Modern.brd"));
+  equal(harness.host.bytesOf(destination), undefined);
+  deepEqual(harness.host.bytesOf(source), oldBytes);
+  ok(harness.errors.some((message) => /owning game/.test(message)));
   harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
 });
 

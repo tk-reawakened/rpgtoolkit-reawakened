@@ -123,7 +123,7 @@ export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath,
           <RunControl
             launcher={launcher}
             fs={fs}
-            layout={projectLayout}
+            layout={activeLayout}
             active={active}
             version={[version, tabsSnapshot.tabs.length]}
             {...(activeMain === null ? {} : { main: activeMain })}

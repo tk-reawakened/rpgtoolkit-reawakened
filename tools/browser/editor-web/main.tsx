@@ -44,6 +44,7 @@ let mirrorView: DocumentView | null = null;
 let mirroredDocument: AnyDocument | null = null;
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
+let mirrorGeneration = 0;
 
 
 let projectWithChoices: WebProject | null = null;
@@ -583,17 +584,27 @@ function syncMirror(): void {
   const visible = active !== null && project !== null && mirrorRequested;
   mirrorElement.hidden = !visible;
   mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
-  if (visible && mirrorView !== null && mirroredDocument === active && mirroredProject === project) return;
+  if (visible && mirroredDocument === active && mirroredProject === project) return;
+
+  const generation = ++mirrorGeneration;
   mirrorView?.dispose();
   mirrorView = null;
   mirroredDocument = null;
   mirroredProject = null;
   mirrorElement.replaceChildren();
-  if (visible && shown !== null && active !== null && project !== null) {
-    mirrorView = mountDocumentView(project, active, mirrorElement, shown.projectLayout, undefined, undefined, shown.main);
-    mirroredDocument = active;
-    mirroredProject = project;
-  }
+  if (!visible || shown === null || active === null || project === null) return;
+
+  mirroredDocument = active;
+  mirroredProject = project;
+  void shown.workbench.ownerForDocumentPath(active.identity.path).then((owner) => {
+    if (generation !== mirrorGeneration || !mirrorRequested || shown?.project !== project || activeDocument(shown) !== active) return;
+    mirrorView = mountDocumentView(project, active, mirrorElement, owner.layout, undefined, undefined, owner.mainPath);
+  }).catch((error: unknown) => {
+    if (generation !== mirrorGeneration) return;
+    mirroredDocument = null;
+    mirroredProject = null;
+    showFailure(error);
+  });
 }
 
 mirrorButton.addEventListener("click", () => {

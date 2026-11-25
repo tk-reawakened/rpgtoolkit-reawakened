@@ -101,6 +101,8 @@ export interface Workbench {
   visit(origin: AnyDocument, path: string): Promise<VisitResult>;
   /** Go back to where the latest visit started, opening it again if it was closed. */
   returnFromVisit(): Promise<ReturnResult>;
+  /** Resolve the declared owner and type-folder layout for any project-relative document path. */
+  ownerForDocumentPath(path: string): Promise<ProjectLayoutOwner>;
   /** Show a folder-aware picker over the workbench and resolve with its outcome; unchosen leaves the field as it was. */
   pickAsset(request: PickAssetRequest, originPath?: string): Promise<PickOutcome>;
   /**
@@ -523,8 +525,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       hasPendingEditsNow: isPending,
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       isDestinationOwnedBySource: async (destination) => {
-        const destinationOwner = await ownerForPath(destination);
-        return foldPath(destinationOwner.layout.projectFolder) === foldPath(owner.layout.projectFolder);
+        const destinationOwner = projectLayoutOwnerForDocumentPath(destination, await layouts());
+        return destinationOwner !== null
+          && destinationOwner.mainPath === owner.mainPath
+          && foldPath(destinationOwner.layout.projectFolder) === foldPath(owner.layout.projectFolder);
       },
       createExclusive: null,
     });
@@ -891,6 +895,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     layout,
     visits,
     openPath,
+    ownerForDocumentPath: ownerForPath,
     async visit(origin, path) {
       const result = await visits.visit(origin, path);
       if (result.ok) {
