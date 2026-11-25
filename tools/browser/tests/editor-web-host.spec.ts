@@ -826,10 +826,10 @@ test("browser workbench creates a new project in the chosen folder, copies only 
 });
 test("browser board upgrade rechecks changed game ownership and refuses a sibling outside the new Boards root", async ({ page }) => {
   const source = "Game/A/Boards/Region/Old.brd";
-  const destination = "Game/A/Boards/Region/Copy.brd";
+  const destination = "Game/A/Boards/Future/Copy.brd";
   const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
   const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
-  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Region" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Future" });
   expect(mainA.ok).toBe(true);
   expect(mainB.ok).toBe(true);
   if (!mainA.ok || !mainB.ok) throw new Error("Could not create owner fixtures.");
@@ -878,11 +878,14 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
     for (const part of sourceParts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
     const sourceHandle = await parent.getFileHandle(sourceParts.at(-1)!);
     const actualSource = [...new Uint8Array(await (await sourceHandle.getFile()).arrayBuffer())];
-    const destinationParts = destinationPath.split("/");
-    let destinationParent = root;
-    for (const part of destinationParts.slice(0, -1)) destinationParent = await destinationParent.getDirectoryHandle(part);
-    let destinationExists = true;
-    try { await destinationParent.getFileHandle(destinationParts.at(-1)!); } catch { destinationExists = false; }
+    let destinationExists = false;
+    try {
+      const destinationParts = destinationPath.split("/");
+      let destinationParent = root;
+      for (const part of destinationParts.slice(0, -1)) destinationParent = await destinationParent.getDirectoryHandle(part);
+      await destinationParent.getFileHandle(destinationParts.at(-1)!);
+      destinationExists = true;
+    } catch { destinationExists = false; }
     return { actualSource, destinationExists };
   }, { sourcePath: source, destinationPath: destination });
   expect(disk.actualSource).toEqual(sourceBytes);
@@ -920,31 +923,60 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 test("browser board upgrade uses live Main inventory after the originally selected Main is deleted", async ({ page }) => {
-  const source = "Game/B/Boards/Region/Old.brd";
-  const destination = "Game/B/Boards/Region/Copy.brd";
+  const source = "Game/A/Region/Boards/Old.brd";
+  const destination = "Game/A/Region/Boards/Copy.brd";
+  const selectedSource = "Game/A/Boards/Initial/Before.brd";
+  const selectedCopy = "Game/A/Boards/Initial/Copy.brd";
   const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
   const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
-  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "B" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Region" });
   expect(mainA.ok).toBe(true);
   expect(mainB.ok).toBe(true);
   if (!mainA.ok || !mainB.ok) throw new Error("Could not create owner fixtures.");
   await installFolderPicker(page, [
-    { path: "Main/A.gam", bytes: Array.from(mainA.value) },
+    { path: "A.gam", bytes: Array.from(mainA.value) },
     { path: "Main/B.gam", bytes: Array.from(mainB.value) },
+    { path: selectedSource, bytes: sourceBytes },
     { path: source, bytes: sourceBytes },
   ]);
   await page.goto("/tools/browser/editor-web/index.html");
   await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
-  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "Main/A.gam" });
+  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "A.gam" });
   await page.getByRole("button", { name: "Open selected game" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "A", "Boards", "Initial"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Before.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: selectedSource, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const selectedSearch = page.getByRole("combobox", { name: "Search commands and files" });
+  await selectedSearch.fill("Convert active board from tile to pixel");
+  await selectedSearch.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const selectedSave = page.getByRole("dialog", { name: `Save ${selectedSource} as` });
+  await selectedSave.getByRole("textbox").fill(selectedCopy);
+  await selectedSave.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: selectedCopy, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: selectedCopy, original: sourceBytes })).toBe(true);
   await page.evaluate(async () => {
     const remove = (window as ProofWindow).__tkrDeleteTestFile;
     if (remove === undefined) throw new Error("The browser test folder delete hook is missing.");
-    await remove("Main/A.gam");
+    await remove("A.gam");
   });
-  for (const name of ["Game", "B", "Boards", "Region"]) {
+  for (const name of ["Region", "Boards"]) {
     await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
   }
   await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();

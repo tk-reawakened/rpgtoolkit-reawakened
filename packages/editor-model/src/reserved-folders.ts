@@ -67,12 +67,24 @@ export async function projectLayoutOfMainFromBytes(
   fs: Pick<FileSystemService, "list">,
   bytes: Uint8Array,
   mainPath: string,
+  retainMissingDeclaredFolder = false,
 ): Promise<ProjectLayout> {
   const main = readMainFile(new BinaryReader(bytes, mainPath));
   const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
   if (candidate === "") return { projectFolder: "" };
   const resolved = await resolveReservedFolderPath(fs, candidate);
-  if (resolved.failure !== null || !(await fs.list(resolved.path)).ok) return { projectFolder: "" };
+  if (resolved.failure !== null) {
+    if (retainMissingDeclaredFolder) throw new Error(`Could not resolve declared game folder ${candidate}: ${resolved.failure.error.message}`);
+    return { projectFolder: "" };
+  }
+  const listed = await fs.list(resolved.path);
+  if (!listed.ok) {
+    if (listed.error.code === "not-found") {
+      return { projectFolder: retainMissingDeclaredFolder ? resolved.path : "" };
+    }
+    if (retainMissingDeclaredFolder) throw new Error(`Could not list declared game folder ${resolved.path}: ${listed.error.message}`);
+    return { projectFolder: "" };
+  }
   return { projectFolder: resolved.path };
 }
 /**

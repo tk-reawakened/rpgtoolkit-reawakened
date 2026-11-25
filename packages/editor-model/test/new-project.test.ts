@@ -2,7 +2,7 @@
 // cleared, nothing is ever replaced, a failure keeps what it wrote and says what is pending, and every stored reference
 // resolves through the reserved folders. Each case runs on real bytes against the in-memory double.
 import { test } from "node:test";
-import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
+import { deepEqual, equal, match, notEqual, ok, rejects } from "node:assert/strict";
 import { ASSET_FOLDERS, BinaryReader, parse, readBoard, readCharacter, readMainFile, tokenize, writeMainFile, type AssetKind, type MainFile } from "@tk-reawakened/core";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { bindProjectFileSystem, platformError } from "@tk-reawakened/platform-services";
@@ -15,6 +15,7 @@ import {
   mainFileName,
   planNewProject,
   projectLayoutOfMain,
+  projectLayoutOfMainFromBytes,
   referencePath,
   reservedFolder,
   suggestedMainFile,
@@ -169,6 +170,18 @@ test("a main-file game path resolves existing folder spelling on a case-sensitiv
   });
   deepEqual(await projectLayoutOfMain(host.fs, "memory-project", "Main/Quest.gam"), { projectFolder: "game/quest" });
 });
+test("strict declared layouts fail rather than assuming the root when folder listing is unreadable", async () => {
+  const planned = planNewProject(settings({ gameName: "Quest" }));
+  ok(planned.ok);
+  const main = planned.plan.files.find((file) => file.role === "main");
+  ok(main !== undefined);
+  const unreadableFs = { list: async () => platformError("permission-denied", "no access") };
+  await rejects(
+    projectLayoutOfMainFromBytes(unreadableFs, main.bytes, "Main/Quest.gam", true),
+    /Could not resolve declared game folder/,
+  );
+});
+
 
 test("a project with every available starter item opens, and each stored reference resolves to its file", async () => {
   const host = createMemoryPlatformServices();
