@@ -88,6 +88,9 @@
         "command": "tkr.editorWebProof.saveAll",
         "title": "Test: Save All Workbench Editors"
       }
+    ],
+    "keybindings": [
+      { "command": "workbench.action.files.saveAll", "key": "ctrl+alt+shift+s", "mac": "cmd+alt+s" }
     ]
   }
 }

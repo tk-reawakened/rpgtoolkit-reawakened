@@ -3230,10 +3230,11 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
     panel = frame.locator(surface);
     ({ damage, smpCost } = fields());
   };
-  // The shortcut leaves the focus in the field; the command palette would take it.
+  // The shortcut leaves the focus in the field; the command palette would take it. It must be one keystroke: a webview
+  // forwards a chord's plain second key (Ctrl+K, S on Linux) and also types it into the field. The probe binds VS Code's
+  // own Save All command to one keystroke on every platform.
   const saveAllShortcut = async (): Promise<void> => {
-    if (process.platform === "darwin") await page.keyboard.press("Meta+Alt+s");
-    else { await page.keyboard.press("Control+k"); await page.keyboard.press("s"); }
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+s" : "Control+Alt+Shift+s");
   };
   const closeTab = async (): Promise<Locator> => {
     await tab.click({ button: "middle" });

@@ -529,7 +529,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
     } else if (battleDataProof) {
       await runVscodeBattleDataProof(page, expect, workbenchUrl, { readBacking });
-      console.log("vscode.dev special move form: native Undo/Redo and autosave safety verified; draft-only Save All and Close blocker #3385 reproduced");
+      console.log("vscode.dev special move form: a field nobody left is written by native Save All, Close, Undo/Redo and autosave, and held text is never written (#3385)");
     } else if (fontProof) {
       await runVscodeFontProof(page, expect, workbenchUrl, { readBacking });
       console.log("vscode.dev bitmap font creation, pointer and keyboard drawing, preview pixels, save and reopen proof passed");
