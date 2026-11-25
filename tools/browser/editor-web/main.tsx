@@ -12,6 +12,8 @@ const codeEditor = (globalThis as { __tkrCodeEditor?: WebProjectOptions["codeEdi
 const playerOptions = {
   playerUrl: "/packages/runner-web/app/index.html",
   languageWorkerUrl: "./dist/language-worker.js",
+  audioWorkletUrl: "./dist/audio-worklet.js",
+  bundledSoundFontUrl: "./dist/TK-16.sf2",
   ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;

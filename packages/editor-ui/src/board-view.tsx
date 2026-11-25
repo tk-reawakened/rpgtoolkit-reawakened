@@ -35,6 +35,7 @@ import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-light
 import { useBoardSubmit } from "./use-board-submit.ts";
 import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
 import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
+import type { BoardAudition } from "./board-audition.ts";
 import type { BrowserSelection } from "./brush.ts";
 import type { CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { IconAction } from "./icon-action.tsx";
@@ -59,6 +60,8 @@ export interface BoardViewProps {
   readonly pendingEdits: PendingEdits;
   /** The host's system clipboard; without it copy, cut and paste say so and change nothing. */
   readonly clipboard?: ClipboardService;
+  /** The host's audio output and the project's files; without it the properties panel offers no audition. */
+  readonly audition?: BoardAudition;
 }
 
 const TOOL_LABELS: Readonly<Record<BoardTool, { readonly label: string; readonly key: string }>> = {
@@ -117,7 +120,7 @@ function brushFor(selection: BrowserSelection | null, stamp: { readonly path: st
  * tool at the cell, Enter goes to the tile field, and the tools have single-key shortcuts.
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
-export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits, clipboard }: BoardViewProps) {
+export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits, clipboard, audition }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const importAsScene = doc.importAsScene;
   const assetRevision = useContext(AssetRefreshContext);
@@ -530,6 +533,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         disabled={readOnly}
         onEdited={onEdited}
         {...(navigation === undefined ? {} : { navigation })}
+        {...(audition === undefined ? {} : { audition })}
         pendingEdits={pendingEdits}
         onChooseStart={() => { if (!readOnly) { editor.pointerCancel(); setColourPicker(null); setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
         onSetStart={setPlayerStart}

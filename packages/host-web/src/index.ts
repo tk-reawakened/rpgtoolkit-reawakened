@@ -1,9 +1,10 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, ClipboardService, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
-import { bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
+import { audioOutputFromApi, bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
+import { createWebAudioOutput } from "./audio.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -45,6 +46,13 @@ export interface WebProjectOptions {
    * it the host declares no `languageServer` capability and programs edit without language features.
    */
   readonly languageWorkerUrl?: string;
+  /**
+   * URL of this deployment's same-origin audio worklet (`audio-worklet.js`). Without it the host declares no
+   * `audioOutput` capability and the editor offers no audition of WAV or MIDI.
+   */
+  readonly audioWorkletUrl?: string;
+  /** URL of the bundled default SoundFont (`TK-16.sf2`), used for MIDI when the project sets none. */
+  readonly bundledSoundFontUrl?: string;
   /** The code editor for programs, made by the page (it imports Monaco); a plain text area when absent. */
   readonly codeEditor?: TextSurfaceFactory;
   /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
@@ -162,6 +170,9 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   const dialogs = options.dialogs ?? pageDialogs();
   const clipboard = pageClipboard();
   if (clipboard !== null) capabilities.add("clipboard");
+  // Audition needs the page's audio worklet; a host without one declares no `audioOutput` and shows no audition control.
+  const audioOutput = audioOutputFromApi(createWebAudioOutput(options));
+  if (audioOutput !== null) capabilities.add("audioOutput");
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
@@ -193,6 +204,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
     ...(clipboard === null ? {} : { clipboard }),
+    ...(audioOutput === null ? {} : { audioOutput }),
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
     ...(language === undefined ? {} : { language }),
   };
@@ -248,6 +260,8 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
   const dialogs = options.dialogs ?? pageDialogs();
   const clipboard = pageClipboard();
   if (clipboard !== null) capabilities.add("clipboard");
+  const audioOutput = audioOutputFromApi(createWebAudioOutput(options));
+  if (audioOutput !== null) capabilities.add("audioOutput");
   const settings = createWebSettings(fs, webUserStorage(options), false);
   // A session copy keeps history in this page, under the same user-only retention settings, live from one shared model.
   const preferences = createPreferences({ settings, projectLayer: false });
@@ -264,6 +278,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
     ...(clipboard === null ? {} : { clipboard }),
+    ...(audioOutput === null ? {} : { audioOutput }),
   };
   const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);

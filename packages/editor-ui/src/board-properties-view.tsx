@@ -3,6 +3,7 @@ import type { BoardDocumentSnapshot, PendingEdits, SetBoardFieldsCommand } from 
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BoardViewDocument } from "./mount.ts";
+import { loadAuditionInput, type BoardAudition } from "./board-audition.ts";
 
 export interface BoardPropertiesNavigation {
   open?(path: string): Promise<string | null>;
@@ -19,9 +20,11 @@ export interface BoardPropertiesViewProps {
   readonly onChooseStart: () => void;
   readonly onSetStart: (column: number, row: number, layer: number) => Promise<boolean>;
   readonly pendingEdits: PendingEdits;
+  /** The host's audio output and the project's files; without them the properties panel offers no audition. */
+  readonly audition?: BoardAudition;
 }
 
-export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onChooseStart, onSetStart, pendingEdits }: BoardPropertiesViewProps) {
+export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onChooseStart, onSetStart, pendingEdits, audition }: BoardPropertiesViewProps) {
   const submitted = useRef(createEditTracker());
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const snapshot = doc.getSnapshot();
@@ -156,6 +159,7 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
         <label><input aria-label="Disable saving" type="checkbox" checked={settings.disableSaving !== 0} onChange={(event) => setProperty("disableSaving", event.currentTarget.checked ? 1 : 0)} />Disable saving</label>
         {colour("Ambient RGB", settings.ambient, (value) => setProperty("ambient", value))}
       </fieldset>
+      {audition === undefined ? null : <BackgroundMusicAudition audition={audition} reference={settings.backgroundMusic.trim()} />}
       <fieldset disabled={disabled || saving}><legend>Player start</legend>
         <p role="status">{initialCell === null ? "Player start marker is outside this board." : `Player start marker: column ${initialCell.x + 1}, row ${initialCell.y + 1}, layer ${properties.start.layer}`}</p>
         {input("Start column", column, setColumn, true, false)}
@@ -191,5 +195,49 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
       )}
       {message && <p role="alert">{message}</p>}
     </details>
+  );
+}
+
+/**
+ * Plays the background music file the way the board's music would sound, so a designer can hear it. Playback never
+ * changes the board or the file, so it stays available while the properties are saving.
+ */
+function BackgroundMusicAudition({ audition, reference }: { readonly audition: BoardAudition; readonly reference: string }) {
+  const [loop, setLoop] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const attempt = useRef(0);
+  useEffect(() => {
+    const output = audition.audioOutput;
+    return () => {
+      attempt.current += 1;
+      void output.stop();
+    };
+  }, [audition.audioOutput]);
+  const play = async (): Promise<void> => {
+    attempt.current += 1;
+    const current = attempt.current;
+    setNote(null);
+    const input = await loadAuditionInput(audition, reference);
+    if (attempt.current !== current) return;
+    if (!input.ok) {
+      setNote(input.message);
+      return;
+    }
+    const result = await audition.audioOutput.play(input.value.bytes, input.value.format, { loop, soundFont: input.value.soundFont });
+    if (attempt.current !== current) return;
+    if (!result.ok) setNote(result.error.message);
+  };
+  const stop = (): void => {
+    attempt.current += 1;
+    setNote(null);
+    void audition.audioOutput.stop();
+  };
+  return (
+    <div class="tkr-board-audition" role="group" aria-label="Background music audition">
+      <button type="button" onClick={() => void play()}>Play background music</button>
+      <button type="button" onClick={stop}>Stop</button>
+      <label><input type="checkbox" checked={loop} onChange={(event) => setLoop(event.currentTarget.checked)} />Loop playback</label>
+      {note === null ? null : <p role="alert">{note}</p>}
+    </div>
   );
 }

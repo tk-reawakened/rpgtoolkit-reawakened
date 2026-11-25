@@ -350,6 +350,9 @@ importers:
 
   packages/host-web:
     dependencies:
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../core
       '@tk-reawakened/editor-model':
         specifier: workspace:*
         version: link:../editor-model
@@ -362,6 +365,12 @@ importers:
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../platform-services
+      '@tk-reawakened/runner-web':
+        specifier: workspace:*
+        version: link:../runner-web
+      '@tk-reawakened/synth':
+        specifier: workspace:*
+        version: link:../synth
       vscode-languageserver:
         specifier: 9.0.1
         version: 9.0.1
