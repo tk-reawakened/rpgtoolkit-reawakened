@@ -23,7 +23,7 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
   if (event.data.type === "initialize") {
     mountedView?.dispose();
     const readOnly = event.data.readOnly === true;
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, !readOnly);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, !readOnly, event.data.saveLocks);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),

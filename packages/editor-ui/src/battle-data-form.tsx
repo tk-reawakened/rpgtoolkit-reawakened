@@ -13,10 +13,10 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { Capability, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import type { ComponentChildren, JSX } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { ViewDocument } from "./mount.ts";
-import { editLineText, lineTextOf, writtenText, type LineText } from "./line-endings.ts";
+import { LineHistory, writtenText } from "./line-endings.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 /**
@@ -51,6 +51,7 @@ export interface BattleDataFormBase<Command> {
   readonly drafts: Readonly<Record<string, string>>;
   readonly message: string | null;
   readonly resolving: boolean;
+  readonly locked: boolean;
   /** True while the document is read-only or waits on a conflict: no field edits then. */
   readonly disabled: boolean;
   setMessage(message: string | null): void;
@@ -89,6 +90,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [locked, setLocked] = useState(false);
   // The draft map is kept ref-authoritative: a host save runs outside a render, so `busy()` must see a commit at once.
   const draftsRef = useRef<Readonly<Record<string, string>>>({});
   const publishDrafts = (next: Readonly<Record<string, string>>): void => {
@@ -125,16 +127,17 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   };
   // An explicit save applies the focused field first; autosave and a backup leave the gesture alone (ADR 0022 D11.2);
   // a revert drops text typed against the version being discarded, with the message that named it.
-  useEffect(() => pendingEdits.register({
+  useLayoutEffect(() => pendingEdits.register({
     busy: () => submitted.current.busy(),
     holdsDraft: () => Object.keys(draftsRef.current).length > 0,
+    lock: setLocked,
     // Asked on every settlement: a field the file cannot store refuses the host's save with its reason, so a host save
     // cannot report success while that text is left behind.
     // Only an explicit save is refused, and only while a draft remains that the file could not store: a backup, a query
     // before a revert's question and the revert itself settle the accepted edits without judging the field.
     refusal: (reason) => {
       if (Object.keys(draftsRef.current).length === 0) return null;
-      if (reason === "explicit") return "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it.";
+      if (reason === "explicit") return "a field still holds text this file cannot store; correct it or discard it";
       // A host that cannot say whose save this is writes nothing while a field holds text, and the document stays unsaved.
       if (reason === "guard") return "a field still holds text that is not part of the document yet. Leave the field to apply it, or discard it";
       return null;
@@ -150,18 +153,12 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   }), [pendingEdits]);
   const save = async (): Promise<void> => {
     try {
-      await flush();
-      if (Object.keys(draftsRef.current).length > 0) {
-        setMessage("Nothing was saved: a field above still holds text this file cannot store. Correct it or discard it first.");
-        return;
-      }
-      // This view's Save needs no host settlement: it applies its own drafts and waits for its own acknowledgements. The
-      // host's Save All, Ctrl+S, revert and close settle the shared registry, which flushes drafts through `idle()`.
-      await submitted.current.idle();
-      // Text typed while the edits above were being acknowledged is neither applied nor in the file: look again at the
-      // last moment, with no await between this and the write, so nothing is saved around it.
-      if (Object.keys(draftsRef.current).length > 0) {
-        setMessage("Nothing was saved: a field above holds text typed just now. Leave the field to apply it, or discard it, then save again.");
+      // Every view of this document takes part, not only this one: the shared registry applies each view's fields and
+      // refuses the save, writing nothing, when any of them holds text the file cannot store. Nothing is awaited between
+      // its answer and the write, so no text can be typed in between.
+      const outcome = await pendingEdits.settle("explicit");
+      if (!outcome.ok) {
+        setMessage(`Nothing was saved: ${outcome.message}.`);
         return;
       }
       const result = await doc.save();
@@ -171,6 +168,12 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const resolve = async (choice: "keep-local" | "reload"): Promise<void> => {
     setResolving(true);
     try {
+      if (choice === "keep-local" && capabilities.has("conflictAutoSave")) {
+        // Check the fields before the choice is consumed: a refusal afterwards would leave the other version adopted as the
+        // baseline, the conflict gone and nothing written. A refused choice keeps the conflict and both versions.
+        const outcome = await pendingEdits.settle("explicit");
+        if (!outcome.ok) { setMessage(`Nothing was saved and the conflict is kept: ${outcome.message}.`); return; }
+      }
       const result = await doc.resolveConflict(choice);
       if (!result.ok) setMessage(result.message);
       else if (choice === "keep-local" && capabilities.has("conflictAutoSave")) {
@@ -224,9 +227,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     return () => { if (fields.current.get(key) === submit) fields.current.delete(key); };
   };
   return {
-    snapshot, drafts, message, resolving, setMessage, setDraft, dropDraft, discardDrafts, run, save, resolve,
+    snapshot, drafts, message, locked, resolving, setMessage, setDraft, dropDraft, discardDrafts, run, save, resolve,
     commitText, commitNumber, registerField,
-    disabled: snapshot.readOnly !== null || snapshot.conflict !== null,
+    disabled: snapshot.readOnly !== null || snapshot.conflict !== null || resolving,
   };
 }
 
@@ -238,7 +241,7 @@ export function SaveBar<Command>({ form, capabilities }: {
   const { snapshot, save, resolve, resolving, message } = form;
   return <>
     <p>
-      <button type="button" data-editor-save="true" disabled={snapshot.saving || snapshot.readOnly !== null || snapshot.conflict !== null} onClick={() => void save()}>Save</button>
+      <button type="button" data-editor-save="true" disabled={form.disabled || form.locked || snapshot.saving} onClick={() => void save()}>Save</button>
       {snapshot.dirty ? " Unsaved changes." : ""}
     </p>
     {snapshot.readOnly !== null && <p role="status">Read only: {snapshot.readOnly.message}</p>}
@@ -268,7 +271,7 @@ export function TextRow<Command>({ form, id, label, value, hint, command }: {
   registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitText(id, drafts[id]!, value, command));
   return <p>
     <label>{label}
-      <input type="text" aria-label={label} value={drafts[id] ?? value} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commit(event.currentTarget.value)} />
+      <input type="text" aria-label={label} value={drafts[id] ?? value} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -290,22 +293,29 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
   // Each line keeps the ending the stored text used, so a description with mixed endings is not rewritten into one
   // convention. The model follows every edit (with its caret) so a repeated line is placed where the author edited it.
-  const model = useRef<{ base: string; line: LineText; touched: boolean } | null>(null);
+  const model = useRef<{ base: string; history: LineHistory; touched: boolean } | null>(null);
   if (drafts[id] === undefined && (model.current === null || model.current.touched || model.current.base !== value)) {
-    model.current = { base: value, line: lineTextOf(value), touched: false };
+    model.current = { base: value, history: new LineHistory(value), touched: false };
   }
-  const followed = (text: string, caret?: number): string => {
+  const follow = (text: string, caret?: number, historyEdit = false): void => {
     const current = model.current!;
-    if (current.line.text !== text) { current.line = editLineText(current.line, text, caret); current.touched = true; }
-    return writtenText(current.line);
+    if (current.history.line.text !== text) { current.history.follow(text, caret, historyEdit); current.touched = true; }
+  };
+  const asWritten = (text: string): string => {
+    follow(text);
+    return writtenText(model.current!.history.line);
   };
   registerField(id, () => {
     const draft = drafts[id];
-    return draft === undefined ? Promise.resolve() : commitText(id, followed(draft), value, command);
+    return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);
   });
   return <p>
     <label>{label}
-      <textarea aria-label={label} rows={3} value={drafts[id] ?? model.current!.line.text} disabled={disabled || snapshot.saving} onInput={(event) => { followed(event.currentTarget.value, event.currentTarget.selectionStart); setDraft(id, event.currentTarget.value); }} onChange={(event) => void commitText(id, followed(event.currentTarget.value), value, command)} />
+      <textarea aria-label={label} rows={3} value={drafts[id] ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
+        const inputType = (event as InputEvent).inputType;
+        follow(event.currentTarget.value, event.currentTarget.selectionStart, inputType === "historyUndo" || inputType === "historyRedo");
+        setDraft(id, event.currentTarget.value);
+      }} onChange={(event) => { if (!form.locked) void commitText(id, asWritten(event.currentTarget.value), value, command); }} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -323,7 +333,7 @@ export function NumberRow<Command>({ form, id, label, value, hint, command }: {
   registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitNumber(id, drafts[id]!, value, command));
   return <p>
     <label>{label}
-      <input type="number" step="1" aria-label={label} value={drafts[id] ?? String(value)} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitNumber(id, event.currentTarget.value, value, command)} />
+      <input type="number" step="1" aria-label={label} value={drafts[id] ?? String(value)} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitNumber(id, event.currentTarget.value, value, command); }} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -339,7 +349,7 @@ export function FlagRow<Command>({ form, label, checked, hint, command }: {
   const { run, disabled, snapshot } = form;
   return <p>
     <label>
-      <input type="checkbox" aria-label={label} checked={checked} disabled={disabled || snapshot.saving} onChange={(event) => {
+      <input type="checkbox" aria-label={label} checked={checked} disabled={disabled || form.locked || snapshot.saving} onChange={(event) => {
         const box = event.currentTarget;
         void run(command(box.checked)).then((accepted) => { if (!accepted) box.checked = checked; });
       }} />
@@ -466,12 +476,12 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     <legend>{label}</legend>
     <p>
       <label>{label} file
-        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value, value, command)} />
+        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitText(id, event.currentTarget.value, value, command); }} />
       </label>
       {hint !== undefined && <small> {hint}</small>}
     </p>
     <p>
-      {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy} onClick={() => void choose()}>Choose…</button>}
+      {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy || form.locked} onClick={() => void choose()}>Choose…</button>}
       {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
     {linked.state === "checking" && <p role="status">Checking {drafts[id] ?? value}…</p>}

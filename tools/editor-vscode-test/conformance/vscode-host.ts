@@ -247,6 +247,8 @@ class Webview {
   /** While set, the provider's acknowledgements of the page's edits wait here instead of reaching the page (a slow extension host). */
   #heldEditResults: BridgeMessage[] | null = null;
 
+  #heldSnapshots: BridgeMessage[] | null = null;
+
   constructor(act: Act) {
     this.#act = act;
   }
@@ -258,6 +260,10 @@ class Webview {
       const copy = structuredClone(message);
       if (this.#heldEditResults !== null && (copy.type === "edit-result" || copy.type === "font-edit-result")) {
         this.#heldEditResults.push(copy);
+        return Promise.resolve(true);
+      }
+      if (this.#heldSnapshots !== null && copy.type === "snapshot") {
+        this.#heldSnapshots.push(copy);
         return Promise.resolve(true);
       }
       setTimeout(() => void this.#act(() => this.#receive(page, copy)), 0);
@@ -291,6 +297,21 @@ class Webview {
       release: () => {
         if (this.#heldEditResults !== held) return;
         this.#heldEditResults = null;
+        const page = this.#page;
+        if (page === null) return;
+        for (const message of held) setTimeout(() => void this.#act(() => this.#receive(page, message)), 0);
+      },
+    };
+  }
+
+  holdSnapshots(): { release(): void } {
+    if (this.#heldSnapshots !== null) throw new Error("snapshots are already held");
+    const held: BridgeMessage[] = [];
+    this.#heldSnapshots = held;
+    return {
+      release: () => {
+        if (this.#heldSnapshots !== held) return;
+        this.#heldSnapshots = null;
         const page = this.#page;
         if (page === null) return;
         for (const message of held) setTimeout(() => void this.#act(() => this.#receive(page, message)), 0);
@@ -378,7 +399,7 @@ class Webview {
         postMessage: (request) => this.#send(request),
         getState: () => undefined,
         setState: () => undefined,
-      }, message.boardPreferences);
+      }, message.boardPreferences, message.initialBoardPath, message.readOnly !== true, message.saveLocks);
       page.remote = remote;
       if (message.kind === "character" || message.kind === "item") {
         // As `webview.tsx` mounts a sprite document: its own view document, the host's asset picker and no linked visit,
@@ -995,6 +1016,7 @@ export function createVscodeCharacterProofHost(
         get element() { return editor.webview.view.element; },
         workbenchDirty: () => editor.copy.dirty,
         holdEditAcknowledgements: () => editor.webview.holdEditResults(),
+        holdSnapshots: () => editor.webview.holdSnapshots(),
         saveFromWorkbench: () => editor.copy.save().then(() => true, () => false),
         saveAllFromWorkbench: () => editor.copy.dirty ? editor.copy.save().then(() => true, () => false) : Promise.resolve(true),
         backupBytes: () => host.backupOf(editor.copy),
@@ -1002,6 +1024,7 @@ export function createVscodeCharacterProofHost(
       };
     },
     disk: (path) => host.disk(path),
+    holdNextWrite: () => host.holdNextWrite(),
     expireSettleTimers: () => { for (const expire of timers.splice(0)) expire(); },
     configureAutoSave: (mode, delayMs) => { host.autoSaveMode = mode; host.autoSaveDelayMs = delayMs; },
     setClock: (ms) => { host.nowMs = ms; },

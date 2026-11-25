@@ -263,7 +263,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string, reason?: SettleReason) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
+  attachWebview(post: (requestId: string, reason?: SettleReason, saveLock?: number) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
     const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
@@ -290,12 +290,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
    * ADR 0022, #2613 and #2652.
    */
-  async settleViews(reason: SettleReason): Promise<string | null> {
-    return (await this.settleViewsOutcome(reason)).message;
+  async settleViews(reason: SettleReason, saveLock?: number): Promise<string | null> {
+    return (await this.settleViewsOutcome(reason, saveLock)).message;
   }
 
   /** `settleViews`, saying whether the message is a view's own refusal (text it holds) rather than a failed hand-off. */
-  async settleViewsOutcome(reason: SettleReason): Promise<{ readonly message: string | null; readonly refused: boolean }> {
+  async settleViewsOutcome(reason: SettleReason, saveLock?: number): Promise<{ readonly message: string | null; readonly refused: boolean }> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
     const answers = [...this.#views].map((view) => new Promise<{ readonly message: string | null; readonly refused: boolean }>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
@@ -308,7 +308,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         resolve({ message: message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"), refused: !settled && kind === "held" });
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId, reason).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
+      void view.post(requestId, reason, saveLock).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
     }));
     const settled = await Promise.all(answers);
     // A failed hand-off outranks a refusal: nothing may be written when the model might miss an accepted edit.
@@ -466,8 +466,31 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
-    const settleReason = this.#settleReason();
-    const unsettled = await this.settleViews(settleReason);
+    return this.withSaveLock(async (saveLock) => this.#save(saveLock));
+  }
+
+  #nextSaveLock = 0;
+  readonly #saveLocks = new Set<number>();
+
+  /** A late-opening split inherits the active locks before its form becomes editable. */
+  activeSaveLocks(): readonly number[] {
+    return [...this.#saveLocks];
+  }
+
+  /** Keep the views locked until this particular write finishes, even if saves overlap. */
+  async withSaveLock<T>(operation: (saveLock: number) => Promise<T>): Promise<T> {
+    const saveLock = ++this.#nextSaveLock;
+    this.#saveLocks.add(saveLock);
+    try {
+      return await operation(saveLock);
+    } finally {
+      this.#saveLocks.delete(saveLock);
+      for (const view of this.#views) view.notify?.({ type: "unlock", saveLock });
+    }
+  }
+
+  async #save(saveLock: number): Promise<SaveResult> {
+    const unsettled = await this.settleViews(this.#settleReason(), saveLock);
     if (unsettled !== null) {
       const path = this.model.identity.path;
       const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled.replace(/\.+$/, "")}. Nothing was written and the edits it holds stay unsaved; save again.` } };
@@ -545,7 +568,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
 /** One webview of a document, and the `settle` requests it has not yet answered. */
 interface SettleTarget {
-  post(requestId: string, reason?: SettleReason): PromiseLike<boolean>;
+  post(requestId: string, reason?: SettleReason, saveLock?: number): PromiseLike<boolean>;
   /** A message sent outside a request/answer pair, such as a source visit's tile. */
   notify?(message: BridgeMessage): void;
   /** A hand-off answer: `settled` is false when the view could not confirm its accepted edits; the message is a reason it refuses. */
@@ -864,41 +887,37 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (!result.ok) throw new Error(result.failure.message);
     },
     async saveCustomDocumentAs(document, destination) {
-      // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
-      // Edits the webview accepted but has not sent are part of the copy (#2613).
-      // Save As is the author's own explicit act, so a field the file cannot store refuses the copy with its reason.
-      const unsettled = await document.settleViews("explicit");
-      if (unsettled !== null) throw new Error(`Could not save ${nameOf(destination)}: ${unsettled}. Nothing was written.`);
-      const folder = port.folderOf(destination);
-      if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
-      // The source's project is the project of its whole lifecycle (D1.1). A multi-root workspace has one project per
-      // folder, and Save As never moves a document into another one; the refusal comes before any state is made for that
-      // folder, so the other project gets no workspace, no read and no write (ADR 0022 D14.7, #2206).
-      if (folder.key !== document.model.identity.projectId) {
-        throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
-      }
-      const project = projectIn(folder, destination);
-      const resolved = await resolveDocumentPath(project.fs, project.path);
-      if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `Could not check ${project.path}: ${resolved.error.message}`);
-      const identity = createDocumentIdentity(folder.key, resolved.path);
-      if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
-        throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
-      }
-      // VS Code replaces the source tab with the destination once this resolves, so a source edit made during the write
-      // (which the copy does not hold) fails the Save As and keeps the source open with its work (#2201).
-      const copied = document.model.getSnapshot();
-      // Save As through the workspace's storage, so an existing destination keeps its prior bytes in history (D12.10 items 4 and 6).
-      const result = await document.model.saveAs(project.workspace.storage, identity);
-      if (!result.ok) throw new Error(result.failure.message);
-      // Text typed into a field during the write is not in the copy and not in the model's revision: VS Code replaces the
-      // source with the destination once this resolves, which would drop it. Failing keeps the source open with that text.
-      // The look comes first and the revision is compared after it, because settling can hand over an edit the view had
-      // accepted while the copy was written.
-      const late = await document.settleViewsOutcome("guard");
-      if (late.message !== null) throw new Error(`${resolved.path} was written, but ${document.model.identity.path} ${late.refused ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
-      if (!sameRevision(document.model.getSnapshot(), copied)) {
-        throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
-      }
+      return document.withSaveLock(async (saveLock) => {
+        // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
+        // Edits the webview accepted but has not sent are part of the copy (#2613).
+        const unsettled = await document.settleViews("explicit", saveLock);
+        if (unsettled !== null) throw new Error(`Could not save ${nameOf(destination)}: ${unsettled.replace(/\.+$/, "")}. Nothing was written.`);
+        const folder = port.folderOf(destination);
+        if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
+        // A multi-root workspace has one project per folder; refuse a cross-project copy before touching the other project
+        // (ADR 0022 D1.1, D14.7, #2206).
+        if (folder.key !== document.model.identity.projectId) {
+          throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
+        }
+        const project = projectIn(folder, destination);
+        const resolved = await resolveDocumentPath(project.fs, project.path);
+        if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `Could not check ${project.path}: ${resolved.error.message}`);
+        const identity = createDocumentIdentity(folder.key, resolved.path);
+        if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
+          throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
+        }
+        const copied = document.model.getSnapshot();
+        // Workspace storage retains an existing destination's prior bytes in history (D12.10 items 4 and 6).
+        const result = await document.model.saveAs(project.workspace.storage, identity);
+        if (!result.ok) throw new Error(result.failure.message);
+        // VS Code replaces the source tab once this resolves. Compare revisions after settlement, which can deliver an
+        // accepted edit that the copy doesn't hold (#2201).
+        const late = await document.settleViewsOutcome("guard", saveLock);
+        if (late.message !== null) throw new Error(`${resolved.path} was written, but ${document.model.identity.path} ${late.refused ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
+        if (!sameRevision(document.model.getSnapshot(), copied)) {
+          throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
+        }
+      });
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
@@ -951,7 +970,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId, reason) => webview.postMessage({ type: "settle", requestId, ...(reason === undefined ? {} : { reason }) }), (message) => { void webview.postMessage(message); });
+      const detach = document.attachWebview((requestId, reason, saveLock) => webview.postMessage({
+        type: "settle", requestId,
+        ...(reason === undefined ? {} : { reason }),
+        ...(saveLock === undefined ? {} : { saveLock }),
+      }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {

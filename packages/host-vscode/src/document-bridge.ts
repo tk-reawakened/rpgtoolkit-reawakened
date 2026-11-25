@@ -75,7 +75,7 @@ export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly Ch
 type HistoryDirection = "undo" | "redo";
 type WorkbenchHistoryResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean; readonly saveLocks?: readonly number[] }
   /** A source visit asked for a one-based tile: every live view of this document selects it without changing the document. */
   | { readonly type: "source-target"; readonly tile: number }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
@@ -99,7 +99,9 @@ export type BridgeMessage =
   | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
   | { readonly type: "save-image-result"; readonly requestId: string; readonly result: PlatformResult<boolean> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
-  | { readonly type: "settle"; readonly requestId: string; readonly reason?: SettleReason };
+  | { readonly type: "settle"; readonly requestId: string; readonly reason?: SettleReason; readonly saveLock?: number }
+  /** The save the host locked this view for is over: text entry is allowed again. */
+  | { readonly type: "unlock"; readonly saveLock: number };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
@@ -130,6 +132,7 @@ export type VscodeApi = { postMessage(message: EditorHostRequest): void; getStat
 
 /** What the bridge needs from the extension host's side of one custom document. */
 export interface BridgedDocument {
+  activeSaveLocks?(): readonly number[];
   readonly model: AnyDocument;
   readonly capabilities: readonly Capability[];
   readonly browserSession: BrowserSession;
@@ -170,6 +173,7 @@ export async function handleEditorHostRequest(
   if (request.type === "ready") {
     const initialBoardPath = await document.initialBoardPath();
     const sourceTile = document.sourceTarget();
+    const saveLocks = document.activeSaveLocks?.();
     await postMessage({
       type: "initialize",
       kind: document.model.kind,
@@ -179,6 +183,7 @@ export async function handleEditorHostRequest(
       boardPreferences: document.boardPreferences(),
       ...(initialBoardPath === undefined ? {} : { initialBoardPath }),
       ...(sourceTile === undefined ? {} : { sourceTile }),
+      ...(saveLocks === undefined || saveLocks.length === 0 ? {} : { saveLocks }),
     });
   } else if (request.type === "set-initial-board") {
     await postMessage({ type: "initial-board-result", requestId: request.requestId, outcome: await document.setInitialBoard(request.path) });
@@ -461,6 +466,7 @@ export class RemoteDocument {
   readonly identity: BridgedSnapshot["identity"];
   readonly browserSession: BrowserSession;
   private readonly listeners = new Set<() => void>();
+  private readonly saveLocks = new Set<number>();
   private readonly pendingEditResults = new Map<string, (result: ApplyResult) => void>();
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
@@ -498,7 +504,9 @@ export class RemoteDocument {
   private preferences: EditorPreferences;
   private readonly preferenceListeners = new Set<() => void>();
 
-  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string, live = true) {
+  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string, live = true, saveLocks: readonly number[] = []) {
+    for (const saveLock of saveLocks) this.saveLocks.add(saveLock);
+    if (this.saveLocks.size > 0) this.pendingEdits.lock(true);
     this.preferences = preferences;
     this.boardPreferences = {
       get: () => this.preferences,
@@ -667,8 +675,18 @@ export class RemoteDocument {
   }
 
   receive(message: BridgeMessage): void {
+    if (message.type === "unlock") {
+      if (this.saveLocks.delete(message.saveLock) && this.saveLocks.size === 0) this.pendingEdits.lock(false);
+      return;
+    }
     if (message.type === "settle") {
       const requestId = message.requestId;
+      // A save locks text entry first, so nothing can be typed between what the settlement answers and what is written;
+      // the host unlocks when the save is over.
+      if (message.saveLock !== undefined) {
+        this.saveLocks.add(message.saveLock);
+        this.pendingEdits.lock(true);
+      }
       // The hand-off answer stays `{ requestId }` when nothing refuses, so #2613's contract is unchanged; a refusal adds
       // its sentence for the provider to surface instead of saving around the field.
       void this.pendingEdits.settle(message.reason).then((outcome) => this.vscode.postMessage({

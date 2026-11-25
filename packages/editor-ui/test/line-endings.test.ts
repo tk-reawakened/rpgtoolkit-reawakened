@@ -2,7 +2,7 @@
 // in the text, never pairs lines, and reads a repeated line's position from the caret.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { editLineText, lineTextOf, writtenText } from "../src/line-endings.ts";
+import { editLineText, LineHistory, lineTextOf, writtenText } from "../src/line-endings.ts";
 
 const through = (stored: string, typed: string, caret?: number): string => writtenText(editLineText(lineTextOf(stored), typed, caret));
 
@@ -71,4 +71,23 @@ test("two breaks stay two: an emptied line between a lone CR and a lone LF does 
   equal(lineTextOf(written).text, "A\n\nC", "three lines read back as three lines");
   equal(through("A\rB\nC", "A\nC"), "A\rC", "deleting the whole line keeps the first break as it was");
   equal(writtenText(editLineText(lineTextOf("A\r\n\nC"), "A\n\nC")), "A\r\n\nC", "a genuine CRLF followed by an empty line is left alone");
+});
+
+test("an Undo back to an earlier text restores that text's own endings, and the history stays bounded", () => {
+  const history = new LineHistory("A\r\nB\nC");
+  const deleted = history.follow("AB\nC", 1);
+  equal(writtenText(deleted), "AB\nC", "the surviving break is the one that was after B");
+  const undone = history.follow("A\nB\nC", 1, true);
+  equal(writtenText(undone), "A\r\nB\nC", "the bytes the file held, not rebuilt from the deletion");
+  equal(writtenText(new LineHistory("A\r\nB\nC").follow("A\nB\nC")), "A\r\nB\nC", "a text that did not change keeps the stored endings");
+  // A long edit history is bounded: forty edits of a 400k-character text stay usable and keep the latest text exactly.
+  const base = `${"x\n".repeat(200_000)}tail`;
+  const long = new LineHistory(base);
+  let latest = base;
+  for (let step = 0; step < 40; step += 1) {
+    latest = `${"x\n".repeat(200_000)}${"y".repeat(step + 1)}tail`;
+    long.follow(latest);
+  }
+  equal(long.line.text, latest, "the latest edit is always kept");
+  equal(writtenText(long.line), latest, "and writes back as itself");
 });

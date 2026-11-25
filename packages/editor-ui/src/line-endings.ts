@@ -104,3 +104,51 @@ export function editLineText(model: LineText, next: string, caret?: number): Lin
   const trailing = lastLine < endings.length ? [endings[lastLine]!] : [];
   return { text: next, endings: [...endings.slice(0, firstLine), ...inner, ...trailing, ...endings.slice(lastLine + 1)] };
 }
+
+/** The most text a history keeps (in characters); the stored version is always kept. */
+const HISTORY_CHARACTERS = 4_000_000;
+
+/**
+ * A text's states while it is edited, so the author's Undo (the textarea's own, which puts back an earlier text) restores
+ * the endings that text had instead of rebuilding them from the edit that followed: delete the first break of a mixed
+ * description and press Ctrl+Z, and the file's original bytes come back, not a normalised copy. The history is bounded in
+ * characters; the stored version is never dropped.
+ */
+export class LineHistory {
+  readonly stored: LineText;
+  #line: LineText;
+  readonly #seen = new Map<string, LineText>();
+  #characters = 0;
+
+  constructor(stored: string) {
+    this.stored = lineTextOf(stored);
+    this.#line = this.stored;
+    this.#remember(this.stored);
+  }
+
+  /** The text as last followed. */
+  get line(): LineText {
+    return this.#line;
+  }
+
+  /** Recover separator metadata on native Undo/Redo; ordinary edits use their own caret even if the text recurs. */
+  follow(text: string, caret?: number, historyEdit = false): LineText {
+    if (text === this.#line.text) return this.#line;
+    const known = historyEdit ? this.#seen.get(text) : undefined;
+    this.#line = known ?? editLineText(this.#line, text, caret);
+    if (known === undefined && text !== this.stored.text) this.#remember(this.#line);
+    return this.#line;
+  }
+
+  #remember(line: LineText): void {
+    if (this.#seen.delete(line.text)) this.#characters -= line.text.length;
+    this.#seen.set(line.text, line);
+    this.#characters += line.text.length;
+    for (const [text] of this.#seen) {
+      if (this.#characters <= HISTORY_CHARACTERS || this.#seen.size <= 1) break;
+      if (text === this.stored.text || text === this.#line.text) continue;
+      this.#seen.delete(text);
+      this.#characters -= text.length;
+    }
+  }
+}

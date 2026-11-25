@@ -730,6 +730,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       if (!resolved.ok) return failed(target, resolved.kind === "case-conflict" ? resolved.message : `Could not check ${target}: ${resolved.error.message}`);
       const identity = createDocumentIdentity(projectId, resolved.path);
       if (identity.key === document.identity.key) {
+        // The destination lookup and any question above took time: the author may have typed since the settlement at the
+        // top, so settle again immediately before this save, with nothing awaited in between.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return failed(source, settled.message);
         const saved = await document.save();
         return saved.ok ? { ok: true, document } : failed(source, saved.failure.message);
       }

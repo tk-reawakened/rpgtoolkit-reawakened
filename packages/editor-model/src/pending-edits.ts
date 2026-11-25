@@ -13,16 +13,14 @@
  * Why a host is settling a view's work (ADR 0022 D11.2). An explicit save (Save, Save All, Ctrl+S, a save-on-close)
  * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; `query`
  * asks only for the dirty state, before a revert's question; `revert` drops text typed against the version being
- * discarded; `guard` is a host that cannot say whose save this is (VS Code gives a custom editor no reason, and a timer's
- * save looks like the author's): it hands over accepted edits, never applies text mid-gesture, and is told of any text a
- * field still holds, so the host can save what it can and still keep the document unsaved rather than lose that text. A caller that passes nothing keeps the behaviour this registry had before the reason existed.
+ * discarded; `guard` hands over accepted edits without applying draft text and refuses if a view still holds any.
+ * A caller that passes nothing keeps the behaviour this registry had before the reason existed.
  */
 export type SettleReason = "explicit" | "autosave" | "guard" | "revert" | "query";
 
 /**
- * What a settlement found: `ok` when nothing refused, else why not. `held` is a view reporting text a field holds (the
- * accepted edits did reach the document, so a host may still write them); `incomplete` is a hand-off that could not be
- * confirmed (a view still busy after every round, a view gone, a timeout), after which nothing may be written.
+ * What a settlement found: `ok` when nothing refused, else why not. `held` identifies text the view is holding;
+ * `incomplete` identifies a hand-off that could not be confirmed. Neither permits a save.
  */
 export type SettleOutcome =
   | { readonly ok: true }
@@ -44,6 +42,12 @@ export interface PendingEditWork {
   refusal?(reason: SettleReason | undefined): string | null;
   /** Whether the view holds text the document does not (typed but not yet applied), so closing or reverting must ask first. */
   holdsDraft?(): boolean;
+  /**
+   * Stop (`true`) or allow (`false`) the author starting new text in this view. A host that saves asynchronously locks the
+   * view before it asks for the settlement and unlocks it once the save is over, so text cannot appear between what the
+   * settlement saw and what the write holds.
+   */
+  lock?(locked: boolean): void;
 }
 
 /** What a view needs to take part: register its work, and wait for every view's work (its own Save waits for its siblings). */
@@ -56,6 +60,8 @@ export interface PendingEdits {
   settle(reason?: SettleReason): Promise<SettleOutcome>;
   /** Whether any registered view holds text the document does not. */
   holdsDraft(): boolean;
+  /** Lock or unlock every registered view's text entry (see `PendingEditWork.lock`). */
+  lock(locked: boolean): void;
 }
 
 function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | undefined): SettleOutcome {
@@ -68,15 +74,22 @@ function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | und
 
 export function createPendingEdits(): PendingEdits {
   const works = new Set<PendingEditWork>();
+  let locked = false;
   const busy = (): boolean => [...works].some((work) => work.busy());
   const holdsDraft = (): boolean => [...works].some((work) => work.holdsDraft?.() === true);
   return {
     register(work) {
       works.add(work);
+      if (locked) work.lock?.(true);
       return () => void works.delete(work);
     },
     busy,
     holdsDraft,
+    lock(next) {
+      if (next === locked) return;
+      locked = next;
+      for (const work of works) work.lock?.(locked);
+    },
     async settle(reason) {
       // Every registered view hears the reason, busy or not: an explicit save applies the field being typed in, which no
       // view reports as busy because the document does not hold it yet.

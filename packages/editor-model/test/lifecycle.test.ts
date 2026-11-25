@@ -930,3 +930,30 @@ test("a settlement still busy after every round is an incomplete hand-off, and a
   ok(!refused.ok);
   equal(refused.kind, "held");
 });
+
+test("Save As to the same path settles again after the lookup, so text typed while the destination was chosen refuses the copy (#3385)", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  // The field is clean at the settlement that starts Save As; the author types into it while the destination is chosen, so
+  // only a second look right before the write can see the text.
+  let settlements = 0;
+  workspace.pendingEdits(opened.document).register({
+    busy: () => false,
+    idle: async () => undefined,
+    holdsDraft: () => true,
+    refusal: (reason) => {
+      if (reason !== "explicit") return null;
+      settlements += 1;
+      return settlements > 1 ? "a field still holds text this file cannot store" : null;
+    },
+  });
+  ok(opened.document.apply({ type: "set-game-title", title: "Edited" }).ok);
+  host.answerSavePaths(PATH);
+  const result = await workspace.saveAs(opened.document);
+  ok(!result.ok, "the same-path save is refused with the reason instead of being written around");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "nothing was written");
+  equal(opened.document.getSnapshot().dirty, true);
+});

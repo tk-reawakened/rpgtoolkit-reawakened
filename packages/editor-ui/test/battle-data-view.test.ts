@@ -435,5 +435,66 @@ test("Save my version goes through the same guard: text a field refuses is not s
     await settle();
     deepEqual(view.host.bytesOf(SPC), theirs, "the other version was not replaced around the refused text");
     ok(view.root.textContent?.includes("Nothing was saved"), "and the form says so");
+    ok(view.doc.getSnapshot().conflict !== null, "the conflict is kept: nothing was adopted or written, so both versions are still the author's to choose between");
+    ok([...view.root.querySelectorAll("button")].some((candidate) => candidate.textContent === "Use the version on disk"), "and the other choice is still offered");
+  } finally { view.dispose(); }
+});
+
+test("the form's Save takes every view of the document into account, not only its own fields (#3385)", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    // A second view of the same document, in the same registry, holds text the file cannot store.
+    const second = view.pendingEdits.register({
+      busy: () => false,
+      idle: async () => undefined,
+      holdsDraft: () => true,
+      refusal: (reason) => reason === "explicit" ? "a field in another view still holds text this file cannot store; correct it or discard it" : null,
+    });
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), fireball, "nothing was written around the other view's text");
+    ok(view.root.textContent?.includes("Nothing was saved: a field in another view"), "and the form says why");
+    second();
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), patched(fireball, { [FP]: [0xe2, 0xff, 0xff, 0xff] }), "once that view has nothing held, the save goes through");
+  } finally { view.dispose(); }
+});
+
+test("a save locks text entry until it is over, so nothing is typed between what it settled and what it wrote (#3385)", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    const inputs = (): HTMLInputElement[] => ["Damage (FP)", "SMP cost to the user", "Status effect file"].map((label) => field(view.root, label));
+    ok(inputs().every((input) => !input.disabled), "open for typing");
+    await act(() => { view.pendingEdits.lock(true); });
+    ok(inputs().every((input) => input.readOnly), "locked while the host settles and writes");
+    ok(view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')?.readOnly === true);
+    await act(() => { view.pendingEdits.lock(false); });
+    ok(inputs().every((input) => !input.readOnly), "open again once the save is over");
+  } finally { view.dispose(); }
+});
+
+test("Undo in the textarea restores the file's own separators, byte for byte (#3385)", async () => {
+  const stored = "A\r\nB\nC";
+  const bytes = new Uint8Array([...fireball.slice(0, 0x43), ...Uint8Array.from(`${stored}\0`, (c) => c.charCodeAt(0))]);
+  const view = await mountWithPending({ [SPC]: bytes, [STE]: burn });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    const type = async (text: string, caret: number, inputType: string): Promise<void> => {
+      await act(() => {
+        area.value = text;
+        area.setSelectionRange(caret, caret);
+        area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType }));
+      });
+    };
+    await type("AB\nC", 1, "deleteContentBackward");
+    await type("A\nB\nC", 1, "historyUndo");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    deepEqual(view.doc.serialize(), bytes, "the original bytes, not a normalised copy");
+    equal(view.doc.getSnapshot().dirty, false, "and no edit was made");
   } finally { view.dispose(); }
 });

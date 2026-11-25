@@ -306,3 +306,24 @@ test("Save As compares the source's revision after its final look, and tells hel
   await rejects(provider.saveCustomDocumentAs(unconfirmed, { path: "/beta/copy.gam" }), /could not hand over its latest edits and remains open/);
   detachUnconfirmed();
 });
+
+test("a refused native save releases the same lock it sent with settlement (#3385)", async () => {
+  const { files, openEdited } = workspace();
+  const path = `/alpha/${GAME}`;
+  const document = await openEdited(path, "Unsaved");
+  const original = files.get(path)?.slice();
+  const notices: Array<readonly [string, number | undefined]> = [];
+  const detach = document.attachWebview((requestId, reason, saveLock) => {
+    equal(reason, "explicit");
+    notices.push(["settle", saveLock]);
+    queueMicrotask(() => document.viewSettled(requestId, false, "a field still holds text this file cannot store", "held"));
+    return Promise.resolve(true);
+  }, (message) => { if (message.type === "unlock") notices.push(["unlock", message.saveLock]); });
+  const save = await document.save();
+  equal(save.ok, false, "the refused save reports failure");
+  const lock = notices[0]?.[1];
+  ok(lock !== undefined);
+  deepEqual(notices, [["settle", lock], ["unlock", lock]]);
+  deepEqual(files.get(path), original, "refusal leaves the file alone");
+  detach();
+});

@@ -235,5 +235,28 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       equal(field(tab, "Damage (FP)").value, "-31");
       equal(tab.workbenchDirty(), true);
     });
+
+    if (entry !== "browser host") test("native Save locks the fields even when its saving snapshot is delayed (#3385)", { timeout: 1000 }, async () => {
+      const proof = host();
+      const tab = await openReady(proof, SPC, "Damage (FP)");
+      await type(tab, "Damage (FP)", "-30");
+      const snapshots = tab.holdSnapshots?.();
+      const write = proof.holdNextWrite?.();
+      ok(snapshots && write);
+      const saving = tab.saveFromWorkbench();
+      try {
+        await write.started;
+        const damage = field(tab, "Damage (FP)");
+        equal(damage.disabled, false, "the webview has not received the model's saving snapshot");
+        equal(damage.readOnly, true, "settlement already locked text entry before the write");
+        equal(await damageOnDisk(proof), 12);
+      } finally {
+        write.release();
+        snapshots.release();
+      }
+      equal(await saving, true);
+      await until(() => !field(tab, "Damage (FP)").readOnly, "unlock after the write");
+      equal(await damageOnDisk(proof), -30);
+    });
   });
 }
