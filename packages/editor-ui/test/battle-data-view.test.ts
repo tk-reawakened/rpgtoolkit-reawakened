@@ -601,6 +601,44 @@ test("typing while a description acknowledgement is held inherits the already su
   } finally { ack.emit("release"); view.dispose(); }
 });
 
+test("a discarded textarea branch still supplies exact separator bytes to document Undo", async () => {
+  const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
+  const ack = new EventEmitter();
+  const held = once(ack, "release");
+  let applied = false;
+  const view = await mountWithPending({ [SPC]: bytesWith("A\rB\nC"), [STE]: burn }, undefined, async (apply) => {
+    const result = apply();
+    applied = true;
+    await held;
+    return result;
+  });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    const blur = async (): Promise<void> => { await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); }); };
+    await editDescription(area, "A\n\nC", 2, "deleteContentBackward");
+    await blur();
+    await until(() => applied, "the blank line edit applied before acknowledgement");
+    deepEqual(view.doc.serialize(), bytesWith("A\r\rC"));
+
+    await editDescription(area, "A\nX\nC", 3, "insertText");
+    await blur();
+    await editDescription(area, "A\n\nC", 2, "historyUndo");
+    await editDescription(area, "A\nY\nC", 3, "insertText");
+    await blur();
+    ack.emit("release");
+    await settle();
+    deepEqual(view.doc.serialize(), bytesWith("A\rY\rC"));
+    equal(view.doc.getSnapshot().edits.length, 3, "both blurs entered document history, despite the textarea's Undo");
+
+    await act(() => { ok(view.doc.undo().ok); });
+    await settle();
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\rC"), "document Undo restores the queued edit and both accepted CR separators");
+  } finally { ack.emit("release"); view.dispose(); }
+});
+
 test("a rejected description acknowledgement leaves newer typing and original separators intact", async () => {
   const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
   const original = bytesWith("A\rB\nC");

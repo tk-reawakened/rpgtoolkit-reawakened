@@ -323,11 +323,11 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   const commit = (text: string): Promise<void> => {
     const { history } = model.current!;
     history.follow(text);
-    const prepare = history.stage();
+    const staged = history.stage();
     return commitText(id, () => {
-      const staged = prepare();
-      return { command: command(staged.text), accept: staged.accept };
-    });
+      const prepared = staged.prepare();
+      return { command: command(prepared.text), accept: prepared.accept };
+    }).finally(staged.release);
   };
   registerField(id, commit);
   return <p>

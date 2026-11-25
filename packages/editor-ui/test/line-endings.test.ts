@@ -112,7 +112,9 @@ test("accepting a rewritten separator updates only that native history position"
   history.follow("A\nX\nC", 3);
   const empty = history.follow("A\n\nC", 2, "undo");
   equal(writtenText(empty), "A\r\rC", "the writer keeps two line breaks");
-  history.stage()().accept();
+  const staged = history.stage();
+  staged.prepare().accept();
+  staged.release();
   deepEqual(history.line.endings, ["\r", "\r"]);
   equal(writtenText(history.follow("A\nB\nC", 3, "undo")), "A\rB\nC", "Undo restores the earlier bytes");
   deepEqual(history.follow("A\n\nC", 2, "redo").endings, ["\r", "\r"], "Redo restores the accepted breaks");
@@ -124,12 +126,15 @@ test("accepting a rewritten separator updates only that native history position"
 test("a queued submission inherits separators only from earlier accepted submissions", () => {
   const history = new LineHistory("A\rB\nC");
   history.follow("A\n\nC", 2);
-  const blank = history.stage()();
+  const blank = history.stage();
+  const submitted = blank.prepare();
   history.follow("A\nX\nC", 3);
   const queued = history.stage();
-  equal(queued().text, "A\rX\nC", "while the blank line is not accepted, its pending encoding is not inherited");
-  blank.accept();
-  equal(queued().text, "A\rX\rC", "after acknowledgement the queued gesture uses the accepted separators");
+  equal(queued.prepare().text, "A\rX\nC", "while the blank line is not accepted, its pending encoding is not inherited");
+  submitted.accept();
+  blank.release();
+  equal(queued.prepare().text, "A\rX\rC", "after acknowledgement the queued gesture uses the accepted separators");
+  queued.release();
   equal(writtenText(history.follow("A\n\nC", 2, "undo")), "A\r\rC");
   equal(writtenText(history.follow("A\nB\nC", 3, "undo")), "A\rB\nC");
 });

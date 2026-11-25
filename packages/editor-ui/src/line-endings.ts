@@ -137,8 +137,11 @@ function replayEndings(endings: readonly string[], edit: LineEdit, undo: boolean
   return spliceEndings(endings, edit.firstEnding, remove.length, insert);
 }
 
-interface HistoryEdit extends LineEdit {
+interface HistoryPosition {
+  readonly parent: HistoryPosition | null;
+  readonly depth: number;
   readonly serial: number;
+  edit: LineEdit | null;
 }
 
 function replayText(text: string, edit: LineEdit, undo: boolean): string {
@@ -152,7 +155,12 @@ export interface DescriptionSubmission {
   accept(): void;
 }
 
-function withEndings(edit: HistoryEdit, before: readonly string[], after: readonly string[]): HistoryEdit {
+interface StagedDescription {
+  prepare(): DescriptionSubmission;
+  release(): void;
+}
+
+function withEndings(edit: LineEdit, before: readonly string[], after: readonly string[]): LineEdit {
   let first = 0;
   let oldEnd = before.length;
   let newEnd = after.length;
@@ -168,7 +176,8 @@ function withEndings(edit: HistoryEdit, before: readonly string[], after: readon
  * different separators.
  */
 export class LineHistory {
-  readonly #edits: HistoryEdit[] = [];
+  readonly #path: HistoryPosition[] = [{ parent: null, depth: 0, serial: 0, edit: null }];
+  readonly #pending = new Map<HistoryPosition, number>();
   #serial = 0;
   #cursor = 0;
   #line: LineText;
@@ -182,56 +191,94 @@ export class LineHistory {
   }
 
   /** Capture this gesture now, but encode it only once older edits in the document queue have settled. */
-  stage(): () => DescriptionSubmission {
-    const draft = this.#line;
-    const at = this.#cursor;
-    const serial = this.#edits[at - 1]?.serial ?? 0;
+  stage(): StagedDescription {
+    const text = this.#line.text;
+    const position = this.#path[this.#cursor]!;
     const existing = this.#serial;
-    const stillExists = (): boolean => at === 0 || this.#edits[at - 1]?.serial === serial;
-    return () => {
-      // Typing after undo can truncate this position; an already submitted gesture still keeps its captured bytes.
-      const line = stillExists() ? { text: draft.text, endings: this.#endingsAt(at) } : draft;
-      const text = writtenText(line);
-      return { text, accept: () => {
-        if (!stillExists() || !line.text.includes("\n\n") || !line.endings.includes("\r")) return;
-        const written = text.match(BREAKS) ?? [];
-        if (written.some((ending, index) => ending !== line.endings[index])) this.#acceptEncoding(at, existing, line, written);
-      } };
+    this.#pending.set(position, (this.#pending.get(position) ?? 0) + 1);
+    return {
+      prepare: () => {
+        const endings = this.#endingsAt(position);
+        const stored = writtenText({ text, endings });
+        return { text: stored, accept: () => {
+          if (!text.includes("\n\n") || !endings.includes("\r")) return;
+          const written = stored.match(BREAKS) ?? [];
+          if (written.some((ending, index) => ending !== endings[index])) this.#acceptEncoding(position, existing, endings, written);
+        } };
+      },
+      release: () => {
+        const count = this.#pending.get(position)!;
+        if (count === 1) this.#pending.delete(position);
+        else this.#pending.set(position, count - 1);
+      },
     };
   }
 
-  #endingsAt(at: number): readonly string[] {
+  #endingsAt(target: HistoryPosition): readonly string[] {
+    let position = this.#path[this.#cursor]!;
     let endings = this.#line.endings;
-    for (let index = this.#cursor; index > at;) endings = replayEndings(endings, this.#edits[--index]!, true);
-    for (let index = this.#cursor; index < at; index += 1) endings = replayEndings(endings, this.#edits[index]!, false);
+    if (position === target) return endings;
+    const forward: LineEdit[] = [];
+    while (position !== target) {
+      if (position.depth >= target.depth) {
+        endings = replayEndings(endings, position.edit!, true);
+        position = position.parent!;
+      } else {
+        forward.push(target.edit!);
+        target = target.parent!;
+      }
+    }
+    for (let index = forward.length - 1; index >= 0; index -= 1) endings = replayEndings(endings, forward[index]!, false);
     return endings;
   }
 
-  #acceptEncoding(at: number, existing: number, line: LineText, written: readonly string[]): void {
-    // The edge into this position must still undo to exactly the bytes it held before submission.
-    const prior = this.#edits[at - 1];
-    if (prior !== undefined) this.#edits[at - 1] = withEndings(prior, replayEndings(line.endings, prior, true), written);
-    if (at === this.#cursor) this.#line = { text: line.text, endings: written };
-    let endings = written;
-    for (let index = at; index < this.#edits.length; index += 1) {
-      const edit = this.#edits[index]!;
-      if (edit.serial <= existing) {
-        // A redo state that predates this submission keeps its old bytes.
-        this.#edits[index] = withEndings(edit, written, replayEndings(line.endings, edit, false));
-        break;
+  #acceptEncoding(position: HistoryPosition, existing: number, previous: readonly string[], written: readonly string[]): void {
+    // Keep the reversible edge to the earlier state. Walk the live textarea path and any discarded branches still
+    // referenced by queued document edits; those edits will remain reachable through the workbench's Undo.
+    if (position.edit !== null) position.edit = withEndings(position.edit, replayEndings(previous, position.edit, true), written);
+    const current = this.#path[this.#cursor]!;
+    const children = new Map<HistoryPosition, HistoryPosition[]>();
+    const seen = new Set([position]);
+    const collect = (tip: HistoryPosition): void => {
+      const branch: HistoryPosition[] = [];
+      while (tip.depth > position.depth && !seen.has(tip)) {
+        branch.push(tip);
+        tip = tip.parent!;
       }
-      // Newer typing inherits the accepted separators, including separators added from a changed neighbour.
-      const { firstEnding, fallbackEnding, removedEndings, insertedEndings } = edit;
-      if (removedEndings.length > 0 || insertedEndings.length > 0) {
-        const rebased = {
-          ...edit,
-          removedEndings: endings.slice(firstEnding, firstEnding + removedEndings.length),
-          insertedEndings: Array<string>(insertedEndings.length).fill(endings[fallbackEnding] ?? "\n"),
-        };
-        this.#edits[index] = rebased;
-        endings = replayEndings(endings, rebased, false);
+      if (!seen.has(tip)) return;
+      for (let index = branch.length - 1; index >= 0; index -= 1) {
+        const child = branch[index]!;
+        const siblings = children.get(child.parent!);
+        if (siblings === undefined) children.set(child.parent!, [child]);
+        else siblings.push(child);
+        seen.add(child);
       }
-      if (index + 1 === this.#cursor) this.#line = { text: this.#line.text, endings };
+    };
+    collect(this.#path.at(-1)!);
+    for (const pending of this.#pending.keys()) collect(pending);
+
+    const work = [{ position, endings: written }];
+    while (work.length > 0) {
+      const state = work.pop()!;
+      if (state.position === current) this.#line = { text: this.#line.text, endings: state.endings };
+      for (const child of children.get(state.position) ?? []) {
+        const edit = child.edit!;
+        if (child.serial <= existing) {
+          // The first redo state that predates this submission keeps its bytes, and so do its descendants.
+          child.edit = withEndings(edit, state.endings, replayEndings(previous, edit, false));
+          continue;
+        }
+        // Newer typing inherits accepted separators, including separators added from a changed neighbour.
+        const { firstEnding, fallbackEnding, removedEndings, insertedEndings } = edit;
+        if (removedEndings.length > 0 || insertedEndings.length > 0) {
+          child.edit = {
+            ...edit,
+            removedEndings: state.endings.slice(firstEnding, firstEnding + removedEndings.length),
+            insertedEndings: Array<string>(insertedEndings.length).fill(state.endings[fallbackEnding] ?? "\n"),
+          };
+        }
+        work.push({ position: child, endings: replayEndings(state.endings, child.edit!, false) });
+      }
     }
   }
 
@@ -242,21 +289,22 @@ export class LineHistory {
       const undo = historyEdit === "undo";
       const step = undo ? -1 : 1;
       let candidate = current.text;
-      for (let index = this.#cursor + (undo ? -1 : 0); index >= 0 && index < this.#edits.length; index += step) {
-        const edit = this.#edits[index]!;
+      for (let index = this.#cursor + (undo ? 0 : 1); index > 0 && index < this.#path.length; index += step) {
+        const edit = this.#path[index]!.edit!;
         candidate = replayText(candidate, edit, undo);
         if (candidate !== text) continue;
-        const target = index + (undo ? 0 : 1);
-        this.#line = { text, endings: this.#endingsAt(target) };
+        const target = index - (undo ? 1 : 0);
+        this.#line = { text, endings: this.#endingsAt(this.#path[target]!) };
         this.#cursor = target;
         return this.#line;
       }
     }
     if (current.text === text) return current;
-    this.#edits.length = this.#cursor;
-    const edit = { ...describeEdit(current, text, caret), serial: ++this.#serial };
-    this.#edits.push(edit);
+    const parent = this.#path[this.#cursor]!;
+    const edit = describeEdit(current, text, caret);
     this.#cursor += 1;
+    this.#path.length = this.#cursor;
+    this.#path.push({ parent, depth: this.#cursor, serial: ++this.#serial, edit });
     this.#line = { text, endings: replayEndings(current.endings, edit, false) };
     return this.#line;
   }
