@@ -80,6 +80,16 @@ function activate(context) {
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(content)));
     await vscode.commands.executeCommand("vscode.openFolder", uri, { forceReuseWindow: true });
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.armScriptProjectSetting", () => {
+    const first = vscode.workspace.workspaceFolders?.[0];
+    const reviewed = vscode.workspace.workspaceFolders?.find((folder) => folder.name === "Proof reviewed folder");
+    if (first === undefined || reviewed === undefined) throw new Error("The multi-root proof workspace is not open");
+    // Hold the real settings update until the user has reached the native workspace-folder picker.
+    void vscode.workspace.fs.readFile(vscode.Uri.joinPath(first.uri, "__tkr_script_project_setting")).then(() => {
+      const main = vscode.Uri.joinPath(reviewed.uri, "Main", "review-modern.gam");
+      return vscode.workspace.getConfiguration("rpgcode", first.uri).update("project", main.toString(), vscode.ConfigurationTarget.Workspace);
+    }).catch((error) => vscode.window.showErrorMessage(String(error)));
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.armScriptFolderRemoval", () => {
     const first = vscode.workspace.workspaceFolders?.[0];
     const reviewed = vscode.workspace.workspaceFolders?.find((folder) => folder.name === "Proof reviewed folder");

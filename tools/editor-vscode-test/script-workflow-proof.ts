@@ -30,6 +30,7 @@ export function scriptWorkflowProofFiles(): readonly { readonly path: string; re
     { path: MODERN, bytes: main("main_minor9.gam") }, { path: LEGACY, bytes: main("main_tk2_text.gam") },
     { path: ".vscode/settings.json", bytes: encode(`${JSON.stringify({ "files.autoSave": "off", "rpgcode.project": MODERN }, null, 2)}\n`) },
     { path: FORMAT, bytes: encode(MESSY) }, { path: OPT_OUT, bytes: encode(UPPER) }, { path: CLEAN, bytes: encode(CLEANUP) },
+    { path: "Main/__tkr_script_project_setting", bytes: new Uint8Array() },
     { path: "Main/__tkr_remove_script_folder", bytes: new Uint8Array() },
   ];
 }
@@ -181,6 +182,38 @@ export async function runVscodeScriptWorkflowProof(
     const configuration = JSON.parse(await bytes("script-review.code-workspace")) as { settings: Record<string, string | undefined> };
     return configuration.settings["rpgcode.project"];
   };
+  let settingGate: Route | undefined;
+  const holdProjectSetting = async (route: Route): Promise<void> => {
+    if (isFixtureRead(route, "/Main/__tkr_script_project_setting")) {
+      settingGate = route;
+      return;
+    }
+    await route.fallback();
+  };
+  await page.context().route(FIXTURE_FS, holdProjectSetting);
+  try {
+    await dispatch("Test: Arm Script Proof Project Setting");
+    await expect(quick).toBeHidden();
+    await expect.poll(() => settingGate !== undefined).toBe(true);
+    expect(await configuredMain()).toBeUndefined();
+    await start("Format");
+    const firstFolderChoice = row("Proof first folder");
+    await expect(firstFolderChoice).toBeVisible();
+    await settingGate!.continue();
+    settingGate = undefined;
+    await expect(page.getByRole("button", { name: /Running project: .*review-modern\.gam/ })).toBeVisible();
+    await firstFolderChoice.click();
+    await expect(page.locator(".notification-toast").filter({ hasText: "The running project is in a different workspace folder" }).first()).toBeVisible();
+    await expect(quick).toBeHidden();
+    expect(await bytes(FORMAT)).toBe(MESSY);
+    expect(await groups(ROOT)).toEqual(nestedGroups);
+  } finally {
+    await settingGate?.abort();
+    await page.context().unroute(FIXTURE_FS, holdProjectSetting);
+  }
+  // Clear the late setting's effect and explicitly select the main for the independent folder-removal check.
+  await project("No running project");
+  await expect.poll(configuredMain).toBeUndefined();
   await project("review-modern.gam");
   await expect.poll(configuredMain).toMatch(/^tkr-testfs:.*review-modern\.gam$/);
   const selectedMain = await configuredMain();

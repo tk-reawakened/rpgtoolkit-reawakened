@@ -212,13 +212,15 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
       if (folders.length === 0) return;
       let main = configuredMain(folders[0]!.uri);
       let fallback = asked === "program" ? activeFolder : folders.length === 1 ? folders[0] : undefined;
+      let pickedFolderUri: string | undefined;
       if (main === undefined && asked === "project" && fallback === undefined) {
         const picked = await pickFolder(folders);
         if (picked === undefined) return;
+        pickedFolderUri = picked.uri.toString();
         folders = vscode.workspace.workspaceFolders ?? [];
         if (folders.length === 0) return;
         main = configuredMain(folders[0]!.uri);
-        fallback = folders.find(({ uri }) => uri.toString() === picked.uri.toString());
+        fallback = folders.find(({ uri }) => uri.toString() === pickedFolderUri);
       }
       const folder = main === undefined
         ? folders.find(({ uri }) => uri.toString() === fallback?.uri.toString())
@@ -228,6 +230,10 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
         return;
       }
       const folderUri = folder.uri.toString();
+      if (pickedFolderUri !== undefined && pickedFolderUri !== folderUri) {
+        await vscode.window.showErrorMessage("The running project is in a different workspace folder than the one you chose. Start the review again. Nothing was changed.");
+        return;
+      }
       const root = projectRootIn(folder.uri, main);
       const activePath = asked === "program" ? openPrograms(folder.uri).find(({ document }) => document === active)?.path : undefined;
       if (asked === "program" && (activePath === undefined || (root !== "" && !activePath.startsWith(`${root}/`)))) {

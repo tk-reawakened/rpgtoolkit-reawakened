@@ -80,6 +80,7 @@ Draft PR #3363 requires independent review and CI before merge. No owner approva
 - **#3443 — revocation during the path walk.** Apply rechecks the active project immediately before creating migration folders. A delayed listing followed by retirement leaves no folder, output or write receipt.
 - **#3444 — native proof project selection.** The multi-root fixture starts with no stored main, selects the second folder's main through the real picker, then checks that the absolute URI persisted and did not change when the folder was removed.
 - **#3445 — native activation and scope order.** Activate the RPGCode extension before showing the scope and resolve the running project when the author accepts. The native proof holds the real workspace-settings read until the picker opens and then releases it before choosing the project scope. A single-program choice retains that document's identity and never turns into a project-wide request.
+- **#3446 — preserve an explicit workspace-folder choice.** The native proof opens the folder picker with no main configured, releases a real settings update that selects a main in one folder, and picks the other. The workflow asks to restart before inventorying or offering a review; it does not change bytes or History.
 - **#3400 — intermittent native quick-open proof, not resolved here.** An earlier `editor:acceptance` timed out submitting the path after the prompt appeared. The unsubstantiated palette-chord retry was removed; the cause of the after-fill prompt loss is not established.
 
 ## Defect filed
