@@ -35,7 +35,10 @@ The board's tools, history and view controls use compact icons in one wrapping s
 
 **T-08 Preferences.** Editor background image, splash screen and tip-of-the-day toggles, UI language (only English shipped), syntax colours, board-editor colours and behaviour.
 
-**T-09 Onboarding & help.** Tip of the day, a 9-step tutorial, the HTML user manual, an RPGCode quick reference, and a "what's new" page. Story 11.11 connects the workspace Help menu and command palette to the shared searchable quick reference, a TOOL-10-sourced RPGCode authoring guide, and the current Unreleased changelog. Focused settings expose their existing accessible descriptions with F1; tip-of-the-day and tutorial presentation belong to Epic 14.
+<a id="t-09-onboarding--help"></a>
+**T-09 Onboarding & help.** The nine-step **First board tutorial** and **Tip of the day** open from Help in the browser workbench, from the browser welcome page, or from the RPG Toolkit commands in the VS Code command palette. The guide stays open alongside the editor. Close it and return to the last step, or restart it; progress and **Show a tip when the editor opens** are separate user preferences that do not travel with the project. A tip changes with the UTC day and can still be opened manually after turning off startup tips. The guide covers project creation with the opt-in original starter tiles, making a board, painting with the pointer or keyboard, saving the board and main file separately, and comparing the board picture, **Test board** and a normal game run. Contextual F1 help, the searchable RPGCode quick reference, the RPGCode authoring guide and **What's New** remain separate.
+
+If the browser does not expose user storage, Help says the guide position and tip preference last only for the current page. If a preference write is refused, Help shows the error and keeps the previous value.
 
 ### Reawakened rules for the new-project wizard (story 11.10)
 

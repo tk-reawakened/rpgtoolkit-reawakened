@@ -30,6 +30,8 @@
     "onCommand:tkr.insertProgramCommand",
     "onCommand:tkr.openProgramAuthoringGuide",
     "onCommand:tkr.openWhatsNew",
+    "onCommand:tkr.help.firstBoard",
+    "onCommand:tkr.help.dailyTip",
     "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
@@ -122,6 +124,14 @@
       {
         "command": "tkr.openWhatsNew",
         "title": "RPG Toolkit: What's New"
+      },
+      {
+        "command": "tkr.help.firstBoard",
+        "title": "RPG Toolkit: First board tutorial"
+      },
+      {
+        "command": "tkr.help.dailyTip",
+        "title": "RPG Toolkit: Tip of the day"
       },
       {
         "command": "tkr.distractionFree",

@@ -25,6 +25,7 @@ import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
 import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { CREATOR_PROJECT, runVscodeCreatorAcceptanceProof } from "./creator-acceptance-proof.ts";
+import { runVscodeFirstBoardTutorialProof } from "./first-board-tutorial-proof.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -110,13 +111,14 @@ const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF =
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
 const scriptWorkflowProof = process.env.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF === "1";
 const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
-if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof)) {
+const firstBoardTutorialProof = process.env.TKR_VSCODE_FIRST_BOARD_TUTORIAL_PROOF === "1";
+if (designProof && (firstBoardTutorialProof || nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if ((firstBoardTutorialProof || nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of firstBoardTutorialProof || nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
@@ -485,6 +487,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev board import review, cancel, one scene and authorized first-build history proof passed");
       await runVscodeNativeGeometryProof(page, expect, readBacking);
       console.log("vscode.dev shared native tile and pack geometry, move, copy, delete and board rebuild proof passed");
+    } else if (firstBoardTutorialProof) {
+      await runVscodeFirstBoardTutorialProof(page, expect, workbenchUrl);
+      console.log("vscode.dev native Help commands, tutorial resume and user tip preference proof passed");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {

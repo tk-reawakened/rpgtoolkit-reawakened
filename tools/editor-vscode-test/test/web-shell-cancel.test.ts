@@ -19,6 +19,7 @@ test("cancelling a browser document switch unregisters only its candidate and pr
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
+export const createWebSettings = real.createWebSettings;
 import { readFileSync } from 'node:fs';
 const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)})));
 export const A = real.createSessionCopy('A.gam', data);

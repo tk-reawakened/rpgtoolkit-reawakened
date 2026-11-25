@@ -3,7 +3,7 @@
 // resolves through the reserved folders. Each case runs on real bytes against the in-memory double.
 import { test } from "node:test";
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
-import { ASSET_FOLDERS, BinaryReader, parse, readBoard, readCharacter, readMainFile, tokenize, writeMainFile, type AssetKind, type MainFile } from "@tk-reawakened/core";
+import { ASSET_FOLDERS, BinaryReader, parse, readBoard, readCharacter, readMainFile, readTileset, tokenize, writeMainFile, type AssetKind, type MainFile } from "@tk-reawakened/core";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { bindProjectFileSystem, platformError } from "@tk-reawakened/platform-services";
 import {
@@ -65,13 +65,13 @@ test("the catalogue lists every item with provenance, and the unavailable ones w
     ok(item.provenance.length > 0, `${item.id} states its provenance`);
     ok(item.writes.length > 0 && item.description.length > 0 && item.label.length > 0);
   }
-  deepEqual(AVAILABLE, ["start-program", "start-board", "start-character", "builtin-menu-battle"]);
+  deepEqual(AVAILABLE, ["start-program", "start-board", "start-character", "builtin-menu-battle", "tiles"]);
   for (const definition of STARTER_DEFINITIONS) equal(definition.unavailable === null, definition.contribute !== null, `${definition.id}: available exactly when it can build`);
-  const refused = validateNewProject(settings({ starters: ["tiles", "music"] }));
+  const refused = validateNewProject(settings({ starters: ["system-programs", "music"] }));
   deepEqual(refused.map((problem) => problem.field), ["starters", "starters"]);
-  match(refused[0]!.message, /Default tiles is not available: No rights-cleared tile art/);
+  match(refused[0]!.message, /System programs is not available/);
   match(refused[1]!.message, /Music pack is not available/);
-  const plan = planNewProject(settings({ starters: ["tiles"] }));
+  const plan = planNewProject(settings({ starters: ["system-programs"] }));
   equal(plan.ok, false, "an unavailable item is refused, never dropped or replaced");
 });
 
@@ -102,7 +102,7 @@ test("a blank project plans the 14 folders and Main, and only a main file", () =
 test("starter contents are explicit: each chosen item adds its files and its stored references, in catalogue order, main file last", () => {
   const planned = planNewProject(settings({ starters: [...AVAILABLE].reverse() }));
   ok(planned.ok);
-  deepEqual(planned.plan.files.map((file) => file.path), ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Main/MyQuest.gam"]);
+  deepEqual(planned.plan.files.map((file) => file.path), ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Tiles/starter.tst", "Main/MyQuest.gam"]);
   const main = mainOf(planned.plan.files.at(-1)!.bytes);
   deepEqual([main.startupPrg, main.initBoard, main.initChar, main.menuPlugin, main.fightPlugin], ["start.prg", "start.brd", "start.tem", "tk3menu.dll", "tk3fight.dll"]);
 
@@ -113,6 +113,10 @@ test("starter contents are explicit: each chosen item adds its files and its sto
   ok(character.ok, character.ok ? "" : character.error.message);
   equal(character.value.name, "Hero");
   equal(character.value.minor, 8);
+  const tileset = readTileset(planned.plan.files[3]!.bytes, "Tiles/starter.tst");
+  ok(tileset.ok, tileset.ok ? "" : tileset.error.message);
+  deepEqual([tileset.value.detail.size, tileset.value.tiles.length], [32, 3]);
+  deepEqual(tileset.value.tiles.map(({ pixels }) => Array.from(pixels.subarray(3, 6))), [[76, 131, 66], [146, 110, 74], [53, 107, 163]]);
   const program = new TextDecoder("latin1").decode(planned.plan.files[0]!.bytes);
   ok(program.includes("\r\n") && program.endsWith("\r\n"));
   ok(parse(tokenize(program)), "the start-up program is RPGCode the parser accepts");
@@ -161,7 +165,7 @@ test("a project with every available starter item opens, and each stored referen
   const host = createMemoryPlatformServices();
   const created = await createNewProject(host.fs, settings({ starters: AVAILABLE }));
   ok(created.ok);
-  deepEqual(created.written, ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Main/MyQuest.gam"], "the main file is written last");
+  deepEqual(created.written, ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Tiles/starter.tst", "Main/MyQuest.gam"], "the main file is written last");
   const main = mainOf(host.bytesOf(created.mainPath));
   const layout = await projectLayoutOfMain(host.fs, "memory-project", created.mainPath);
   for (const [kind, reference] of [["programs", main.startupPrg], ["boards", main.initBoard], ["characters", main.initChar]] as const) {
@@ -404,7 +408,7 @@ test("a failed creation keeps written files and refuses them on retry until the 
   const failed = await createNewProject(failingFrom(host, 3), settings({ starters: AVAILABLE }));
   ok(!failed.ok && failed.reason === "failed");
   deepEqual(failed.written, ["Prg/start.prg", "Boards/start.brd"]);
-  deepEqual(failed.pending, ["Chrs/start.tem", "Main/MyQuest.gam"], "the failed item comes first, and the main file is still pending");
+  deepEqual(failed.pending, ["Chrs/start.tem", "Tiles/starter.tst", "Main/MyQuest.gam"], "the failed item comes first, and the main file is still pending");
   match(failed.message, /Could not write Chrs\/start\.tem: the disk is full/);
   match(failed.message, /Written: Prg\/start\.prg, Boards\/start\.brd\./);
   match(failed.message, /Nothing that existed before was changed/);
@@ -420,7 +424,7 @@ test("a failed creation keeps written files and refuses them on retry until the 
 
   const again = await createNewProject(host.fs, settings({ starters: AVAILABLE }));
   ok(again.ok, again.ok ? "" : again.message);
-  deepEqual(again.written, ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Main/MyQuest.gam"]);
+  deepEqual(again.written, ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Tiles/starter.tst", "Main/MyQuest.gam"]);
   notEqual(host.bytesOf("Main/MyQuest.gam"), undefined);
 });
 

@@ -13,12 +13,13 @@ await Promise.all([
   build({ entryPoints: [resolve(root, "src/webview.tsx")], outfile: resolve(out, "webview.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", sourcemap: true, jsx: "automatic", jsxImportSource: "preact", alias: strictBrowserAlias }),
   build({ entryPoints: [resolve(root, "src/terrain-scene-webview.tsx")], outfile: resolve(out, "terrain-scene.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", sourcemap: true, jsx: "automatic", jsxImportSource: "preact", alias: strictBrowserAlias }),
   build({ entryPoints: [resolve(root, "src/creator-tests-webview.tsx")], outfile: resolve(out, "creator-tests-webview.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", sourcemap: true, jsx: "automatic", jsxImportSource: "preact", alias: strictBrowserAlias }),
+  build({ entryPoints: [resolve(root, "src/first-board-tutorial-webview.tsx")], outfile: resolve(out, "first-board-tutorial.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", sourcemap: true, jsx: "automatic", jsxImportSource: "preact", alias: strictBrowserAlias }),
   build({ entryPoints: [resolve(root, "../runner-web/app/main.ts")], outfile: resolve(out, "player.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", alias: strictBrowserAlias }),
   build({ entryPoints: [resolve(root, "../runner-web/src/audio-worklet.ts")], outfile: resolve(out, "audio-worklet.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", alias: strictBrowserAlias }),
   build({ entryPoints: [resolve(root, "../runner-web/src/decode-worker.ts")], outfile: resolve(out, "decode-worker.js"), bundle: true, platform: "browser", format: "iife", target: "es2022", alias: strictBrowserAlias }),
 ]);
 // Match the strict-browser build guard: an eagerly embedded decoder violates the native webview's existing policy.
-for (const file of ["extension.browser.js", "webview.js", "terrain-scene.js", "creator-tests-webview.js", "player.js", "audio-worklet.js", "decode-worker.js"]) {
+for (const file of ["extension.browser.js", "webview.js", "terrain-scene.js", "creator-tests-webview.js", "first-board-tutorial.js", "player.js", "audio-worklet.js", "decode-worker.js"]) {
   if ((await readFile(resolve(out, file), "utf8")).includes("AGFzbQ")) {
     throw new Error(`${file} contains an eager WebAssembly module; the VS Code webview forbids instantiation`);
   }

@@ -1,6 +1,25 @@
-import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
-import type { ProjectHandle } from "@tk-reawakened/platform-services";
+import { createSessionCopy, createWebSettings, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type UserSettingsStorage, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
+import { createCommandRegistry, createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
+import { firstBoardHelpCommands, mountFirstBoardTutorial, readFirstBoardTipsEnabled, type FirstBoardHelpSurface, type ViewHandle } from "@tk-reawakened/editor-ui";
+import type { ProjectHandle, SettingsService } from "@tk-reawakened/platform-services";
+
+const persistentUserSettings: Storage | null = (() => {
+  try {
+    if (typeof localStorage !== "undefined") return localStorage;
+  } catch {
+    // This browser does not expose storage to this origin.
+  }
+  return null;
+})();
+const userSettingsStorage: UserSettingsStorage = persistentUserSettings ?? (() => {
+  const memory = new Map<string, string>();
+  return {
+    getItem: (key) => memory.get(key) ?? null,
+    setItem: (key, value) => { memory.set(key, value); },
+    removeItem: (key) => { memory.delete(key); },
+  };
+})();
+const helpSettings: Pick<SettingsService, "get" | "set"> = createWebSettings(null, userSettingsStorage, false);
 
 /**
  * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a
@@ -12,11 +31,19 @@ const codeEditor = (globalThis as { __tkrCodeEditor?: WebProjectOptions["codeEdi
 const playerOptions = {
   playerUrl: "/packages/runner-web/app/index.html",
   languageWorkerUrl: "./dist/language-worker.js",
+  userSettings: userSettingsStorage,
   ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const openingControls = document.querySelector<HTMLFieldSetElement>("#project-open-controls")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
+const welcomeHelp = document.querySelector<HTMLElement>("#welcome-help");
+const tutorialPanel = document.querySelector<HTMLElement>("#first-board-tutorial");
+const tutorialContent = document.querySelector<HTMLElement>("#first-board-tutorial-content");
+document.querySelector("#first-board-session-settings")?.toggleAttribute("hidden", persistentUserSettings !== null);
+const hostLayout = document.querySelector<HTMLElement>("#editor-host-layout");
+const tutorialGuideButton = document.querySelector<HTMLButtonElement>("#first-board-guide");
+const dailyTipButton = document.querySelector<HTMLButtonElement>("#daily-tip");
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
 const newProjectButton = document.querySelector<HTMLButtonElement>("#new-project")!;
 const fileInput = document.querySelector<HTMLInputElement>("#open-session")!;
@@ -44,6 +71,54 @@ let mirrorView: DocumentView | null = null;
 let mirroredDocument: AnyDocument | null = null;
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
+let tutorialView: ViewHandle | null = null;
+let tutorialSurface: FirstBoardHelpSurface | null = null;
+let tutorialInvoker: HTMLElement | null = null;
+
+function canReceiveFocus(element: HTMLElement | null): element is HTMLElement {
+  return element !== null && element.isConnected && !element.closest("[hidden]") && element.getClientRects().length > 0;
+}
+
+function closeFirstBoardHelp(): void {
+  tutorialView?.dispose();
+  tutorialView = null;
+  tutorialSurface = null;
+  if (tutorialPanel !== null) tutorialPanel.hidden = true;
+  hostLayout?.classList.remove("tkr-web-host-layout-help-open");
+  const invoker = tutorialInvoker;
+  tutorialInvoker = null;
+  const fallback = document.querySelector<HTMLElement>(".tkr-command-palette-trigger");
+  const target = canReceiveFocus(invoker) ? invoker : canReceiveFocus(fallback) ? fallback
+    : tutorialGuideButton !== null && canReceiveFocus(tutorialGuideButton) ? tutorialGuideButton : null;
+  target?.focus();
+}
+
+function openFirstBoardHelp(surface: FirstBoardHelpSurface, autofocus = true): void {
+  if (tutorialPanel === null || tutorialContent === null) return;
+  if (tutorialView !== null && tutorialSurface === surface) return;
+  if (tutorialView !== null) tutorialView.dispose();
+  else tutorialInvoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  tutorialSurface = surface;
+  tutorialPanel.hidden = false;
+  hostLayout?.classList.add("tkr-web-host-layout-help-open");
+  tutorialView = mountFirstBoardTutorial(tutorialContent, {
+    host: "browser",
+    surface,
+    settings: helpSettings,
+    canWrite: shown?.project.services.capabilities.has("folderWrite") ?? false,
+    canRun: shown?.project.services.capabilities.has("runGame") ?? false,
+    autofocus,
+    onClose: closeFirstBoardHelp,
+  });
+}
+void readFirstBoardTipsEnabled(helpSettings).then((enabled) => {
+  if (enabled && tutorialView === null) openFirstBoardHelp("tip", false);
+});
+
+const tutorialCommands = firstBoardHelpCommands(openFirstBoardHelp);
+const welcomeHelpCommands = createCommandRegistry(tutorialCommands);
+tutorialGuideButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.firstBoard"); });
+dailyTipButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.dailyTip"); });
 
 
 let projectWithChoices: WebProject | null = null;
@@ -347,7 +422,7 @@ async function showProject(project: WebProject, path: string, request: number): 
   element.hidden = true;
   settings.append(element);
   const projectLayout = await projectLayoutOfMain(project.services.fs, project.project.id, path);
-  const workbench = createWorkbench(project, element, { projectLayout, main: path });
+  const workbench = createWorkbench(project, element, { projectLayout, main: path, helpCommands: tutorialCommands });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
   candidate = { project, workbench, element, unsubscribeTabs, projectLayout, main: path };
@@ -561,6 +636,10 @@ function replaceShown(next: Shown | null): void {
       disposeShown(previous);
     }
     if (next?.project.workspace !== previous.project.workspace) retireProjectIfUnowned(previous.project);
+  }
+  if (previous !== next) {
+    if (welcomeHelp !== null) welcomeHelp.hidden = next !== null;
+    if (tutorialView !== null) closeFirstBoardHelp();
   }
 }
 

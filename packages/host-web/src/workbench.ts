@@ -72,6 +72,8 @@ export interface WorkbenchOptions {
   readonly projectLayout?: ProjectLayout;
   /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
   readonly main?: string;
+  /** Shared host commands, registered in the workbench menu and palette. */
+  readonly helpCommands?: readonly WorkbenchCommand[];
 }
 
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
@@ -630,7 +632,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
-    extraCommands: scriptCommands,
+    extraCommands: [...scriptCommands, ...(options.helpCommands ?? [])],
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {

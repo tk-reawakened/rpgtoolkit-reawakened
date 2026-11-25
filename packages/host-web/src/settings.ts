@@ -25,12 +25,13 @@ const parse = (text: string | null): SettingValue | null => {
 
 /**
  * The browser host's `settings` service. The user layer lives in browser storage when the page has it, else in memory
- * for the life of the page. The project layer is `PROJECT_SETTINGS_PATH` in the project: one JSON object of setting ids
- * to values, rewritten whole. A project file that is not an object of that shape reads as holding nothing.
+ * for the life of the page. A host-level service without a project filesystem exposes that same user layer and refuses
+ * project-layer writes. With a project filesystem, the project layer is `PROJECT_SETTINGS_PATH` in the project.
  */
-export function createWebSettings(fs: Pick<FileSystemService, "read" | "write">, storage: UserSettingsStorage | null, projectWritable: boolean): SettingsService {
+export function createWebSettings(fs: Pick<FileSystemService, "read" | "write"> | null, storage: UserSettingsStorage | null, projectWritable: boolean): SettingsService {
   const memory = new Map<string, SettingValue>();
   const readProject = async (): Promise<Record<string, SettingValue>> => {
+    if (fs === null) return {};
     const read = await fs.read(PROJECT_SETTINGS_PATH);
     if (!read.ok) return {};
     try {
@@ -53,7 +54,7 @@ export function createWebSettings(fs: Pick<FileSystemService, "read" | "write">,
         else storage.setItem(USER_PREFIX + id, JSON.stringify(value));
         return platformOk(undefined);
       }
-      if (!projectWritable) return platformError("unavailable", "This project cannot be written to, so its settings cannot be saved.");
+      if (fs === null || !projectWritable) return platformError("unavailable", "This project cannot be written to, so its settings cannot be saved.");
       const current = await readProject();
       if (value === null) delete current[id]; else current[id] = value;
       return fs.write(PROJECT_SETTINGS_PATH, new TextEncoder().encode(`${JSON.stringify(current, null, 2)}\n`));

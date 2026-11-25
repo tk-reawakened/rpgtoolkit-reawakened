@@ -37,6 +37,7 @@ import { RunControl, type RunControlProps } from "./run-control.tsx";
 import type { RunHandle } from "@tk-reawakened/platform-services";
 import { DocumentHistoryView, type DocumentHistoryViewProps } from "./document-history-view.tsx";
 import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
+import { FirstBoardTutorial, type FirstBoardTutorialProps } from "./first-board-tutorial.tsx";
 import { BoardView } from "./board-view.tsx";
 import { TerrainSceneView, type TerrainSceneViewProps } from "./terrain-scene-view.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -323,6 +324,11 @@ function mountElement(el: HTMLElement, vnode: Parameters<typeof render>[0]): Vie
       render(null, el);
     },
   };
+}
+
+/** Render shared first-board Help; the host owns the panel and preference storage. */
+export function mountFirstBoardTutorial(el: HTMLElement, props: FirstBoardTutorialProps): ViewHandle {
+  return mountElement(el, createElement(FirstBoardTutorial, props));
 }
 
 /** Render the shared saved-test view without giving the view ownership of the project controller. */
