@@ -608,6 +608,7 @@ function syncMirror(): void {
     mirrors.set(active, mirror);
   } else if (mirror.element.parentElement !== mirrorElement) {
     mirrorElement.replaceChildren(mirror.element);
+    mirror.view.refreshAssets?.();
   }
 }
 

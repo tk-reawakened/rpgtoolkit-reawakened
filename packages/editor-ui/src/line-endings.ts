@@ -60,14 +60,32 @@ function lineBreaksIn(text: string, from: number, to: number): number {
   return count;
 }
 
+interface LineEdit {
+  readonly start: number;
+  readonly removed: string;
+  readonly inserted: string;
+  readonly firstEnding: number;
+  readonly removedEndings: readonly string[];
+  readonly insertedEndings: readonly string[];
+}
+
+function spliceEndings(endings: readonly string[], first: number, remove: number, insert: readonly string[]): readonly string[] {
+  return remove === 0 && insert.length === 0 ? endings : [...endings.slice(0, first), ...insert, ...endings.slice(first + remove)];
+}
+
 /**
  * `model` after the author changed its text to `next`. `caret` is the caret offset the editor left after the change; with
  * it, everything after the caret is taken as unchanged, which is how a deletion or an insertion of a repeated line is
  * placed where the author made it. Without it, the change is the smallest range that explains the new text.
  */
 export function editLineText(model: LineText, next: string, caret?: number): LineText {
+  if (next === model.text) return model;
+  const edit = describeEdit(model, next, caret);
+  return { text: next, endings: replayEndings(model.endings, edit, false) };
+}
+
+function describeEdit(model: LineText, next: string, caret?: number): LineEdit {
   const old = model.text;
-  if (next === old) return model;
   let suffix = commonSuffix(old, next);
   if (caret !== undefined && Number.isInteger(caret) && caret >= 0 && caret <= next.length) {
     const tail = next.length - caret;
@@ -94,80 +112,78 @@ export function editLineText(model: LineText, next: string, caret?: number): Lin
   const lastLine = firstLine + lineBreaksIn(old, prefix, oldEnd);
   const lineStart = prefix === 0 ? 0 : old.lastIndexOf("\n", prefix - 1) + 1;
   const lineEnd = old.indexOf("\n", oldEnd);
-  const replaced = next.slice(lineStart, next.length - (lineEnd === -1 ? 0 : old.length - lineEnd));
-  const replacement = replaced.split("\n").length;
+  const replacementEnd = next.length - (lineEnd === -1 ? 0 : old.length - lineEnd);
+  const replacementBreaks = lineBreaksIn(next, lineStart, replacementEnd);
   const endings = model.endings;
   const kept = lastLine - firstLine;
-  const fallback = endings[firstLine] ?? endings[firstLine - 1] ?? endings.at(-1) ?? "\n";
-  const inner: string[] = [];
-  for (let index = 0; index < replacement - 1; index += 1) inner.push(index < kept ? endings[firstLine + index]! : inner.at(-1) ?? fallback);
-  const trailing = lastLine < endings.length ? [endings[lastLine]!] : [];
-  return { text: next, endings: [...endings.slice(0, firstLine), ...inner, ...trailing, ...endings.slice(lastLine + 1)] };
+  // The separator after the replaced lines stays in place, as does the common prefix within the changed range.
+  const same = Math.min(kept, replacementBreaks);
+  const fallback = endings[firstLine + same - (same > 0 ? 1 : 0)] ?? endings[firstLine - 1] ?? "\n";
+  return {
+    start: prefix,
+    removed: old.slice(prefix, oldEnd),
+    inserted: next.slice(prefix, next.length - (old.length - oldEnd)),
+    firstEnding: firstLine + same,
+    removedEndings: endings.slice(firstLine + same, lastLine),
+    insertedEndings: Array<string>(replacementBreaks - same).fill(fallback),
+  };
 }
 
-// Bound history by both text size and number of entries (including edits of an empty field).
-const HISTORY_CHARACTERS = 4_000_000;
-const HISTORY_ENTRIES = 256;
+function replayEndings(endings: readonly string[], edit: LineEdit, undo: boolean): readonly string[] {
+  const remove = undo ? edit.insertedEndings : edit.removedEndings;
+  const insert = undo ? edit.removedEndings : edit.insertedEndings;
+  return spliceEndings(endings, edit.firstEnding, remove.length, insert);
+}
 
 /**
- * A text's states while it is edited, so the author's Undo (the textarea's own, which puts back an earlier text) restores
- * the endings that text had instead of rebuilding them from the edit that followed: delete the first break of a mixed
- * description and press Ctrl+Z, and the file's original bytes come back, not a normalised copy. The history is bounded in
- * characters; the stored version is never dropped.
+ * Exact text and separator changes alongside the textarea's native history. Large descriptions do not age out of this
+ * history: only the current text and the changed ranges are kept. Undo/Redo may group several browser input events, so
+ * walk the changed ranges until the browser's resulting text matches. Equal texts at different positions can still have
+ * different separators.
  */
 export class LineHistory {
-  readonly #stored: LineText;
-  readonly #entries: LineText[];
+  readonly #edits: LineEdit[] = [];
   #cursor = 0;
-  #characters: number;
+  #line: LineText;
 
   constructor(stored: string) {
-    this.#stored = lineTextOf(stored);
-    this.#entries = [this.#stored];
-    this.#characters = this.#stored.text.length;
+    this.#line = lineTextOf(stored);
   }
 
   get line(): LineText {
-    return this.#entries[this.#cursor]!;
+    return this.#line;
   }
 
   /** The browser may group keystrokes. Match the resulting text in the direction of travel, not across both stacks. */
   follow(text: string, caret?: number, historyEdit?: "undo" | "redo"): LineText {
     const current = this.line;
     if (historyEdit !== undefined) {
-      const step = historyEdit === "undo" ? -1 : 1;
-      for (let index = this.#cursor + step; index >= 0 && index < this.#entries.length; index += step) {
-        const entry = this.#entries[index]!;
-        if (entry.text !== text) continue;
-        this.#cursor = index;
-        return entry;
-      }
-      if (historyEdit === "undo") {
-        // The native history can outlive our bounded metadata. Keep the on-disk state exact even after eviction.
-        const entry = text === this.#stored.text ? this.#stored : editLineText(current, text, caret);
-        this.#entries.splice(this.#cursor, 0, entry);
-        this.#characters += entry.text.length;
-        this.#trim();
-        return entry;
+      const undo = historyEdit === "undo";
+      const step = undo ? -1 : 1;
+      let candidate = current.text;
+      for (let index = this.#cursor + (undo ? -1 : 0); index >= 0 && index < this.#edits.length; index += step) {
+        const edit = this.#edits[index]!;
+        const remove = undo ? edit.inserted : edit.removed;
+        const insert = undo ? edit.removed : edit.inserted;
+        candidate = candidate.slice(0, edit.start) + insert + candidate.slice(edit.start + remove.length);
+        if (candidate !== text) continue;
+        let endings = current.endings;
+        const target = index + (undo ? 0 : 1);
+        while (this.#cursor !== target) {
+          if (undo) this.#cursor -= 1;
+          endings = replayEndings(endings, this.#edits[this.#cursor]!, undo);
+          if (!undo) this.#cursor += 1;
+        }
+        this.#line = { text, endings };
+        return this.#line;
       }
     }
     if (current.text === text) return current;
-    for (const entry of this.#entries.splice(this.#cursor + 1)) this.#characters -= entry.text.length;
-    const next = editLineText(current, text, caret);
-    this.#entries.push(next);
+    this.#edits.length = this.#cursor;
+    const edit = describeEdit(current, text, caret);
+    this.#edits.push(edit);
     this.#cursor += 1;
-    this.#characters += next.text.length;
-    this.#trim();
-    return next;
-  }
-
-  #trim(): void {
-    while (this.#entries.length > 1 && (this.#characters > HISTORY_CHARACTERS || this.#entries.length > HISTORY_ENTRIES)) {
-      if (this.#cursor === 0) this.#characters -= this.#entries.pop()!.text.length;
-      else {
-        this.#characters -= this.#entries.shift()!.text.length;
-        this.#cursor -= 1;
-      }
-    }
+    this.#line = { text, endings: replayEndings(current.endings, edit, false) };
+    return this.#line;
   }
 }

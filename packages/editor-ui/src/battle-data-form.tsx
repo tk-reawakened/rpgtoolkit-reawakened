@@ -293,18 +293,30 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
   // Each line keeps the ending the stored text used, so a description with mixed endings is not rewritten into one
   // convention. The model follows every edit (with its caret) so a repeated line is placed where the author edited it.
-  const model = useRef<{ base: string; history: LineHistory; touched: boolean } | null>(null);
-  if (drafts[id] === undefined && (model.current === null || model.current.touched || model.current.base !== value)) {
-    model.current = { base: value, history: new LineHistory(value), touched: false };
+  const model = useRef<{
+    base: string;
+    history: LineHistory;
+    accepted: LineHistory["line"];
+    proposed: string | null;
+    generation: number;
+  } | null>(null);
+  const current = model.current;
+  if (current === null || (drafts[id] === undefined && (current.base !== value || current.accepted !== current.history.line))) {
+    if (current !== null && (current.proposed ?? writtenText(current.history.line)) === value) {
+      // A blur (or Save) accepted this textarea's bytes. Its native Undo stack still exists, so keep its separators too.
+      current.base = value;
+      current.accepted = current.history.line;
+      current.proposed = null;
+    } else {
+      // Another view, document Undo, or discard replaced the text. Reset both histories to the same version.
+      const history = new LineHistory(value);
+      model.current = { base: value, history, accepted: history.line, proposed: null, generation: current === null ? 0 : current.generation + 1 };
+    }
   }
-  const follow = (text: string, caret?: number, historyEdit?: "undo" | "redo"): void => {
-    const current = model.current!;
-    const previous = current.history.line;
-    if (current.history.follow(text, caret, historyEdit) !== previous) current.touched = true;
-  };
   const asWritten = (text: string): string => {
-    follow(text);
-    return writtenText(model.current!.history.line);
+    const current = model.current!;
+    current.proposed = writtenText(current.history.follow(text));
+    return current.proposed;
   };
   registerField(id, () => {
     const draft = drafts[id];
@@ -312,10 +324,12 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   });
   return <p>
     <label>{label}
-      <textarea aria-label={label} rows={3} value={drafts[id] ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
+      <textarea key={model.current!.generation} aria-label={label} rows={3} value={drafts[id] ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
         const inputType = (event as InputEvent).inputType;
         const direction = inputType === "historyUndo" ? "undo" : inputType === "historyRedo" ? "redo" : undefined;
-        follow(event.currentTarget.value, event.currentTarget.selectionStart, direction);
+        const current = model.current!;
+        current.history.follow(event.currentTarget.value, event.currentTarget.selectionStart, direction);
+        current.proposed = null;
         setDraft(id, event.currentTarget.value);
       }} onChange={(event) => { if (!form.locked) void commitText(id, asWritten(event.currentTarget.value), value, command); }} />
     </label>

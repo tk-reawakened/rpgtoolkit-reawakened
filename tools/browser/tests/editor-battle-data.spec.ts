@@ -72,6 +72,12 @@ async function readProjectFile(page: Page, path: string): Promise<number[]> {
   }, path);
 }
 
+async function toggleSecondView(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+}
+
 /** Type into a field and leave it: the form submits when the field is left. */
 async function retype(page: Page, label: string, value: string): Promise<void> {
   const field = page.getByLabel(label, { exact: true });
@@ -100,18 +106,27 @@ test("a special move opens, edits its signed damage and inverted usable flag, an
   await expect(editor.getByLabel("Usable in battle", { exact: true })).toBeChecked();
 });
 
-test("the linked status effect opens in its own tab, saves there, and the move's link reads the new numbers back", async ({ page }) => {
+test("saving a linked status effect refreshes both move views without dropping the second view's refused text", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
-  const move = page.locator('[data-tkr-editor="Special move"]');
+  const move = page.locator('[data-tkr-editor="Special move"]').first();
   await expect(move.getByText("Burn: 3 rounds; removes 2 HP each round.")).toBeVisible();
+  await toggleSecondView(page);
+  const mirror = page.locator("#mirror");
+  await expect(mirror.getByText("Burn: 3 rounds; removes 2 HP each round.")).toBeVisible();
+  const draft = mirror.getByLabel("Damage (FP)", { exact: true });
+  await draft.fill("9999999999");
+  await draft.blur();
+  await expect(mirror.getByRole("alert")).toContainText("whole number");
   await move.getByRole("button", { name: "Open status effect" }).click();
-  const status = page.locator('[data-tkr-editor="Status effect"]');
+  const status = page.locator('[data-tkr-editor="Status effect"]').first();
   await expect(status).toBeVisible();
   await expect(status.getByLabel("Name", { exact: true })).toHaveValue("Burn");
   await expect(status.getByLabel("HP per round", { exact: true })).toHaveValue("2");
 
-  await retype(page, "HP per round", "-5");
+  const hp = status.getByLabel("HP per round", { exact: true });
+  await hp.fill("-5");
+  await hp.blur();
   await expect(status.getByText("Heals 5 HP each round")).toBeVisible();
   expect(await readProjectFile(page, "StatusE/burn.ste")).toEqual(BURN);
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
@@ -121,6 +136,33 @@ test("the linked status effect opens in its own tab, saves there, and the move's
   await page.getByRole("button", { name: "Return to board" }).click();
   await expect(move).toBeVisible();
   await expect(move.getByText("Burn: 3 rounds; restores 5 HP each round.")).toBeVisible();
+  await expect(mirror.getByText("Burn: 3 rounds; restores 5 HP each round.")).toBeVisible();
+  await expect(draft).toHaveValue("9999999999");
+  await expect(mirror.getByRole("alert")).toContainText("whole number");
+});
+
+test("native description Undo after blur and save restores the original binary line separators", async ({ page }) => {
+  const bytesWith = (description: string): number[] => [...FIREBALL.slice(0, 0x43), ...Buffer.from(description, "latin1"), 0];
+  const path = "SpcMove/mixed.spc";
+  const original = bytesWith("A\r\nB\nC");
+  await openWorkbench(page, [{ path, bytes: original }]);
+  await openFile(page, "SpcMove", "mixed.spc");
+  const field = page.getByLabel("Description", { exact: true });
+  await expect(field).toHaveValue("A\nB\nC");
+  await field.focus();
+  await field.evaluate((textarea: HTMLTextAreaElement) => textarea.setSelectionRange(2, 2));
+  await field.press("Backspace");
+  await expect(field).toHaveValue("AB\nC");
+  await field.blur();
+  const save = page.getByRole("button", { name: "Save active editor", exact: true });
+  await save.click();
+  await expect.poll(() => readProjectFile(page, path)).toEqual(bytesWith("AB\nC"));
+
+  await field.press("ControlOrMeta+z");
+  await expect(field).toHaveValue("A\nB\nC");
+  await field.blur();
+  await save.click();
+  await expect.poll(() => readProjectFile(page, path)).toEqual(original);
 });
 
 test("two files that differ only in case are reported as a collision in a real case-sensitive project folder", async ({ page }) => {
@@ -172,18 +214,13 @@ test("leaving the page asks while a clean document holds text a field refused, a
 test("hiding the second view retains its refused draft and keeps Save from writing around it", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
-  const toggle = async (): Promise<void> => {
-    await page.getByRole("button", { name: "Application menu" }).click();
-    await page.getByRole("menuitem", { name: "View", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
-  };
-  await toggle();
+  await toggleSecondView(page);
   const mirror = page.locator("#mirror");
   const field = mirror.getByLabel("Damage (FP)", { exact: true });
   await field.fill("9999999999");
   await field.blur();
   await expect(mirror.getByRole("alert")).toContainText("whole number");
-  await toggle();
+  await toggleSecondView(page);
   await expect(mirror).toBeHidden();
   const primary = page.locator('[data-tkr-editor="Special move"]');
   const damage = primary.getByLabel("Damage (FP)", { exact: true });
@@ -192,7 +229,7 @@ test("hiding the second view retains its refused draft and keeps Save from writi
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(primary.getByRole("alert")).toContainText("Nothing was saved");
   expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
-  await toggle();
+  await toggleSecondView(page);
   await expect(field).toHaveValue("9999999999");
   await expect(mirror.getByRole("alert")).toContainText("whole number");
 });
