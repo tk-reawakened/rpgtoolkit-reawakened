@@ -249,7 +249,7 @@ type EngineCommonInit = {
   readonly stateHashInReports?: StateHashInReports;
   readonly cameraTarget?: CameraTarget;
   readonly spriteRuntime?: SpriteRuntime;
-  /** The author's default SoundFont (docs/spec/engine/audio-media.md#soundfont-layers rank 3); `null` or absent for none. */
+  /** The author's default SoundFont (docs/spec/engine/audio-media.md#soundfont-layers rank 2); `null` or absent for none. */
   readonly defaultSoundFont?: AssetKey | null;
   readonly input?: InputConfig;
   readonly include?: DrawListInclude;

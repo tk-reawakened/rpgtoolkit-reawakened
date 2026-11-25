@@ -10,7 +10,7 @@ risk: medium
 
 ## Scope
 
-Implement window and button graphic authoring against the exact document and preview semantics approved by 14.1. The existing `.gam` `skinButton` and `skinWindow` fields are legacy data ignored by the engine, not evidence of a working runtime skin consumer.
+The authoring document is **Native Skin**, named here under ADR 0045 option 3A. Author window and button references under the [skin contract](../../../docs/spec/formats/main-file.md#editor-skin-authoring), with editor-only preview and unchanged legacy `.gam` fields. Fix its on-disk spelling in this plan before implementation; the approval named the document authority, not a file extension or encoding.
 
 Preserve unknown format residue and save version; selection or preview is not an edit, and failed saves retain the draft.
 
@@ -20,4 +20,4 @@ Both hosts open, change, save and reopen a skin retaining other fields and show 
 
 ## Dependencies and decisions
 
-Requires 14.1, 11.3 and 11.4. Do not start until 14.1 names persistence and preview ownership and pins any required runtime provider; preserve legacy data and distinguish an editor-only preview from gameplay support.
+Requires 14.1, 11.3 and 11.4. Use the shared document workspace and asset pickers; the approved preview has no runtime provider dependency.

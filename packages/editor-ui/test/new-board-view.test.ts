@@ -108,6 +108,11 @@ test("a problem is said beside its field, and nothing is created until the quest
   equal(rig.created.length, 0);
 });
 
+test("the browser's own number bubble is left off, so the inline problem is the one message shown (#3146)", async () => {
+  const rig = await show();
+  equal(rig.el.querySelector("form")!.hasAttribute("novalidate"), true);
+});
+
 test("creating passes what was typed, and a refused creation says why and keeps the questions", async () => {
   const rig = await show();
   rig.answer = { ok: false, message: "Boards/village.brd already exists" };
