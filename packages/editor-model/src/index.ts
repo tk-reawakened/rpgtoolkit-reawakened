@@ -484,6 +484,7 @@ export {
   listCandidates,
   projectLayoutForDocumentPath,
   projectLayoutOfMain,
+  projectLayoutOfMainFromBytes,
   projectLayoutOwnerForDocumentPath,
   referencePath,
   resolveReservedFolderPath,

@@ -58,6 +58,7 @@ import {
   type Visits,
   createBoardCoordinateUpgradeCommand,
   projectLayoutOfMain,
+  projectLayoutOfMainFromBytes,
   projectLayoutOwnerForDocumentPath,
   resolveReservedFolderPath,
   DEFAULT_WORKBENCH_PANELS,
@@ -143,11 +144,10 @@ export interface Workbench {
   dispose(): void;
 }
 
-async function declaredProjectLayouts(project: WebProject, selectedMain: string | null): Promise<readonly ProjectLayoutOwner[]> {
+async function declaredProjectLayouts(project: WebProject, requireReadable = false): Promise<readonly ProjectLayoutOwner[]> {
   const roots = await resolveReservedFolderPath(project.services.fs, "Main");
   if (roots.failure !== null) throw new Error(`Could not locate Main: ${roots.failure.error.message}`);
   const paths = new Set<string>();
-  if (selectedMain !== null) paths.add(selectedMain);
   const visit = async (folder: string): Promise<void> => {
     const listed = await project.services.fs.list(folder);
     if (!listed.ok) {
@@ -161,14 +161,24 @@ async function declaredProjectLayouts(project: WebProject, selectedMain: string 
     }
   };
   await visit(roots.path);
-  return await Promise.all([...paths].map(async (mainPath) => {
+  const owners = await Promise.all([...paths].map(async (mainPath): Promise<ProjectLayoutOwner | null> => {
+    if (!requireReadable) {
+      return {
+        mainPath,
+        layout: await projectLayoutOfMain(project.services.fs, project.project.id, mainPath),
+      };
+    }
     const readable = await project.services.fs.readProject(project.project.id, mainPath);
-    if (!readable.ok) throw new Error(`Could not read ${mainPath}: ${readable.error.message}`);
+    if (!readable.ok) {
+      if (readable.error.code === "not-found") return null;
+      throw new Error(`Could not read ${mainPath}: ${readable.error.message}`);
+    }
     return {
       mainPath,
-      layout: await projectLayoutOfMain(project.services.fs, project.project.id, mainPath),
+      layout: await projectLayoutOfMainFromBytes(project.services.fs, readable.value, mainPath),
     };
   }));
+  return owners.filter((owner): owner is ProjectLayoutOwner => owner !== null);
 }
 
 /**
@@ -189,14 +199,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   let declaredLayouts: Promise<readonly ProjectLayoutOwner[]> | null = null;
   let knownLayouts: readonly ProjectLayoutOwner[] | null = null;
   const layouts = (): Promise<readonly ProjectLayoutOwner[]> => {
-    declaredLayouts ??= declaredProjectLayouts(project, main).then((owners) => {
+    declaredLayouts ??= declaredProjectLayouts(project).then((owners) => {
       knownLayouts = owners;
       return owners;
     });
     return declaredLayouts;
   };
   const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[]> => {
-    const owners = await declaredProjectLayouts(project, main);
+    const owners = await declaredProjectLayouts(project, true);
     knownLayouts = owners;
     declaredLayouts = Promise.resolve(owners);
     return owners;

@@ -59,7 +59,16 @@ const RESERVED_FOLDER_NAMES = new Set(Object.values(ASSET_FOLDERS).map(asciiLowe
 export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProject" | "list">, projectId: string, mainPath: string): Promise<ProjectLayout> {
   const bytes = await fs.readProject(projectId, mainPath);
   if (!bytes.ok) return { projectFolder: "" };
-  const main = readMainFile(new BinaryReader(bytes.value, mainPath));
+  return projectLayoutOfMainFromBytes(fs, bytes.value, mainPath);
+}
+
+/** Resolve a main file's asset layout from the exact bytes already read by the caller. */
+export async function projectLayoutOfMainFromBytes(
+  fs: Pick<FileSystemService, "list">,
+  bytes: Uint8Array,
+  mainPath: string,
+): Promise<ProjectLayout> {
+  const main = readMainFile(new BinaryReader(bytes, mainPath));
   const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
   if (candidate === "") return { projectFolder: "" };
   const resolved = await resolveReservedFolderPath(fs, candidate);

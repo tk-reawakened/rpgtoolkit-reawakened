@@ -11,7 +11,8 @@ interface ProofWindow extends Window {
   __tkrTestFolder?: FileSystemDirectoryHandle;
   __tkrSlowReadStarted?: boolean;
   __tkrReleaseSlowRead?: () => void;
-  __tkrDenyFileRead?: (name: string) => void;
+  __tkrDeleteTestFile?: (path: string) => Promise<void>;
+  __tkrDenyFileRead?: (name: string, successfulReadsAllowed?: number) => void;
   __tkrWriteTestFile?: (path: string, bytes: readonly number[]) => Promise<void>;
 }
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
@@ -860,6 +861,11 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
     if (write === undefined) throw new Error("The browser test folder writer is missing.");
     await write("Main/B.gam", bytes);
   }, Array.from(mainB.value));
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam", 1);
+  });
   await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
   const refusal = page.getByRole("dialog").filter({ hasText: "Save the upgraded copy inside the source board's owning game." });
   await expect(refusal).toBeVisible();
@@ -895,6 +901,77 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await readFailure.getByRole("button", { name: "OK", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await waitForFolderPicker(page);
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam");
+  });
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "Main/A.gam" });
+  await page.getByRole("button", { name: "Open selected game" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "A", "Boards", "Region"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+test("browser board upgrade uses live Main inventory after the originally selected Main is deleted", async ({ page }) => {
+  const source = "Game/B/Boards/Region/Old.brd";
+  const destination = "Game/B/Boards/Region/Copy.brd";
+  const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "B" });
+  expect(mainA.ok).toBe(true);
+  expect(mainB.ok).toBe(true);
+  if (!mainA.ok || !mainB.ok) throw new Error("Could not create owner fixtures.");
+  await installFolderPicker(page, [
+    { path: "Main/A.gam", bytes: Array.from(mainA.value) },
+    { path: "Main/B.gam", bytes: Array.from(mainB.value) },
+    { path: source, bytes: sourceBytes },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "Main/A.gam" });
+  await page.getByRole("button", { name: "Open selected game" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.evaluate(async () => {
+    const remove = (window as ProofWindow).__tkrDeleteTestFile;
+    if (remove === undefined) throw new Error("The browser test folder delete hook is missing.");
+    await remove("Main/A.gam");
+  });
+  for (const name of ["Game", "B", "Boards", "Region"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Convert active board from tile to pixel");
+  await search.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${source} as` });
+  await saveDialog.getByRole("textbox").fill(destination);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: destination, exact: true })).toBeVisible();
+  const disk = await page.evaluate(async ({ sourcePath, destinationPath }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const handle = await parent.getFileHandle(parts.at(-1)!);
+      return [...new Uint8Array(await (await handle.getFile()).arrayBuffer())];
+    };
+    return { source: await read(sourcePath), destination: await read(destinationPath) };
+  }, { sourcePath: source, destinationPath: destination });
+  expect(disk.source).toEqual(sourceBytes);
+  expect(disk.destination).not.toEqual(sourceBytes);
 });
 
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
@@ -943,12 +1020,22 @@ async function installFolderPicker(
       await writable.write(new Uint8Array(bytes));
       await writable.close();
     };
+    (window as ProofWindow).__tkrDeleteTestFile = async (path) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      await parent.removeEntry(parts.at(-1)!);
+    };
     const originalGetFile = FileSystemFileHandle.prototype.getFile;
-    (window as ProofWindow).__tkrDenyFileRead = (target) => {
+    (window as ProofWindow).__tkrDenyFileRead = (target, successfulReadsAllowed = 0) => {
+      let remainingSuccessfulReads = successfulReadsAllowed;
       Object.defineProperty(FileSystemFileHandle.prototype, "getFile", {
         configurable: true,
         value: async function (this: FileSystemFileHandle): Promise<File> {
-          if (this.name === target) throw new DOMException("Permission denied", "NotAllowedError");
+          if (this.name === target) {
+            if (remainingSuccessfulReads === 0) throw new DOMException("Permission denied", "NotAllowedError");
+            remainingSuccessfulReads -= 1;
+          }
           return originalGetFile.call(this);
         },
       });
