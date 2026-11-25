@@ -23,7 +23,7 @@ import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
-const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation", "tkr.font"] as const;
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation", "tkr.font", "tkr.battleData"] as const;
 
 /** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
 function activeCustomEditorUri(): vscode.Uri | undefined {
@@ -171,6 +171,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       } finally { nativeRestoreGroups.delete(key); }
     },
     saveEditor: async (uri) => await vscode.workspace.save(uri),
+    autoSaveMode: (uri) => {
+      const mode = vscode.workspace.getConfiguration("files", uri).get<string>("autoSave");
+      return mode === "afterDelay" || mode === "onFocusChange" || mode === "onWindowChange" ? mode : "off";
+    },
     autoSaveDelayMs: (uri) => {
       const files = vscode.workspace.getConfiguration("files", uri);
       return files.get<string>("autoSave") === "afterDelay" ? files.get<number>("autoSaveDelay", 1000) : null;

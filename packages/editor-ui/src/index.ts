@@ -14,6 +14,8 @@ export { AnimationView, type AnimationViewDocument, type AnimationViewProps } fr
 export { NativeClipView, type NativeClipViewDocument, type NativeClipViewProps } from "./native-clip-view.tsx";
 export { FontView, type FontViewDocument, type FontViewProps } from "./font-view.tsx";
 export { NativeGeometryView, type NativeGeometryViewDocument, type NativeGeometryViewProps } from "./native-geometry-view.tsx";
+export { SpecialMoveView, type SpecialMoveViewDocument, type SpecialMoveViewProps } from "./special-move-view.tsx";
+export { StatusEffectView, type StatusEffectViewDocument, type StatusEffectViewProps } from "./status-effect-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";

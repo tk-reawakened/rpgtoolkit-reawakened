@@ -1,5 +1,43 @@
-import { kindById, markRecoveredDocumentDirty, type AnyDocument, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentKind, type DocumentSnapshot, type DocumentStorage, type ExternalCheck, type ExternalChange, type HistoryReason, type HistoryResult, type OpenError, type RevertResult, type SaveFailure, type SaveOptions, type SaveResult } from "@tk-reawakened/editor-model";
+import { kindById, markRecoveredDocumentDirty, type AnyDocument, type ApplyOptions, type ApplyResult, type HeldText, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentKind, type DocumentSnapshot, type DocumentStorage, type ExternalCheck, type ExternalChange, type HistoryReason, type HistoryResult, type OpenError, type RevertResult, type SaveFailure, type SaveOptions, type SaveResult } from "@tk-reawakened/editor-model";
 import type { PlatformResult } from "@tk-reawakened/platform-services";
+
+/**
+ * A hot-exit backup is the document's own bytes. A document holding text a field cannot store yet (ADR 0022 D16.3) cannot
+ * put it in those bytes, so its backup is an envelope: this line, the held text as one JSON line, then the bytes. A file
+ * of any kind the editor opens starts with its own header, never with this line, and a backup without held text is the
+ * bare bytes, exactly as before.
+ */
+const HELD_ENVELOPE = "TKR-HELD-TEXT-1\n";
+
+/** The bytes VS Code keeps for `document`: its stored values, and the text its fields hold if any. */
+export function encodeBackup(document: Pick<AnyDocument, "serialize" | "getSnapshot">): Uint8Array {
+  const bytes = document.serialize();
+  const held = (document.getSnapshot() as { readonly heldText?: Readonly<Record<string, HeldText>> }).heldText;
+  if (held === undefined || Object.keys(held).length === 0) return bytes;
+  const head = new TextEncoder().encode(`${HELD_ENVELOPE}${JSON.stringify(held)}\n`);
+  const out = new Uint8Array(head.length + bytes.length);
+  out.set(head);
+  out.set(bytes, head.length);
+  return out;
+}
+
+/** Split a backup into the document's bytes and the text its fields held. */
+export function decodeBackup(backup: Uint8Array): { readonly bytes: Uint8Array; readonly held: Readonly<Record<string, HeldText>> } {
+  const magic = new TextEncoder().encode(HELD_ENVELOPE);
+  if (backup.length < magic.length || magic.some((byte, index) => backup[index] !== byte)) return { bytes: backup, held: {} };
+  const end = backup.indexOf(0x0a, magic.length);
+  if (end < 0) return { bytes: backup, held: {} };
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(backup.subarray(magic.length, end))) as Record<string, HeldText>;
+    const held: Record<string, HeldText> = {};
+    for (const [field, value] of Object.entries(parsed)) {
+      if (typeof value?.text === "string" && typeof value.message === "string") held[field] = { text: value.text, message: value.message };
+    }
+    return { bytes: backup.subarray(end + 1), held };
+  } catch {
+    return { bytes: backup, held: {} };
+  }
+}
 
 export type BackupRecoveryResult =
   | { readonly ok: true; readonly document: AnyDocument }
@@ -22,7 +60,8 @@ export async function recoverDocument(kind: DocumentKind, storage: DocumentStora
     writeProject: (project, path, bytes) => storage.writeProject(project, path, bytes),
     ...(storage.history === undefined ? {} : { history: storage.history }),
   };
-  const recovered = kind.create(recordingStorage, identity, backup);
+  const decoded = decodeBackup(backup);
+  const recovered = kind.create(recordingStorage, identity, decoded.bytes.slice());
   if (!recovered.ok) return recovered;
   // A kind with a harmless command recovers through it, so the recovered document has a history; one without is dirtied directly.
   const marker = kind.recoveryMarker(recovered.document.getSnapshot());
@@ -31,6 +70,11 @@ export async function recoverDocument(kind: DocumentKind, storage: DocumentStora
   } else {
     const edit = recovered.document.apply(marker as never);
     if (!edit.ok) throw new Error(`Could not restore backup for ${identity.path}: ${edit.rejection.message}`);
+  }
+  // Text a field held when the backup was taken is held again, as its own edit, so the recovered form shows it (D16.3).
+  for (const [field, held] of Object.entries(decoded.held)) {
+    const command = { type: "hold-field-text", field, text: held.text, message: held.message };
+    if (kind.isCommand(command)) recovered.document.apply(command as never);
   }
   const guarded = new RecoveryDocument(kind, recovered.document, marker !== null, storage, () => lastRead, (bytes) => { expected = bytes; });
   await guarded.checkExternal();
@@ -80,9 +124,9 @@ class RecoveryDocument {
   }
   getSnapshot(): DocumentSnapshot<unknown> { return this.#snapshot; }
   subscribe(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; }
-  apply(command: unknown): ApplyResult {
+  apply(command: unknown, options?: ApplyOptions): ApplyResult {
     if (!this.#kind.isCommand(command)) return { ok: false, rejection: { reason: "invalid", message: "This recovery document does not accept that edit." } };
-    return this.#document.apply(command as never);
+    return (this.#document.apply as (command: never, options?: ApplyOptions) => ApplyResult)(command as never, options);
   }
   serialize(): Uint8Array { return this.#document.serialize(); }
   undo(editId?: string): HistoryResult {

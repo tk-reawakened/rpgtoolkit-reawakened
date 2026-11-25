@@ -79,6 +79,17 @@ Lives in `SpcMove\`. Learned by characters (see [character.md](character.md)) an
 
 Toolkit 2 text special moves: [legacy/text-formats.md](legacy/text-formats.md#special-move).
 
+<a id="battle-data-editor-rules"></a>
+## Editing special moves and status effects (Reawakened rules; story 13.10)
+
+The Reawakened editor opens `.spc` and `.ste` files for editing under these rules. They state what the editor does with the stored values above; they do not change a stored layout, and they claim nothing about behaviour this page and [BAT-5](../engine/battle.md#bat-5) / [BAT-6](../engine/battle.md#bat-6) do not already state (for example, what a status with fewer than 1 round does belongs to BAT-6, not to the editor).
+
+1. **Same-version writing.** A file of accepted binary `minor` 2-3 is written back at the `minor` it was read at. Bytes after the last documented field and the `major` and `minor` values are kept. Opening and saving with no edit leaves the file byte for byte unchanged. A Toolkit 2 text file (`minor` 0) opens read-only with the reason; it is never converted on open, and no edit is accepted for it.
+2. **Usability flags (special move fields 8 and 9).** The editor shows a move as usable in battle (or from the menu) exactly when the stored byte is 0, per the ruling above, and writes 0 for usable and 1 for not usable. It does not reproduce the 3.1.0 editor's checkbox, which displays the stored byte without converting it. A flag the author does not touch keeps its stored byte, including `-1` or any other non-zero value. Choosing "usable" for a non-zero byte writes 0. Choosing "not usable" for a byte that is already non-zero changes nothing.
+3. **Status flags (status effect fields 5-8, 10 and 12).** A flag is on exactly when its stored value is non-zero. Turning one on writes 1 when it was 0; turning one off writes 0. Turning on a flag that is already non-zero changes nothing, so an authored `-1` or `7` survives. The amounts stay stored whether or not their flag is on.
+4. **Signed values.** The special move's FP, user SMP cost and target SMP amount are signed 32-bit integers, and the status effect's rounds, HP amount and SMP amount are signed 16-bit integers; a negative FP, HP amount or SMP amount heals or restores. The editor stores the integer the author enters, refuses a value outside the field's range or a non-integer whole, and never clamps or rewrites it (the stat clamp is the actor owner's, BAT-5).
+5. **References.** A special move's status effect, animation and program, and a status effect's program, are stored as the text the author enters or picks, under [the path rules](README.md#paths-inside-files). A reference to a file that is not in the project is kept and reported; it is never cleared or rewritten. Text the file's code page cannot store is refused whole.
+
 ## Examples
 
 [../examples/listings/fireball.spc.txt](../examples/listings/fireball.spc.txt), [../examples/listings/burn.ste.txt](../examples/listings/burn.ste.txt), [../examples/listings/forest.bkg.txt](../examples/listings/forest.bkg.txt).

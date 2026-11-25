@@ -13,7 +13,7 @@ import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { boardObjectsProofFiles } from "./board-objects-proof.ts";
 import { connectedAuthoringProofFiles } from "./connected-authoring-proof.ts";
 import { runVscodeScriptWorkflowProof, scriptWorkflowProofFiles } from "./script-workflow-proof.ts";
-import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, runVscodeFontProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, runVscodeFontProof, runVscodeBattleDataProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { runVscodeDesignProof } from "./design-proof.ts";
 import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
 import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-scene-proof.ts";
@@ -112,14 +112,15 @@ const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
 const visualEventsProof = process.env.TKR_VSCODE_VISUAL_EVENTS_PROOF === "1";
 const scriptWorkflowProof = process.env.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF === "1";
 const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
-if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof)) {
+const battleDataProof = process.env.TKR_VSCODE_BATTLE_DATA_PROOF === "1";
+if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
 if (visualEventsProof) await access(resolve(extension, "dist/visual-events.js"));
-if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (visualEventsProof) {
@@ -541,6 +542,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     } else if (animationProof) {
       await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
       console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
+    } else if (battleDataProof) {
+      await runVscodeBattleDataProof(page, expect, workbenchUrl, { readBacking });
+      console.log("vscode.dev special move form: a field nobody left is written by native Save All, Close, Undo/Redo and autosave, and held text is never written (#3385)");
     } else if (fontProof) {
       await runVscodeFontProof(page, expect, workbenchUrl, { readBacking });
       console.log("vscode.dev bitmap font creation, pointer and keyboard drawing, preview pixels, save and reopen proof passed");

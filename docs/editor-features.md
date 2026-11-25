@@ -260,6 +260,18 @@ Choose **Export PNG…** in the board editor, or invoke it from the focused edit
 
 **T-58 Status effect editor.** Name. Duration in rounds. Speed up, slow down, disable. HP and SMP change per round (negative heals). Program per round.
 
+<a id="special-move-status-effect-editors"></a>
+### Reawakened rules for the special move and status effect editors (story 13.10)
+
+Open a `.spc` or `.ste` in the browser or VS Code and edit every field of T-57 and T-58 in one form. The stored-value rules (usable flags, on/off flags, signed amounts, kept references and untouched bytes) are in [battle data: editing special moves and status effects](spec/formats/battle-data.md#battle-data-editor-rules); this section says what the form does.
+
+* **One form per format.** A special move shows its name, damage (FP), user SMP cost, target SMP drain, program, status effect, animation and description, and two checkboxes, "Usable in battle" and "Usable from the menu". A status effect shows its name, rounds, speed up, slow down, disable, HP and SMP per round with an on/off box each, and the program with its on/off box. Each box says what is stored: ticked means the usable-ness the format ruled, not the raw byte.
+* **Linked, not merged.** A special move's status effect, animation and program, and a status effect's program, are references with Choose and Open, through the same confirmed picker and source visit as the other editors. The linked status effect's own numbers are shown beside the move, read from its saved file; changing them opens the status effect's own editor and its own document history. A missing file is reported beside its reference and the reference is kept.
+* **Signed fields say so.** A negative damage, HP amount or SMP amount is shown as healing or restoring. The form states no rule about rounds below 1, a disable that nothing removes, or the stat clamp beyond a link to the battle rules.
+* **Text being typed.** ([ADR 0022 D16](adr/0022-shared-editor-authoring-contracts.md#d16--typing-in-a-form-field-is-an-edit-3385).) What you type is part of the document from the first character, like typing in a text file. The tab shows unsaved at once, so the host's own Save, Save All, close question, Revert and autosave all include it. Everything typed in one field, from clicking into it until you leave it, is one Undo step; typing after an Undo replaces what Redo would have brought back. Text the file cannot store yet (`-`, `1.5`, a number out of range, a character the code page cannot hold) is kept with its reason beside the field: the document stays unsaved, every save refuses it and writes nothing, and **Discard the unapplied text** removes it as an edit of its own, so Undo can bring it back. With autosave on, a pause of the autosave delay saves the value typed so far; text the file cannot store is never autosaved. Every view of the document shows the same text, and **Save my version** after a conflict refuses while a field holds such text, keeping the conflict and both versions. A hot-exit backup holds the latest keystroke and any such text. Description line breaks keep the separator the file used for each line, judged keystroke by keystroke: deleting a line and typing it back gives it its neighbour's separator.
+* **Second view and Undo.** When you return to a move, both views read the current saved status effect. **Use the version on disk** discards text a field holds in every view.
+* **Honest limits.** A Toolkit 2 text special move or status effect opens read-only with the reason. The form creates no enemy and starts no fight; use the saved files in a battle through an enemy that lists the move (enemy authoring is story 29.8).
+
 ---
 
 ## 7. Graphics composition editors (T-60 … T-65)
