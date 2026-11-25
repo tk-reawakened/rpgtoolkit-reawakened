@@ -459,7 +459,7 @@ test("visual events edit, save, and run the same program in the real player", as
   const saved = await savedText(page, programPath, (text) => text.includes('mwin("Tracer browser proof")'));
   await expect(message).toHaveValue("Tracer browser proof");
   await expect(state).toHaveText("All changes saved");
-  expect(saved).toBe('// creator note\r\nx = 1\r\nmwin("Tracer browser proof")\r\nwait()\r\nmwincls()\r\n');
+  expect(saved).toBe(`${original}mwin("Tracer browser proof")\r\nwait()\r\nmwincls()\r\n`);
   await page.getByRole("button", { name: "New run setup" }).click();
   const form = page.getByRole("dialog", { name: "New run setup" });
   await form.getByRole("tab", { name: "Test program" }).click();
@@ -496,6 +496,39 @@ test("visual events preserve near-misses, edit only the message, and remove only
   await expect(opaque.first()).toContainText('mwin("comment")');
   await expect(opaque.first()).toContainText('mwin("lonely")');
   await expect(opaque.first()).toContainText("x = 1");
+  const editor = page.locator("#settings .monaco-editor");
+  const programInput = editor.getByRole("textbox", { name: /^Program text/ });
+  const openOpaque = opaque.last().getByRole("button", { name: "Open in editor", exact: true });
+  const previousTarget = await openOpaque.getAttribute("data-editor-command-id");
+  expect(previousTarget).toBe("program.visual.openSource.13");
+  await programInput.focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+  const prefix = "// unsaved prefix\n";
+  await page.keyboard.insertText(prefix);
+  // Use the real button without first blurring Monaco: the source pane must still know the old line.
+  const usedTarget = await openOpaque.evaluate((button) => {
+    const id = button.getAttribute("data-editor-command-id");
+    (button as HTMLButtonElement).click();
+    return id;
+  });
+  expect(usedTarget).toBe(previousTarget);
+  await expect(programInput).toBeFocused();
+  const target = editor.locator(".view-line").filter({ hasText: "// after" });
+  await expect.poll(async () => {
+    const [line, firstToken, cursor] = await Promise.all([
+      target.boundingBox(),
+      target.locator("span:not(:has(span))").first().boundingBox(),
+      editor.locator(".cursors-layer .cursor").boundingBox(),
+    ]);
+    return line === null || firstToken === null || cursor === null ? Infinity
+      : Math.max(Math.abs(line.y - cursor.y), Math.abs(firstToken.x - cursor.x));
+  }).toBeLessThan(2);
+  await expect.poll(() => editorText(page)).toBe(prefix + source);
+  expect(await savedText(page, PROGRAM, (text) => text === source)).toBe(source);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => editorText(page)).toBe(source);
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+
   const message = pane.getByRole("textbox", { name: "Message", exact: true });
   await message.fill("Updated");
   await message.press("Enter");
@@ -515,7 +548,7 @@ test("visual events preserve near-misses, edit only the message, and remove only
   const removed = edited.replace('mwin("Updated")\nwait()\nmwincls()\n', "");
   expect(await savedText(page, PROGRAM, (text) => text === removed)).toBe(removed);
   await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: /^Program text/ }).first()).toBeFocused();
+  await expect(programInput).toBeFocused();
   await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(message).toHaveValue("Updated");

@@ -1,4 +1,4 @@
-import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedTextChanges, type TrackedText, type PendingText, type TextTree } from "./program-text.ts";
+import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedRangeStart, trackedTextChanges, type TrackedText, type PendingText, type TextTree } from "./program-text.ts";
 import {
   addShowMessage,
   commandReference,
@@ -259,6 +259,16 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const visible = useMemo(() => filterCommandReference(entries, query), [entries, query]);
   const readOnly = snapshot.readOnly !== null;
   const settle = settleMs ?? SETTLE_MS;
+
+  const trackForVisualSource = (): TrackedText | null => {
+    const ctl = control.current;
+    if (ctl.documentKey !== doc.identity.key) return null;
+    if (ctl.document.text === snapshot.text) return ctl.document;
+    if (ctl.pending?.base.text === snapshot.text) return ctl.pending.base;
+    return ctl.visible.text === snapshot.text ? ctl.visible : null;
+  };
+  // Capture the identities of the text the pane shows; a Monaco blur may commit typing before the button click.
+  const visualTrack = useMemo(() => showVisualEvents ? trackForVisualSource() : null, [doc, snapshot.text, showVisualEvents]);
 
   // --- text identity: the surface follows the document, and typing becomes commands -----------------------------------
 
@@ -797,11 +807,24 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const actOnVisualEvent = (action: VisualEventAction): void => {
     if (action.type === "open") {
       const region = projectVisualProgram(snapshot.text).regions.find((part) => part.from === action.from && part.type === "opaque");
-      const surface = control.current.surface;
-      if (region !== undefined && surface !== null) {
-        surface.revealLine(region.line - 1);
-        surface.select(region.from, region.from);
+      const ctl = control.current;
+      const surface = ctl.surface;
+      if (region?.type !== "opaque" || surface === null || latest.current.doc !== doc) return;
+      const text = surface.getText();
+      const before = visualTrack ?? trackForVisualSource();
+      const current = ctl.visible;
+      const offset = before === null || current.text !== text ? null
+        : before === current ? region.from
+          : trackedRangeStart(before, current, region.from, region.to, /\S/u.test(region.text));
+      if (offset === null) {
+        setVisualError("That code changed before it could be revealed. Choose the block again from the updated source.");
+        return;
       }
+      let line = 0;
+      for (let at = text.indexOf("\n"); at !== -1 && at < offset; at = text.indexOf("\n", at + 1)) line += 1;
+      setVisualError(null);
+      surface.revealLine(line);
+      surface.select(offset, offset);
       return;
     }
     flush();

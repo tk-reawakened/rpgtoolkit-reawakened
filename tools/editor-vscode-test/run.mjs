@@ -499,7 +499,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev shared native tile and pack geometry, move, copy, delete and board rebuild proof passed");
     } else if (visualEventsProof) {
       await runVscodeVisualEventsProof(page, expect, workbenchUrl, readBacking);
-      console.log("VS Code native Visual events edit, one-URI undo/navigation, clean diagnostics, CRLF save and player dismissal proof passed");
+      console.log("VS Code native Visual events edit, one-URI undo/navigation, close/reopen reconstruction, clean diagnostics, CRLF save and player dismissal proof passed");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {

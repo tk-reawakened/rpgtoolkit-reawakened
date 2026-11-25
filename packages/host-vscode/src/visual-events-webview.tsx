@@ -21,10 +21,11 @@ let snapshot: SnapshotMessage | null = null;
 let error: string | null = null;
 
 function update(): void {
-  if (snapshot === null) return;
-  render(<VisualEventPane source={snapshot.source} readOnly={snapshot.readOnly} error={error}
+  const current = snapshot;
+  if (current === null) return;
+  render(<VisualEventPane source={current.source} readOnly={current.readOnly} error={error}
     onAction={(action: VisualEventAction) => {
-      api.postMessage({ type: "action", version: snapshot?.version, source: snapshot?.source, action });
+      api.postMessage({ type: "action", version: current.version, source: current.source, action });
     }} />, mountNode);
 }
 

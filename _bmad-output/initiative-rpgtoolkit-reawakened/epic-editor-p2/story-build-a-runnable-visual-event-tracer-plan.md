@@ -80,8 +80,19 @@ Quick: 0 high, 2 medium, 0 low, 0 false, 0 maybe-false.
 | Blurring a dirty message could enqueue an edit immediately before removal, making removal stale. | medium | patch | Message changes now apply deliberately via **Apply message** or Enter. A browser test fills an unapplied draft, removes the card, and expects one Undo to restore the previously applied text. |
 | The native webview used a single generic registry entry for distinct actions. | medium | patch | The shared pane now names add, edit, remove and source navigation individually. Browser entries qualify the selected line for discovery; native actions dispatch by the same command identity and validate the bound document before acting. |
 
+Independent exact-head review of `cffa4c9c61940bb10b266e2ee84ddb1cd1235fff` requested changes despite green CI.
+
+| Finding | Verdict | Route | Evidence and action |
+|---|---|---|---|
+| Native actions could overlap after checking the same source revision. | high | patch (#3479) | Hold the native edit boundary per document; prove that a second removal against the in-flight revision is refused and the opaque source is preserved. |
+| Browser source navigation used the old snapshot offset while Monaco could already contain pending typing. | medium | patch (#3480) | Follow the opaque block's surviving tracked source into the live surface. If it is gone, refuse navigation instead of selecting an unrelated line. |
+| Native proof did not reopen the saved `.prg` and reconstruct the visual card. | medium | proof | Close both views, reopen the same source and assert the saved card and opaque source before actual playback. |
+
+The repair review checked those same defects against more interleavings: a queued native action must also pin its original `TextDocument`; browser pointer activation must retain its pressed block through blur, distinguish identical text with different piece identities, and decline a code target when only whitespace survives. These cases extend the regressions for #3479 and #3480.
+
 ## Verification
 
 - Run scoped model/UI tests and typechecks; assert the mixed-line-ending browser file bytes and the native document's preserved opaque text, not only rendered cards.
 - Run the editor-web Playwright tracer proof on a free `PLAYWRIGHT_PORT` with `--workers=1`. Run the real VS Code Web tracer proof separately on a free `TKR_VSCODE_TEST_PORT`, using bounded settling and the focused proof flag. Require the actual message window and its dismissal in both runners.
 - Post-review verification passed: 59 focused model/UI tests, two real Chromium cases, and the focused native VS Code Web proof (native text focus, one undo step per mutation, CRLF save, active diagnostics, and real playback/dismissal). The exact-head PR review and required CI are separate gates.
+- Repair proofs: the reviewed code submitted two native edits instead of one and selected browser offset 31 instead of 61. Six focused regressions passed, including the queued action against a reopened native document, pointer activation through blur, equal-byte edits that move the target, and deletion leaving only whitespace. Each of the four additional cases failed at its own assertion when its guard was removed in memory. Two real Chromium tracer cases passed; the shifted target was exact, backing bytes stayed unchanged, and one Undo removed only the prefix. Real VS Code Web closed both tabs, reconstructed the saved card and opaque text, and ran and dismissed the message.

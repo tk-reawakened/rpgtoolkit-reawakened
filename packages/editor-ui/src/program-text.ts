@@ -215,14 +215,40 @@ function firstRangeEndingAfter(ranges: readonly PieceRange[], offset: number): n
   return low;
 }
 
-function piecePosition(piece: TextPiece, positions: ReadonlyMap<number, readonly PiecePosition[]>): number | null {
+function piecePosition(piece: TextPiece, positions: ReadonlyMap<number, readonly PiecePosition[]>, requireContent = false): number | null {
   const same = positions.get(piece.id);
   if (same === undefined) return null;
   for (let index = firstRangeEndingAfter(same, piece.from); index < same.length; index += 1) {
     const match = same[index]!;
     if (match.from >= piece.to) break;
     const from = Math.max(piece.from, match.from);
-    if (from < Math.min(piece.to, match.to)) return match.start + from - match.from;
+    const to = Math.min(piece.to, match.to);
+    if (from >= to) continue;
+    if (!requireContent) return match.start + from - match.from;
+    // A leftover line break or indentation must not stand in for code that was deleted.
+    for (let at = from; at < to; at += 1) {
+      if (/\S/u.test(piece.source[at]!)) return match.start + from - match.from;
+    }
+  }
+  return null;
+}
+
+/** Find the first surviving span of a previously shown range, ignoring whitespace-only spans when it contained code. */
+export function trackedRangeStart(before: TrackedText, after: TrackedText, from: number, to: number, requireContent: boolean): number | null {
+  const positions = positionsById(after.pieces);
+  let start = 0;
+  for (const piece of before.pieces) {
+    const end = start + piece.to - piece.from;
+    if (start >= to) break;
+    if (from < end) {
+      const at = piecePosition({
+        ...piece,
+        from: piece.from + Math.max(0, from - start),
+        to: piece.from + Math.min(end, to) - start,
+      }, positions, requireContent);
+      if (at !== null) return at;
+    }
+    start = end;
   }
   return null;
 }

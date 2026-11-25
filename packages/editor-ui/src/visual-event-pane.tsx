@@ -1,5 +1,5 @@
-import { projectVisualProgram, type ShowMessageCard } from "@tk-reawakened/editor-model";
-import { useMemo, useState } from "preact/hooks";
+import { projectVisualProgram, type OpaqueProgramRegion, type ShowMessageCard } from "@tk-reawakened/editor-model";
+import { useMemo, useRef, useState } from "preact/hooks";
 
 export type VisualEventAction =
   | { readonly type: "add"; readonly message: string }
@@ -46,6 +46,31 @@ function MessageCard({ card, readOnly, onAction }: {
   );
 }
 
+function OpaqueBlock({ region, onAction }: {
+  readonly region: OpaqueProgramRegion;
+  readonly onAction: VisualEventPaneProps["onAction"];
+}) {
+  const pressed = useRef<(() => void) | null>(null);
+  const open = () => onAction({ type: "open", from: region.from });
+  return (
+    <fieldset>
+      <legend>Code the builder does not edit</legend>
+      <pre><code>{region.text}</code></pre>
+      <button type="button" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.open}.${region.line}`}
+        onPointerDown={(event) => {
+          // Monaco may commit typing on blur and reuse this button for a different block before click.
+          if (event.isPrimary && event.button === 0) pressed.current = open;
+        }}
+        onPointerCancel={() => { pressed.current = null; }}
+        onClick={(event) => {
+          const activate = event.detail > 0 ? pressed.current ?? open : open;
+          pressed.current = null;
+          activate();
+        }}>Open in editor</button>
+    </fieldset>
+  );
+}
+
 /** A projection of the live program text, not a second document or undo history (TOOL-12). */
 export function VisualEventPane({ source, readOnly, error, onAction }: VisualEventPaneProps) {
   const { regions } = useMemo(() => projectVisualProgram(source), [source]);
@@ -57,12 +82,7 @@ export function VisualEventPane({ source, readOnly, error, onAction }: VisualEve
       {error === null ? null : <p role="alert">{error}</p>}
       {regions.map((region) => region.type === "show-message"
         ? <MessageCard key={`message:${region.from}:${region.message}`} card={region} readOnly={readOnly} onAction={onAction} />
-        : <fieldset key={`opaque:${region.from}`}>
-          <legend>Code the builder does not edit</legend>
-          <pre><code>{region.text}</code></pre>
-          <button type="button" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.open}.${region.line}`}
-            onClick={() => onAction({ type: "open", from: region.from })}>Open in editor</button>
-        </fieldset>)}
+        : <OpaqueBlock key={`opaque:${region.from}`} region={region} onAction={onAction} />)}
     </section>
   );
 }

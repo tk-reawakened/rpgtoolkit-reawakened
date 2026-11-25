@@ -24,6 +24,34 @@ interface PaneActionMessage {
 }
 
 const panels = new Map<string, PaneState>();
+// The queue belongs to the source URI, not its pane: closing a pane must not release an in-flight edit.
+const pendingActions = new Map<string, Promise<void>>();
+
+async function applyActionSerially(state: PaneState, message: PaneActionMessage): Promise<void> {
+  const documentKey = key(state.uri);
+  const document = vscode.workspace.textDocuments.find((candidate) => key(candidate.uri) === documentKey);
+  if (document === undefined) {
+    report(state, "The source document is no longer open. Reopen it before editing visual events.");
+    return;
+  }
+  const previous = pendingActions.get(documentKey);
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  pendingActions.set(documentKey, current);
+  if (previous !== undefined) await previous;
+  try {
+    if (panels.get(documentKey) !== state) return;
+    // VS Code may reuse the same URI, version number and text for a reopened TextDocument.
+    if (!vscode.workspace.textDocuments.includes(document)) {
+      report(state, "The source document was reopened. The queued visual action was not applied.");
+      return;
+    }
+    await applyAction(state, document, message);
+  } finally {
+    release();
+    if (pendingActions.get(documentKey) === current) pendingActions.delete(documentKey);
+  }
+}
 
 function key(uri: vscode.Uri): string {
   return uri.toString();
@@ -74,12 +102,7 @@ function report(state: PaneState, message: string): void {
   void state.panel.webview.postMessage({ type: "error", message });
 }
 
-async function applyAction(state: PaneState, message: PaneActionMessage): Promise<void> {
-  const document = vscode.workspace.textDocuments.find((candidate) => key(candidate.uri) === key(state.uri));
-  if (document === undefined) {
-    report(state, "The source document is no longer open. Reopen it before editing visual events.");
-    return;
-  }
+async function applyAction(state: PaneState, document: vscode.TextDocument, message: PaneActionMessage): Promise<void> {
   const source = normalizedSource(document);
   if (document.version !== message.version || source !== message.source) {
     report(state, "The source changed. The visual event was not applied; review the updated source and try again.");
@@ -187,7 +210,8 @@ export function registerVisualEvents(context: vscode.ExtensionContext): void {
       if (!(uri instanceof vscode.Uri) || !isPaneActionMessage(message) || message.action.type !== type) return;
       const state = panels.get(key(uri));
       if (state === undefined) return;
-      await applyAction(state, message);
+      await applyActionSerially(state, message);
+      if (panels.get(key(uri)) !== state) return;
       const document = vscode.workspace.textDocuments.find((item) => key(item.uri) === key(state.uri));
       if (document !== undefined) snapshot(state, document);
     }));

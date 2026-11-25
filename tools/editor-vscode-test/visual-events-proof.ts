@@ -66,6 +66,26 @@ export async function runVscodeVisualEventsProof(
   await command("File: Save");
   const expected = "// native visual event proof\r\n// handwritten opaque line\r\nmwin(\"Native tracer event\")\r\nwait()\r\nmwincls()\r\n";
   await expect.poll(() => readBacking(VISUAL_EVENTS_PROOF_PATH)).toEqual(new TextEncoder().encode(expected));
+  const visualTab = page.getByRole("tab", { name: /^Visual events/ });
+  await visualTab.hover();
+  await visualTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(visualTab).toHaveCount(0);
+  await expect.poll(() => pane.isDetached()).toBe(true);
+  await sourceTab.hover();
+  await sourceTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(sourceTab).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, VISUAL_EVENTS_PROOF_PATH);
+  const reopenedSourceTab = page.getByRole("tab").filter({ hasText: "start.prg" });
+  await expect(reopenedSourceTab).toHaveCount(1);
+  await expect(reopenedSourceTab).toBeVisible();
+  const reopenedProgramEditor = page.locator(".monaco-workbench .monaco-editor:visible").last();
+  await expect(reopenedProgramEditor.locator(".view-lines")).toContainText("handwritten opaque line");
+  await expect(reopenedProgramEditor.locator(".view-lines")).toContainText('mwin("Native tracer event")');
+  await command("RPG Toolkit: Show Visual events");
+  const reopenedPane = await paneFrame(page, expect);
+  await expect(reopenedPane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event");
+  await expect(reopenedPane.getByText("handwritten opaque line", { exact: false })).toBeVisible();
+  await expect.poll(() => readBacking(VISUAL_EVENTS_PROOF_PATH)).toEqual(new TextEncoder().encode(expected));
   await command("Test: Run Example Program");
   const player = await playerFrame(page, expect);
   const output = async () => await player.evaluate(() => {
