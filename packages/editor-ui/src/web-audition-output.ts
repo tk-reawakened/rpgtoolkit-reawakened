@@ -1,6 +1,5 @@
 import { assetKey } from "@tk-reawakened/core";
-import { connectSinkToGraph, type GraphConnection, PcmSink, type SinkEvent } from "@tk-reawakened/runner-web";
-import { BUNDLED_BANK, type BankRef } from "@tk-reawakened/synth";
+import { BUNDLED_BANK, type BankRef, connectSinkToGraph, type GraphConnection, PcmSink, type SinkEvent } from "@tk-reawakened/runner-web";
 import type { AudioOutputApi, AudioPlayOutcome, AuditionFormat, AuditionOptions } from "@tk-reawakened/platform-services";
 
 /** Where the browser audition gets its audio graph and its default SoundFont. */

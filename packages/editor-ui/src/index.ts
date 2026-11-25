@@ -28,3 +28,4 @@ export { mountHistory } from "./mount.ts";
 export { createCreatorTestsController, type CreatorTestsController, type CreatorTestsControllerOptions, type CreatorTestsFrame, type CreatorTestsRequest, type CreatorTestsState } from "./creator-tests-controller.ts";
 export { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
 export { createAuditionCommands, createAuditionControls, type AuditionControls, type AuditionPanel, type AuditionSnapshot, type BoardAudition } from "./board-audition.ts";
+export { createWebAudioOutput, type WebAudioOptions } from "./web-audition-output.ts";
