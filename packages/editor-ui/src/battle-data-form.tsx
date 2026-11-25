@@ -423,7 +423,7 @@ export function useLinkedFile(
               return;
             }
             if (!resolved.exists) {
-              missing ??= { path: resolved.path, message: `${resolved.path} is not in the project.` };
+              missing ??= { path: resolved.path, message: "No matching file in the project folder." };
               continue;
             }
             path = resolved.path;
