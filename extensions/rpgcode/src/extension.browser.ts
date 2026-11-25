@@ -2,6 +2,7 @@ import { Uri, type ExtensionContext } from "vscode";
 import { LanguageClient, State, type LanguageClientOptions } from "vscode-languageclient/browser.js";
 import { registerDebugAdapter } from "./debug.js";
 import { registerMigrationPreview } from "./migrationPreview.js";
+import { registerScriptTransform } from "./scriptTransform.js";
 import { registerRunningProject } from "./project.js";
 
 let client: LanguageClient | undefined;
@@ -27,6 +28,8 @@ export function activate(context: ExtensionContext): void {
     if (event.oldState === State.Starting && event.newState === State.Running) project.resend();
   }));
   registerMigrationPreview(context);
+  // A request that arrives before the server is up waits for it, as the project notification does.
+  registerScriptTransform(context, async () => { await started; return running; }, project);
   registerDebugAdapter(context);
 }
 

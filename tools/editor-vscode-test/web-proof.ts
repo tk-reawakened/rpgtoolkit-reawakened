@@ -2217,7 +2217,7 @@ async function runCommand(page: Page, expect: Expect, title: string, quickInputN
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string): Promise<void> {
+export async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string | false): Promise<void> {
   const widget = page.locator(".quick-input-widget");
   let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -2273,8 +2273,8 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      if (nextPrompt !== undefined) await expect(page.getByRole("textbox", { name: nextPrompt })).toBeVisible();
-      else await expect(widget).toBeHidden();
+      if (typeof nextPrompt === "string") await expect(page.getByRole("textbox", { name: nextPrompt })).toBeVisible();
+      else if (nextPrompt !== false) await expect(widget).toBeHidden();
       return;
     }
     // Only an explicit false proves no command was dispatched.

@@ -32,7 +32,7 @@ export interface ShellProps {
   readonly workspace?: DocumentWorkspace;
   /** Optional shared command registry for the application menu and command palette (#2703). */
   readonly commands?: CommandRegistry;
-  /** Extra commands listed in the command palette beside the built-ins (ADR 0038). */
+  /** Host commands added to the default menu and palette beside the built-ins (ADR 0038), such as the reviewed script workflows and the audition. */
   readonly extraCommands?: readonly WorkbenchCommand[];
   /** A file was opened from the Files panel (a document, or the OS took it). */
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;

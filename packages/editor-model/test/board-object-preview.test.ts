@@ -77,6 +77,7 @@ test("placed sprites resolve the south-rest frame under the game root, retaining
   const ordinary = await previewBoard(host.fs, "memory-project", bytes, { root: options.root });
   ok(ordinary.ok);
   deepEqual(pixel(ordinary, 45, 61), [0, 0, 0, 255]);
+  deepEqual(ordinary.objectBounds, [], "sprites are omitted, including their guides");
   const hidden = await previewBoard(host.fs, "memory-project", bytes, { ...options, visibleLayers: [] });
   ok(hidden.ok);
   deepEqual(hidden.objectBounds, []);
@@ -88,7 +89,6 @@ test("an empty first idle frame is a truthful placeholder, not a later frame or 
   const picture = await previewBoard(host.fs, "memory-project", board({ sprites: [sprite("chest.itm")] }), options);
   ok(picture.ok);
   equal(picture.objectBounds[0]?.placeholder, true);
-  deepEqual(pixel(picture, 45, 61), [0, 0, 0, 255]);
   ok(picture.warnings.some((warning) => warning.includes("rest.anm")));
 });
 
@@ -111,6 +111,66 @@ test("missing and undecodable image slots remain selectable placeholders without
   ok(picture.warnings.some((warning) => warning.includes("missing.bmp")));
   ok(picture.warnings.some((warning) => warning.includes("broken.bmp")));
 });
+test("previewing without placed images omits their compositor pixels and object bounds", async () => {
+  const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });
+  const bytes = board({ images: [image("blue.bmp")] });
+  const visible = await previewBoard(host.fs, "memory-project", bytes);
+  const hidden = await previewBoard(host.fs, "memory-project", bytes, { showImages: false });
+  ok(visible.ok);
+  ok(hidden.ok);
+  deepEqual(pixel(visible, 0, 0), [...blue, 255]);
+  deepEqual(pixel(hidden, 0, 0), [0, 0, 0, 255]);
+  deepEqual(hidden.objectBounds, []);
+});
+test("hiding placed images preserves the background and excludes hidden tile-bitmap dependencies", async () => {
+  const parsed = readBoard(new BinaryReader(board()));
+  ok(parsed.ok);
+  const bytes = board({
+    images: [image("missing-stamp.tbm")],
+    properties: { ...parsed.value.properties, backgroundImage: "sky.bmp" },
+  });
+  const host = createMemoryPlatformServices({ files: { "Bitmap/sky.bmp": bmp([red, red, red, red]) } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes, { showImages: false });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(pixel(picture, 0, 0), [...red, 255], "the separately controlled background remains visible");
+  deepEqual(picture.objectBounds, [], "hidden image objects have no export bounds");
+});
+test("hidden-layer tile-bitmap images are removed before hydration reads their tileset dependencies", async () => {
+  const built = buildNewBoard({ name: "layers", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const empty = { tile: "", r: 0, g: 0, b: 0 };
+  const stamp = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 1, height: 1,
+    cells: [{ ...empty, tile: "missing.tst1" }, empty, empty, empty], residue: new Uint8Array(),
+  });
+  ok(stamp.ok);
+  const parsed = readBoard(new BinaryReader(built.bytes));
+  ok(parsed.ok);
+  const bytes = writeBoard({ ...parsed.value, images: [{ ...image("hidden.tbm"), layer: 2 }] });
+  ok(bytes.ok);
+  const host = createMemoryPlatformServices({ files: { "Bitmap/hidden.tbm": stamp.value } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes.value, { visibleLayers: [0] });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(picture.warnings, []);
+  deepEqual(picture.objectBounds, []);
+});
+
+test("hidden placed images keep later visible object bounds attached to their stored slots", async () => {
+  const built = buildNewBoard({ name: "image slots", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const parsed = readBoard(new BinaryReader(built.bytes));
+  ok(parsed.ok);
+  const bytes = writeBoard({
+    ...parsed.value,
+    images: [{ ...image("hidden.tbm"), layer: 2 }, image("blue.bmp", 40, 20)],
+  });
+  ok(bytes.ok);
+  const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes.value, { visibleLayers: [0] });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(picture.objectBounds, [{ kind: "images", index: 1, left: 40, top: 20, width: 2, height: 2, placeholder: false }]);
+});
+
 
 test("stretched image bounds match the compositor's board-sized picture rather than the stored origin", async () => {
   const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });

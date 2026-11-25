@@ -191,8 +191,12 @@ function drawBlit(
     return "invalid blit rectangle";
   }
   const tileOffset = sourceOffset(command);
-  for (let y = 0; y < command.dst.h; y += 1) {
-    for (let x = 0; x < command.dst.w; x += 1) {
+  const startX = Math.max(0, -command.dst.x);
+  const endX = Math.min(command.dst.w, target.width - command.dst.x);
+  const startY = Math.max(0, -command.dst.y);
+  const endY = Math.min(command.dst.h, target.height - command.dst.y);
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
       const iso = command.iso2d ? isoSourceOffset(x, y) : null;
       if (command.iso2d && !iso) continue;
       const sourceX = iso

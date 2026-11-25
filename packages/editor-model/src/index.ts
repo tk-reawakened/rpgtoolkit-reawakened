@@ -360,6 +360,39 @@ export {
 export { createCheckpointGroups, type CheckpointEntry, type CheckpointEnvironment, type CheckpointFile, type CheckpointGroup, type CheckpointGroups, type CheckpointProblem, type CheckpointTarget, type CheckpointUncovered } from "./checkpoint-groups.ts";
 export { DEFAULT_HISTORY_POLICY, HISTORY_DEFAULTS, HISTORY_SETTING_IDS, historyPolicyFrom } from "./history-policy.ts";
 export { createProjectWizardHistory, createWizardHistory, type WizardHistory } from "./wizard-history.ts";
+export {
+  MAX_WORKFLOW_PROGRAMS,
+  MIGRATED_FOLDER,
+  SCRIPT_TRANSFORM_IDS,
+  SCRIPT_TRANSFORM_INFO,
+  createScriptReview,
+  listWorkflowPrograms,
+  migratedPath,
+  planScriptWorkflow,
+  readScriptTransformAnswer,
+  scriptProviderOver,
+  type OpenScriptProgram,
+  type PlanControl,
+  type PlanProgress,
+  type ScriptApplyFailure,
+  type ScriptFileState,
+  type ScriptReviewSpot,
+  type ScriptReviewPhase,
+  type ScriptReviewSession,
+  type ScriptReviewSnapshot,
+  type ScriptTransformAnswer,
+  type ScriptTransformId,
+  type ScriptTransformProvider,
+  type ScriptTransformQuestion,
+  type ScriptTransformStep,
+  type ScriptUnsupportedFragment,
+  type ScriptWorkflowEntry,
+  type ScriptWorkflowEnvironment,
+  type ScriptWorkflowFileSystem,
+  type ScriptWorkflowOutcome,
+  type ScriptWorkflowPlan,
+  type ScriptWorkflowScope,
+} from "./script-workflow.ts";
 export { acceptIgnoreOffer, diffLines, ignoreOffer, keepBeforeDelete, openHistoryPreview, textOf, type HistoryPreviewOpen, type IgnoreOffer, type LineChange } from "./history-support.ts";
 export type { DocumentHistorySink, SaveOptions, VersionRestoreCommand } from "./binary-document.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";

@@ -30,7 +30,8 @@ export function CheckpointView({ groups, version = 0 }: { readonly groups: Pick<
       {"error" in group ? <><h3>Unavailable recovery group: {group.id}</h3><p role="alert">{group.path}: {group.error} Retry and restore are unavailable.</p></> : <>
       <h3>{group.reason} — {group.time}</h3>
       <ol>{group.files.map((file) => <li key={file.path}>{file.path}: {file.status} {file.message ?? ""}</li>)}</ol>
-      <button type="button" disabled={busy || group.files.every((file) => file.status === "written")} onClick={() => void run(group.id, "retry")}>Retry remaining</button>
+      {group.reason === "before-script" ? <p>Restore only. Review the current programs to apply again.</p>
+        : <button type="button" disabled={busy || group.files.every((file) => file.status === "written")} onClick={() => void run(group.id, "retry")}>Retry remaining</button>}
       <button type="button" disabled={busy} onClick={() => setMessage("Files left as they are. This recovery group remains available after reopening the project.")}>Leave as is</button>
       <button type="button" disabled={busy} onClick={() => void run(group.id, "restore")}>Restore group</button></>}
       <button type="button" disabled={busy || ("error" in group && !group.deletable)} onClick={() => setDeleting(group.id)}>Delete recovery group…</button>

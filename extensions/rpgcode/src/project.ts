@@ -14,7 +14,7 @@ import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_N
 const SECTION = "rpgcode";
 const SETTING = "project";
 const SELECT_COMMAND = "rpgcode.selectProject";
-const SKIPPED_FOLDERS = new Set(["node_modules", ".git"]);
+const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-migrated"]);
 /** A bound on the inventory, so a mis-selected folder (a whole drive) is reported instead of read. */
 const MAX_FILES = 20_000;
 const MAX_SEARCH_DEPTH = 4;
@@ -72,8 +72,7 @@ async function inventory(root: vscode.Uri, prefix: string, files: ProjectSnapsho
 }
 
 /** Read the selected project into one snapshot; a failure is reported in the snapshot, never guessed around. */
-export async function readSnapshot(revision: number): Promise<ProjectSnapshot> {
-  const main = selectedMain();
+export async function readSnapshot(revision: number, main = selectedMain()): Promise<ProjectSnapshot> {
   if (main === undefined) return { revision, main: null };
   try {
     const mainBytes = await vscode.workspace.fs.readFile(main);
@@ -119,12 +118,17 @@ async function findMainFiles(): Promise<vscode.Uri[]> {
  * delivery. `client` is the started language client; a snapshot is sent now,
  * on every selection change and on every change under the project root.
  */
-export function registerRunningProject(context: vscode.ExtensionContext, client: ProjectClient): { resend(): void } {
+export function registerRunningProject(context: vscode.ExtensionContext, client: ProjectClient): {
+  resend(): void;
+  withSnapshot<T>(expectedMain: string | undefined, request: (revision: number) => Promise<T>): Promise<T>;
+} {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   status.command = SELECT_COMMAND;
   status.name = "RPGCode running project";
   let revision = 0;
   let pending: Promise<void> = Promise.resolve();
+  let sentMain: string | undefined;
+  let sentRevision = 0;
   let watcher: vscode.FileSystemWatcher | undefined;
 
   const showStatus = (): void => {
@@ -159,10 +163,13 @@ export function registerRunningProject(context: vscode.ExtensionContext, client:
   // Snapshots are read one at a time, and each carries a higher revision than the last.
   const send = (): void => {
     pending = pending.then(async () => {
-      revision += 1;
-      const snapshot = await readSnapshot(revision);
+      const main = selectedMain();
+      const snapshot = await readSnapshot(++revision, main);
       await client.sendNotification(PROJECT_NOTIFICATION, snapshot);
+      sentMain = main?.toString();
+      sentRevision = snapshot.revision;
     }).catch((error: unknown) => {
+      sentRevision = 0;
       void vscode.window.showErrorMessage(`RPGCode could not send the running project: ${message(error)}`);
     });
   };
@@ -194,5 +201,19 @@ export function registerRunningProject(context: vscode.ExtensionContext, client:
   showStatus();
   watch();
   send();
-  return { resend: send };
+  return {
+    resend: send,
+    withSnapshot(expectedMain, request) {
+      // The configuration event may not yet have queued its snapshot. A fresh send picks up the new selection.
+      if (selectedMain()?.toString() !== sentMain) send();
+      const next = pending.then(() => {
+        if (selectedMain()?.toString() !== expectedMain || sentMain !== expectedMain || sentRevision === 0) {
+          throw new Error("The selected project has changed or its snapshot could not be sent. Review the current project again.");
+        }
+        return request(sentRevision);
+      });
+      pending = next.then(() => undefined, () => undefined);
+      return next;
+    },
+  };
 }

@@ -622,6 +622,9 @@ importers:
       '@tk-reawakened/host-web':
         specifier: workspace:*
         version: link:../../packages/host-web
+      '@tk-reawakened/lsp':
+        specifier: workspace:*
+        version: link:../../packages/lsp
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../../packages/platform-services

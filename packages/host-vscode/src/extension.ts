@@ -13,10 +13,12 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
+import { registerScriptWorkflowCommands } from "./script-commands.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { registerImportBoardAsScene } from "./import-board-scene.ts";
 import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
@@ -84,6 +86,20 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   const port: GameEditorPort<vscode.Uri> = {
     capabilities: vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop),
     dialogs: (folder) => createVscodeDialogs(folder.uri),
+    saveImage: async (folder, fileName, bytes) => {
+      const destination = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(folder.uri, fileName),
+        saveLabel: "Save PNG",
+        filters: { PNG: ["png"] },
+      });
+      if (destination === undefined) return platformOk(false);
+      try {
+        await vscode.workspace.fs.writeFile(destination, bytes);
+        return platformOk(true);
+      } catch {
+        return platformError("io-error", `Could not save ${fileName}.`);
+      }
+    },
     folderOf: (uri) => {
       const folder = vscode.workspace.getWorkspaceFolder(uri);
       return folder === undefined ? undefined : { uri: folder.uri, key: folder.uri.toString() };
@@ -255,6 +271,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     }
   }));
   registerNewBoard(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
+  registerScriptWorkflowCommands(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
     const activeTextEditorUri = vscode.window.activeTextEditor?.document.uri;

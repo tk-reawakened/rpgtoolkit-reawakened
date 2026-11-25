@@ -51,3 +51,38 @@
   overflow: hidden;
   overscroll-behavior: contain;
 }
+
+.tkr-board-export-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 1rem;
+  color: var(--vscode-foreground, CanvasText);
+  background: var(--vscode-editor-background, Canvas);
+  border: 1px solid var(--vscode-panel-border, #777);
+}
+
+.tkr-board-export-overlay::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.tkr-board-export-overlay fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border: 1px solid var(--vscode-panel-border, #777);
+}
+
+.tkr-board-export-overlay h2 {
+  margin: 0;
+}

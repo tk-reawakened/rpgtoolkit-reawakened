@@ -183,6 +183,15 @@ These rules settle what T-28 leaves open: which selections can be copied, what i
 * **Select all.** In Tiles mode it selects every cell of the stored grid. In an object mode it selects every object of that family that is visible on the current layer, and when none is visible it clears the selection and says so rather than leaving an earlier, now hidden, selection for a later copy or cut; "Select all points" selects every point of the selected region. Selection is view state, never an edit.
 * **Keyboard.** Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+A on the board, and the same four actions as labelled buttons and workbench commands. Only these four keys reach the board from a control that is not a text field (a checkbox, a radio, a colour or a `<select>`); Ctrl+Z and Ctrl+Y do not — they stay the control's and the host's, never the board's history; a field that takes typed text, and a `<textarea>` or contenteditable region, keep their own clipboard and select-all. Every other key keeps the strict rule, so a focused control never deletes cells or switches tools.
 
+<a id="p1-clean-board-image-export"></a>
+### Reawakened rules for clean board image export (story 13.14)
+
+Choose **Export PNG…** in the board editor, or invoke it from the focused editor's command palette. The export is prepared from the document's current in-memory bytes after pending edits settle; preparing or downloading it does not save, replace or otherwise modify project files. The generated PNG follows the authored-image storage policy in [images.md](spec/formats/images.md#storage-policy): indexed colour for at most 256 distinct RGBA colours, otherwise truecolour with alpha.
+
+* **Current view** renders only the requested viewport through the AD-29 compositor, retaining the full-board parallax coordinates and matching the displayed canvas's camera, zoom and `#1e1e1e` padding; **Whole board** exports the full board extent and all layers. Both omit editor guides, grid, selection, cursor and drag overlays, and can independently include or omit sprites, placed images, painted shading and lighting. Hiding placed images does not hide the background image.
+* **Output limits.** Exports are capped at 16 million pixels. Current-view export preserves the canvas dimensions; whole-board export preserves the board’s full pixel dimensions.
+* **Host output.** Browser hosts provide an explicit **Download PNG** action and report that the browser download was started, not that it was saved; VS Code hosts provide **Save PNG** through the native Save As picker and report success only after the file write completes. A host without image export says that PNG export is unavailable; it does not write into the project as a fallback. Cancel remains available during preparation and invalidates any late result.
+
 ---
 
 ## 4. Tile tools (T-36 … T-39)
@@ -210,15 +219,15 @@ These rules settle what T-28 leaves open: which selections can be copied, what i
 
 **T-41 Test run with fixtures.** Run the current program in the engine. **Test preferences** supply a font, font size, message-window graphic, a set of party members and a board, so the program can run without the rest of the game. *Reawakened:* the test preferences are a saved program-test setup in `.tkr/launch.json` (ADR 0022 D8.7).
 
-**T-42 Indent wizard.** Re-indent code by brace depth (indent width configurable).
+**T-42 Indent wizard.** Re-indent code by brace depth (indent width configurable). *Reawakened:* the formatter of TOOL-4, offered as a reviewed workflow ([TOOL-11](spec/engine/rpgcode-tooling.md#tool-11)).
 
-**T-43 RPGCode Update Wizard.** Converts pre-3.1 programs project-wide, file by file with per-file opt-out: quote unquoted string arguments and map keys; change `=` to `==` in comparisons; strip `!`/`$` sigils; modernise comment styles.
+**T-43 RPGCode Update Wizard.** Converts pre-3.1 programs project-wide, file by file with per-file opt-out: quote unquoted string arguments and map keys; change `=` to `==` in comparisons; strip `!`/`$` sigils; modernise comment styles. *Reawakened:* offered as the reviewed `update` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11), over the conversion contract of [rpgcode-dialects.md](spec/engine/rpgcode-dialects.md#tk2-conversion-contract); a Toolkit 2.x original is never overwritten, its 3.1 result is written as a copy.
 
-**T-44 Cleanup wizards.** *Auto-command wizard*: remove legacy `#` prefixes and wrap loose dialogue lines in message-window calls. *Cleanup wizard*: run all cleanups on every program in the project. Both claim to preserve behaviour.
+**T-44 Cleanup wizards.** *Auto-command wizard*: remove legacy `#` prefixes and wrap loose dialogue lines in message-window calls. *Cleanup wizard*: run all cleanups on every program in the project. Both claim to preserve behaviour. *Reawakened:* the reviewed `cleanup` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11); a stage that is not proved to preserve behaviour is skipped and named.
 
 **T-45 Visual event builder.** An alternative, form-based way to write a program. Pick commands from categories (Text, Display, Player, Fight, Control, Items, Variable manipulation, Input, Info; about 160 command templates). Fill typed parameters (file pickers that know the right folder, numbers, strings). Insert or delete lines. **Build to RPGCode**. A small visual screen-layout canvas comes with it. This was a lesser-used tool. Include it if the rebuild targets beginners.
 
-**T-46 Capitalisation / formatting helpers.** Normalise built-in names to canonical case.
+**T-46 Capitalisation / formatting helpers.** Normalise built-in names to canonical case. *Reawakened:* the `canonical-case` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11), which changes spelling and never indentation.
 
 ---
 

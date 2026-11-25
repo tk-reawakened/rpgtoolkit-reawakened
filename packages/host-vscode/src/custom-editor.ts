@@ -41,6 +41,7 @@ export interface GameEditorPort<Uri extends UriLike> {
   fileSystem(folder: WorkspaceFolderLike<Uri>): FileSystemService;
   /** The folder's `dialogs`. The workbench asks its own questions on close and Save As, so the provider never shows one. */
   dialogs(folder: WorkspaceFolderLike<Uri>): DialogService;
+  saveImage?(folder: WorkspaceFolderLike<Uri>, fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
   /** Hot-exit backups live outside the workspace, at a location VS Code gives. */
   readBackup(id: string): Promise<Uint8Array>;
   writeBackup(destination: Uri, bytes: Uint8Array): Promise<string>;
@@ -385,6 +386,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
     const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), { ...request, root: this.#previewRoot });
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
+  }
+  saveImage(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>> {
+    if (this.model.kind !== "board") return Promise.resolve(platformError("unavailable", "Only a board can export PNG images."));
+    const folder = this.#port.folderOf(this.uri);
+    if (folder === undefined || this.#port.saveImage === undefined) return Promise.resolve(platformError("unavailable", "This host cannot save PNG exports."));
+    return this.#port.saveImage(folder, fileName, bytes);
   }
   /** Read a project-relative preview asset through this document's project-bound host filesystem. */
   readProject(path: string): Promise<PlatformResult<Uint8Array>> {

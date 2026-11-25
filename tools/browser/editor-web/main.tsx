@@ -644,6 +644,11 @@ window.addEventListener("keydown", (event) => {
   const undo = key === "z" && !event.shiftKey;
   const redo = key === "z" && event.shiftKey || key === "y" && !event.shiftKey;
   if (!save && !undo && !redo) return;
+  // A window listener receives keys from modal overlays even though the background workbench is inert.
+  if (document.querySelector('[role="dialog"][aria-modal="true"], dialog:modal') !== null) {
+    if (save) event.preventDefault();
+    return;
+  }
   const target = event.target;
   if (!save && target instanceof HTMLElement
     && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable)) return;

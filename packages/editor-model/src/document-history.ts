@@ -76,7 +76,7 @@ export interface HistoryLocation {
   readonly description: string;
 }
 
-export type FileRestoreResult = "restored" | "already-as-wanted" | "kept-uncertain" | "uncovered" | "failed";
+export type FileRestoreResult = "restored" | "already-as-wanted" | "kept-uncertain" | "kept-changed" | "uncovered" | "failed";
 
 export interface FileRestoreReport {
   readonly path: string;
