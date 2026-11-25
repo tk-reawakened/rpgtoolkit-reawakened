@@ -29,6 +29,9 @@
   "contributes": {
     "commands": [
       { "command": "tkr.editorWebProof.openProjectFile", "title": "Test: Open Proof Project File" },
+      { "command": "tkr.editorWebProof.openScriptMultiRoot", "title": "Test: Open Script Proof Multi-root Workspace" },
+      { "command": "tkr.editorWebProof.armScriptProjectSetting", "title": "Test: Arm Script Proof Project Setting" },
+      { "command": "tkr.editorWebProof.armScriptFolderRemoval", "title": "Test: Arm Script Proof Folder Removal" },
       { "command": "tkr.editorWebProof.debugExampleBoard", "title": "Test: Debug Example Board" },
       { "command": "tkr.editorWebProof.restartDebug", "title": "Test: Restart Debug Session" },
       { "command": "tkr.editorWebProof.stopDebug", "title": "Test: Stop Debug Session" },

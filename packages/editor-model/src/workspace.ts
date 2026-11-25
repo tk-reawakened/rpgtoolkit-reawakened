@@ -485,10 +485,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       if (removing) return `${path} is open. Close it, then retry the restore to remove it.`;
       return null;
     },
-    async consent(paths) {
+    async consent(paths, purpose) {
+      const scripts = purpose === "reviewed-scripts";
       const answer = await dialogs.ask({
-        message: `${paths.join(", ")} ${paths.length === 1 ? "already exists" : "already exist"}.`,
-        detail: "The checkpoint will record the current files before the wizard writes. Continue?",
+        message: paths.length === 0 ? "Write the reviewed program files?" : `${paths.join(", ")} ${paths.length === 1 ? "already exists" : "already exist"}.`,
+        detail: scripts
+          ? "History keeps the current files first. Use this only on your own project: another program can change the files or swap a path for a link after the final check. VS Code refuses links it detects; browser-picked folders do not reveal links."
+          : "The checkpoint will record the current files before the wizard writes. Continue?",
         choices: [{ id: "continue", label: "Continue" }, { id: "cancel", label: "Cancel" }],
         cancel: "cancel",
       });
@@ -512,7 +515,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         path: file.path,
         result: file.status === "written" ? "restored" as const
           : file.status === "already-as-wanted" ? "already-as-wanted" as const
-            : file.status === "kept-uncertain" ? "kept-uncertain" as const
+            : file.status === "kept-uncertain" || file.status === "kept-changed" ? file.status
               : file.status === "uncovered" ? "uncovered" as const : "failed" as const,
         ...(file.message === null ? {} : { message: file.message }),
       })),
@@ -560,9 +563,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const source = listed.value.find((entry) => entry.id === groupId);
       if (source === undefined || !("files" in source)) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed", message: "Checkpoint group does not exist or is unreadable." }] };
       const selected = source.files.map((file) => file.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
-      const expectedBefore = await confirmUnsaved(selected);
-      if (expectedBefore === null) return declined(groupId, selected);
-      const result = await checkpoints.restore(groupId, { ...restoreOptions, expectedBefore });
+      const result = await checkpoints.restore(groupId, { ...restoreOptions, confirmBefore: confirmUnsaved });
       return result.ok ? checkpointReport(groupId, result.value) : { groupId, restoreGroupId: null, files: selected.map((path) => ({ path, result: "failed" as const, message: result.error.message })) };
     },
     async createNamedCheckpoint(name) {

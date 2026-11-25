@@ -41,7 +41,11 @@
     "onCommand:tkr.animationRecovery",
     "onDebugResolve:tkr",
     "onDebugDynamicConfigurations:tkr",
-    "onDebugInitialConfigurations"
+    "onDebugInitialConfigurations",
+    "onCommand:tkr.scriptFormat",
+    "onCommand:tkr.scriptCanonicalCase",
+    "onCommand:tkr.scriptUpdate",
+    "onCommand:tkr.scriptCleanup"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -136,6 +140,26 @@
       {
         "command": "tkr.animationRecovery",
         "title": "Project recovery",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptFormat",
+        "title": "Format (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptCanonicalCase",
+        "title": "Normalise capitalisation (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptUpdate",
+        "title": "Update older syntax (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptCleanup",
+        "title": "Clean up (reviewed)…",
         "category": "TK Reawakened"
       }
     ],
