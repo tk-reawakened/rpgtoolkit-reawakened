@@ -23,6 +23,7 @@ function wav(): Uint8Array {
 }
 
 // Format 0, one middle C sounding for one beat.
+const midiSeconds = 0.5; // The default MIDI tempo is 120 beats per minute.
 const midi = new Uint8Array([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 77, 84, 114, 107, 0, 0, 0, 12, 0, 144, 60, 100, 96, 128, 60, 0, 0, 255, 47, 0]);
 interface AudioProofWindow extends Window {
   auditionGraph?: { readonly context: BaseAudioContext; readonly analyser: AnalyserNode };
@@ -40,7 +41,7 @@ async function signal(page: Page): Promise<{ time: number; peak: number }> {
   });
 }
 
-test("editor auditions real WAV and configured-bank MIDI; loop outlives the WAV and Stop silences it", async ({ page }) => {
+test("editor auditions real WAV and configured-bank MIDI and Stop silences both while looping", async ({ page }) => {
   const main = writeMainFile(applyMainSettings(newProjectMainFile(), { defaultSoundFont: "project.sf2" }));
   if (!main.ok) throw new Error("The proof main file must serialize");
   const board = buildNewBoard({ name: "audition", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null });
@@ -123,13 +124,26 @@ test("editor auditions real WAV and configured-bank MIDI; loop outlives the WAV 
   }, polling).toBe(true);
   await stop.click();
   await silenceAfter(toneSeconds);
-  await loop.uncheck();
 
   await field.fill("theme.mid");
   await play.click();
   await audible();
+  const afterTwoMidiPasses = (await signal(page)).time + midiSeconds * 2;
+  await expect.poll(async () => {
+    const sample = await signal(page);
+    return sample.time >= afterTwoMidiPasses && sample.peak > 0.002;
+  }, { ...polling, message: "MIDI remains audible beyond its one-shot duration" }).toBe(true);
   await stop.click();
-  await silenceAfter(toneSeconds);
+  let silentSince: number | null = null;
+  await expect.poll(async () => {
+    const { time, peak } = await signal(page);
+    if (peak >= 0.00001) {
+      silentSince = null;
+      return false;
+    }
+    silentSince ??= time;
+    return time - silentSince >= midiSeconds * 2;
+  }, { ...polling, message: "Stop keeps MIDI silent across two expected loop periods" }).toBe(true);
   expect(bundledRequests, "MIDI played using the project's own bank without fetching the fallback").toEqual([]);
 
   await field.fill("unsupported.ogg");

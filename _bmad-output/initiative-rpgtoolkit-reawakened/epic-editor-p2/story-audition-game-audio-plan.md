@@ -2,7 +2,7 @@
 type: feature
 title: "Audition game audio"
 ticket: 5
-status: draft
+status: done
 risk: medium
 ---
 
@@ -21,6 +21,8 @@ MIDI and WAV play and stop in supported hosts with the configured SoundFont, loo
 The [issue acceptance](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1748) is capability-gated: it specifies WAV/MIDI, loop, the configured SoundFont, refusal messages and no source writes, but does not enumerate a VS Code audio adapter or separate sound-picker preview surfaces. The shipped browser editor provides audio output; the board's editable reference accepts music or effect files from the project's media folder without applying the draft or running a game. A host without audio output (including the current VS Code host) reports that audition is unavailable. This is not a claim of VS Code playback parity or an import-time preview contract.
 
 `tools/browser/tests/editor-audio-audition.spec.ts` exercises the shipped browser page with a real project directory, native AudioWorklet PCM, audible output beyond a single WAV duration, Stop, MIDI with the configured bank, an unsupported format and unchanged project bytes. The supported browser deployment owns the concrete adapter; the shared editor receives output through `platform-services`.
+
+The feature landed in [#3451](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3451) at `1222d6ca26655bb3f976d67ab609d8911e86ff9f`; [its required CI gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45659008268/job/139368575817) passed. [#3512](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3512) records why ending a one-shot MIDI naturally could satisfy the original Stop assertion. The strengthened test first hears configured-bank MIDI beyond its natural end, then requires silence across two loop periods after Stop. Browser autoplay refusal is covered at the audio-service boundary, not by the Chromium playback lane.
 
 ## Dependencies and decisions
 

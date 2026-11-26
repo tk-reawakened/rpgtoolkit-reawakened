@@ -158,6 +158,13 @@ const CASES: readonly KindCase[] = [
     accepted: { type: "set-status-effect-number", field: "hpPerRound", value: -2 },
     rejected: { type: "set-status-effect-number", field: "hpPerRound", value: 32_768 },
   },
+  {
+    kind: "battle-background",
+    path: "Bkrounds/forest.bkg",
+    bytes: new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/Bkrounds/forest.bkg", import.meta.url))),
+    accepted: { type: "set-battle-background-text", field: "image", value: "arena.tbm" },
+    rejected: { type: "set-battle-background-text", field: "music", value: "bad\u0000name.mid" },
+  },
 ];
 
 async function open(entry: KindCase): Promise<{ readonly host: ReturnType<typeof createMemoryPlatformServices>; readonly doc: AnyDocument }> {

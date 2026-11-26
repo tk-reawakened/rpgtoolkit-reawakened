@@ -17,6 +17,7 @@ export { FontView, type FontViewDocument, type FontViewProps } from "./font-view
 export { NativeGeometryView, type NativeGeometryViewDocument, type NativeGeometryViewProps } from "./native-geometry-view.tsx";
 export { SpecialMoveView, type SpecialMoveViewDocument, type SpecialMoveViewProps } from "./special-move-view.tsx";
 export { StatusEffectView, type StatusEffectViewDocument, type StatusEffectViewProps } from "./status-effect-view.tsx";
+export { BattleBackgroundView, type BattleBackgroundViewDocument, type BattleBackgroundViewProps } from "./battle-background-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";
@@ -31,4 +32,4 @@ export { leaseLanguageClient, startLanguageClient, LANGUAGE_IDLE_MS, type Langua
 export { mountHistory } from "./mount.ts";
 export { createCreatorTestsController, type CreatorTestsController, type CreatorTestsControllerOptions, type CreatorTestsFrame, type CreatorTestsRequest, type CreatorTestsState } from "./creator-tests-controller.ts";
 export { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
-export { createAuditionCommands, createAuditionControls, type AuditionControls, type AuditionPanel, type AuditionSnapshot, type BoardAudition } from "./board-audition.ts";
+export { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type AuditionSnapshot, type BattleBackgroundAuditionTarget, type BoardAudition } from "./board-audition.ts";
