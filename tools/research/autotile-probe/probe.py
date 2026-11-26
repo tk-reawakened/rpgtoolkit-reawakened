@@ -177,7 +177,7 @@ def read_board(path):
 
 def cmd_read(args):
     sx, sy, sl, lut, cells = read_board(args.board)
-    pat = re.compile(r'(?:.*[\\/])?' + re.escape(TILESET[:-4]) + r'\.tst(\d+)$', re.I)
+    pat = re.compile(r'(?:.*[\\/])?AutoProbe\d*\.tst(\d+)$', re.I)
     placed = {}  # (x, y) zero-based -> tile index, per layer
     layers = defaultdict(dict)
     for k, slot in enumerate(cells):
