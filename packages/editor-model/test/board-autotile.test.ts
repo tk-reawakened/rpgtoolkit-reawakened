@@ -26,6 +26,7 @@ import {
   type BoardEditor,
   type Brush,
   type Cell,
+  type EditorPreferences,
   type Modifiers,
 } from "../src/index.ts";
 
@@ -38,6 +39,7 @@ interface Rig {
   readonly editor: BoardEditor;
   brush: Brush | null;
   autotile: boolean;
+  prefs: EditorPreferences;
 }
 
 function rig(coordSystem: BoardCoordSystem, width = 8, height = 8): Rig {
@@ -46,13 +48,13 @@ function rig(coordSystem: BoardCoordSystem, width = 8, height = 8): Rig {
   const host = createMemoryPlatformServices({ files: { "Boards/t.brd": built.bytes } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), built.bytes);
   if (!opened.ok) throw new Error(JSON.stringify(opened.error));
-  const state = { doc: opened.document, brush: { kind: "tile", tile: water(14), label: "water" } as Brush | null, autotile: true };
+  const state = { doc: opened.document, brush: { kind: "tile", tile: water(14), label: "water" } as Brush | null, autotile: true, prefs: DEFAULT_EDITOR_PREFERENCES };
   const editor = createBoardEditor({
     board: () => state.doc.getSnapshot(),
     apply: (command) => state.doc.apply(command),
     brush: () => state.brush,
     pickTile: () => true,
-    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    preferences: () => state.prefs,
     autotileEnabled: () => state.autotile,
   });
   return Object.assign(state, { editor });
@@ -331,4 +333,125 @@ test("a drag is one edit however many cells it crosses and reshapes, and cells o
   ok(s.doc.undo().ok);
   deepEqual([-1, 0, 1].map((dx) => tile(s, c.x + dx, c.y)), ["", "", ""]);
   equal(tile(s, c.x, c.y + 1), GROUND);
+});
+
+test("two different sets never connect, even when one of them is marked for the legacy order", () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const marked = "Tiles\\grass.tst";
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  ok(s.doc.apply({ type: "set-tiles", gesture: "draw", cells: paintAutotileStroke(s.doc.getSnapshot(), 0, [c], `${sand}14`, true) }).ok);
+  equal(tile(s, c.x, c.y), `${sand}51`);
+  // The marked stroke reaches into the sand cell's neighbourhood; a mark says which cells take part, not that they link.
+  const next = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x + 1, y: c.y }], `${marked}7`, true, false, marked);
+  ok(s.doc.apply({ type: "set-tiles", gesture: "draw", cells: next }).ok);
+  equal(tile(s, c.x + 1, c.y), `${marked}51`);
+  equal(tile(s, c.x, c.y), `${sand}51`, "the sand cell keeps its isolated shape: it is a different set");
+});
+
+test("a drag holds Shift per cell: only the cells crossed with it reshape one set", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  // A stale sand tile, placed while autotiling was off, beside the cell the drag crosses with Shift.
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: c.x, y: c.y });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  // Down without Shift, crossed with Shift, released without it: the crossed cell keeps the Shift it was crossed with.
+  s.editor.pointerDown(at(s, { x: c.x + 2, y: c.y }), none);
+  s.editor.pointerMove(at(s, { x: c.x + 1, y: c.y }), { shift: true });
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), none);
+  equal(tile(s, c.x + 1, c.y), water(48), "the crossed cell was painted");
+  equal(tile(s, c.x, c.y), `${sand}14`, "a cell crossed with Shift leaves the other set's stale tile alone");
+});
+
+test("keyboard activation carries its Shift: a keyed autotile placement reshapes only its own set", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: c.x, y: c.y });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  s.editor.setCursor({ x: c.x + 1, y: c.y });
+  await s.editor.activate({ shift: true });
+  equal(tile(s, c.x + 1, c.y), water(51));
+  equal(tile(s, c.x, c.y), `${sand}14`, "the keyboard's Shift reached the autotiler");
+  await s.editor.setCursor({ x: c.x + 1, y: c.y + 1 });
+  await s.editor.activate({});
+  equal(tile(s, c.x, c.y), `${sand}51`, "without Shift the same placement reshapes it");
+});
+
+test("a rectangle or fill over cells that already show the brush still reshapes the neighbourhood", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  // Three stale water tiles in a row, placed while autotiling was off.
+  s.autotile = false;
+  s.editor.setTool("rectangle");
+  s.editor.pointerDown(at(s, { x: c.x - 1, y: c.y }), { ctrl: true });
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), { ctrl: true });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(51), label: "water" };
+  // The same brush over the same cells: no cell changes tile *before* the reshape, and all three must still reshape.
+  const before = edits(s);
+  s.editor.pointerDown(at(s, { x: c.x - 1, y: c.y }), { ctrl: true });
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), { ctrl: true });
+  equal(edits(s), before + 1);
+  deepEqual([-1, 0, 1].map((dx) => tile(s, c.x + dx, c.y)), [water(48), water(37), water(50)]);
+
+  const f = rig("2d");
+  const d = centreOf(f);
+  f.autotile = false;
+  f.brush = { kind: "tile", tile: water(51), label: "water" };
+  f.editor.setTool("rectangle");
+  f.editor.pointerDown(at(f, { x: d.x, y: d.y }), { ctrl: true });
+  await f.editor.pointerUp(at(f, { x: d.x + 1, y: d.y }), { ctrl: true });
+  f.autotile = true;
+  f.editor.setTool("flood");
+  await click(f, d);
+  equal(tile(f, d.x, d.y), water(48), "a fill over cells that already show the brush reshapes them");
+  equal(tile(f, d.x + 1, d.y), water(50));
+});
+
+test("a fill that continues on another layer paints it as stored and never reshapes its neighbours", async () => {
+  const s = rig("2d");
+  s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, recursiveFlood: true };
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: water(51), label: "water" };
+  s.editor.setTool("rectangle");
+  s.editor.pointerDown(at(s, { x: c.x, y: c.y }), { ctrl: true });
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), { ctrl: true });
+  s.brush = { kind: "tile", tile: water(51), label: "water" };
+  s.editor.setLayer(1);
+  await click(s, { x: c.x, y: c.y });
+  await click(s, { x: c.x + 1, y: c.y });
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: c.x + 2, y: c.y });
+  s.editor.setLayer(0);
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  s.editor.setTool("flood");
+  await click(s, c);
+  equal(tile(s, c.x, c.y), water(48), "the clicked layer reshapes");
+  equal(tile(s, c.x + 1, c.y), water(50));
+  equal(tile(s, c.x, c.y, 1), water(9), "the other layer is painted with the picked tile, as stored");
+  equal(tile(s, c.x + 1, c.y, 1), water(9));
+  equal(tile(s, c.x + 2, c.y, 1), `${sand}14`, "and its neighbours are not reshaped");
+});
+
+test("a right-button press on the tile canvas paints nothing: erase is the Erase tool, not a second gesture", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const before = edits(s);
+  s.editor.pointerDown(at(s, c), {}, 2);
+  s.editor.pointerMove(at(s, { x: c.x + 1, y: c.y }), {});
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), {});
+  equal(edits(s), before);
+  equal(s.editor.getState().pending, null);
+  equal(tile(s, c.x, c.y), "");
 });

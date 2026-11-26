@@ -1,6 +1,6 @@
 import { boardTileAt, type TileAssignment } from "./board-document.ts";
 import { cellOnBoard, layoutOf, type Cell } from "./board-geometry.ts";
-import type { ToolBoard } from "./board-tools.ts";
+import { paintCells, type ToolBoard } from "./board-tools.ts";
 
 /** Tile number for each reduced neighbour mask in docs/spec/editor/autotiling.md#1-2. */
 const SLOT_BY_MASK: ReadonlyMap<number, number> = new Map([
@@ -56,14 +56,18 @@ function slotOf(reference: string | null, source: string): number | null {
   return match === null ? null : Number(match[1]);
 }
 
-function shapeAt(board: ToolBoard, layer: number, cell: Cell, source: string, current: ReadonlyMap<number, string>, markedSource?: string): number {
+/**
+ * The slot a cell needs, counted only from cells that hold a tile of `source`: a marked set decides which cells take
+ * part in reshaping, never which neighbours link, so two different sets never connect even when one is marked.
+ */
+function shapeAt(board: ToolBoard, layer: number, cell: Cell, source: string, current: ReadonlyMap<number, string>): number {
   const adjacent = neighbors(board, cell);
   const refAt = (at: Cell): string | null => current.get(at.y * board.grid.width + at.x) ?? boardTileAt(board, layer, at.x, at.y);
   const connected = (direction: Direction): boolean => {
     const at = adjacent[direction];
     if (!cellOnBoard(board, at.x, at.y)) return false;
     const reference = refAt(at);
-    return slotOf(reference, source) !== null || (markedSource !== undefined && slotOf(reference, markedSource) !== null);
+    return slotOf(reference, source) !== null;
   };
   let mask = 0;
   for (let bit = 0; bit < 4; bit += 1) if (connected(DIRS[bit]!)) mask |= 1 << bit;
@@ -75,6 +79,9 @@ function shapeAt(board: ToolBoard, layer: number, cell: Cell, source: string, cu
   return SLOT_BY_MASK.get(mask) ?? 51;
 }
 
+/** Which cells of a stroke were painted with Shift held: a key is `y * grid.width + x`, as the stroke's overlay uses. */
+export type ShiftedCells = boolean | ReadonlySet<number>;
+
 /**
  * Resolve each member of a Draw/Erase stroke in event order. The transient overlay means later cells in the same stroke
  * see prior paint and reshaping, while the caller still submits one ordinary set-tiles command for one undo step.
@@ -85,21 +92,24 @@ export function paintAutotileStroke(
   cells: readonly Cell[],
   tile: string,
   enabled: boolean,
-  shift = false,
+  shift: ShiftedCells = false,
   markedSource?: string,
 ): TileAssignment[] {
   const overlay = new Map<number, string>();
   const writes = new Map<number, TileAssignment>();
   const stacked = layoutOf(board) === "iso-stacked";
   const paintSource = enabled && tile !== "" ? markedSource ?? autotileSource(tile) : null;
+  // Shift is decided per cell: a drag can hold it over some cells and not others, and each cell reshapes by its own.
+  const wasShifted = (cell: Cell): boolean => typeof shift === "boolean" ? shift : shift.has(cell.y * board.grid.width + cell.x);
   for (const cell of cells) {
     if (!cellOnBoard(board, cell.x, cell.y)) continue;
     const seed = paintSource === null ? tile : `${paintSource}51`;
     const seedKey = cell.y * board.grid.width + cell.x;
     overlay.set(seedKey, seed);
     writes.set(seedKey, { layer, ...cell, tile: seed });
-    if (!enabled || (shift && paintSource === null)) continue;
-    const isolated = shift ? paintSource : null;
+    const shifted = wasShifted(cell);
+    if (!enabled || (shifted && paintSource === null)) continue;
+    const isolated = shifted ? paintSource : null;
     const edited: Cell[] = [];
     for (let dy = stacked ? -2 : -1; dy <= (stacked ? 2 : 1); dy += 1) {
       for (let dx = -1; dx <= 1; dx += 1) {
@@ -113,7 +123,7 @@ export function paintAutotileStroke(
       const existing = overlay.get(key) ?? boardTileAt(board, layer, candidate.x, candidate.y);
       const source = markedSource !== undefined && slotOf(existing, markedSource) !== null ? markedSource : autotileSource(existing ?? "");
       if (source === null || (isolated !== null && source !== isolated)) continue;
-      const slot = shapeAt(board, layer, candidate, source, overlay, markedSource);
+      const slot = shapeAt(board, layer, candidate, source, overlay);
       if (slotOf(existing, source) === slot) continue;
       const reshaped = `${source}${slot}`;
       overlay.set(key, reshaped);
@@ -134,29 +144,21 @@ export function legacyAutotileGaps(tileCount: number): number[] {
 }
 
 /**
- * Carry an ordinary tool's result (Fill, Rectangle) through the autotiler. The tool already chose its cells and tile;
- * each layer's cells are then seeded and reshaped exactly as a Draw or Erase stroke would be, in one set of changes.
+ * Carry an ordinary tool's region (Fill, Rectangle) through the autotiler. The region is passed in as the cells the
+ * gesture covers, not the cells it would change, so a click on a cell that already shows the tile still reshapes the
+ * neighbourhood around it. Reshaping only touches `layer`: a fill that continues on another layer paints it as stored.
  */
-export function autotileAssignments(
+export function autotileCells(
   board: ToolBoard,
-  changes: readonly TileAssignment[],
+  layer: number,
+  cells: readonly Cell[],
+  tile: string,
   enabled: boolean,
-  shift = false,
+  shift: ShiftedCells = false,
   markedSource?: string,
 ): TileAssignment[] {
-  if (!enabled) return [...changes];
-  const groups = new Map<string, { layer: number; tile: string; cells: Cell[] }>();
-  for (const { layer, x, y, tile } of changes) {
-    const key = `${layer}\0${tile}`;
-    const group = groups.get(key) ?? { layer, tile, cells: [] };
-    group.cells.push({ x, y });
-    groups.set(key, group);
-  }
-  const merged = new Map<string, TileAssignment>();
-  for (const { layer, tile, cells } of groups.values()) {
-    for (const write of paintAutotileStroke(board, layer, cells, tile, true, shift, markedSource)) merged.set(`${write.layer},${write.x},${write.y}`, write);
-  }
-  return [...merged.values()].sort((a, b) => a.layer - b.layer || a.y - b.y || a.x - b.x);
+  if (!enabled) return paintCells(board, layer, cells, tile);
+  return paintAutotileStroke(board, layer, cells, tile, true, shift, markedSource);
 }
 
 const SHAPE_BY_SLOT: ReadonlyMap<number, string> = new Map([...SLOT_BY_MASK].map(([mask, slot]) => {
