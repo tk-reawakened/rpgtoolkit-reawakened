@@ -279,6 +279,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.language === undefined ? {} : { language: ctx.services.language }),
       ...(editor?.project === undefined ? {} : { project: editor.project }),
       ...(editor?.preferences === undefined ? {} : { preferences: editor.preferences }),
+      ...(ctx.navigation?.pickAsset === undefined ? {} : { pickAsset: ctx.navigation.pickAsset }),
       onRevealReady: (handler) => {
         reveal = handler;
         if (handler !== null && sourceRequest !== null) {

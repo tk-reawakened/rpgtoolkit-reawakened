@@ -29,4 +29,5 @@ for (const file of ["extension.browser.js", "webview.js", "terrain-scene.js", "c
 await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "tileset-browser.css"));
 await cp(resolve(root, "../editor-ui/src/tileset-art.css"), resolve(out, "tileset-art.css"));
 await cp(resolve(root, "../editor-ui/src/board-objects.css"), resolve(out, "board-objects.css"));
+await cp(resolve(root, "../editor-ui/src/visual-events.css"), resolve(out, "visual-events.css"));
 await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "terrain-scene.css"));
