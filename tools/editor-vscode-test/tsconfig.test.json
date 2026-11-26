@@ -4,10 +4,10 @@
     "composite": false,
     "declaration": false,
     "noEmit": true,
-    "rootDir": ".",
+    "rootDir": "../..",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["test", "conformance", "web-proof.ts", "design-proof.ts", "native-geometry-vscode-proof.ts", "creator-acceptance-proof.ts", "visual-events-proof.ts"],
+  "include": ["test", "conformance", "web-proof.ts", "design-proof.ts", "native-geometry-vscode-proof.ts", "creator-acceptance-proof.ts", "visual-events-proof.ts", "../../packages/core/src/formats/font/opentype.d.ts"],
   "references": []
 }

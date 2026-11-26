@@ -83,6 +83,8 @@ test("a .tbm battle background is decoded and drawn behind the battle UI", () =>
   for (const y of [60, 150, 250, 330]) {
     deepEqual(pixel(frame, 300, y), tbmColourAt(300, y), `row y=${y} shows its tile colour and tint`);
   }
+  // Independent literal oracle: the second TBM band (base [120,70,40], tint [+20,+10,0]) must render as [140,80,40].
+  deepEqual(pixel(frame, 300, 150), [140, 80, 40], "the binary BKG's .tbm image reaches the real battle frame");
   // The last band sits under the panels; the strip right of the party panel still shows it.
   deepEqual(pixel(frame, 635, 400), tbmColourAt(635, 400), "the bottom band shows beside the panels");
 });

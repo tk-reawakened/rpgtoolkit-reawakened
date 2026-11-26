@@ -14,6 +14,7 @@ import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec
 import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryDocument, type NativeGeometryCommand, type NativeGeometryDocument } from "./native-geometry-document.ts";
 import { createSpecialMoveDocument, openSpecialMoveDocument, specialMoveCodec, type SpecialMoveCommand, type SpecialMoveDocument } from "./special-move-document.ts";
 import { createStatusEffectDocument, openStatusEffectDocument, statusEffectCodec, type StatusEffectCommand, type StatusEffectDocument } from "./status-effect-document.ts";
+import { createBattleBackgroundDocument, openBattleBackgroundDocument, battleBackgroundCodec, type BattleBackgroundCommand, type BattleBackgroundDocument } from "./battle-background-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -24,7 +25,7 @@ import { createStatusEffectDocument, openStatusEffectDocument, statusEffectCodec
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand | SpecialMoveCommand | StatusEffectCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand | SpecialMoveCommand | StatusEffectCommand | BattleBackgroundCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -145,6 +146,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
       return read.ok ? animationCodec.summary(read.value) : null;
     },
     isCommand: animationCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
+    id: "battle-background",
+    label: "Fight background",
+    description: "A battle picture, music and four menu and action sound cues.",
+    extensions: [".bkg"],
+    storage: "legacy-binary",
+    open: openBattleBackgroundDocument,
+    create: createBattleBackgroundDocument,
+    summarise: (bytes, path) => {
+      const read = battleBackgroundCodec.read(bytes, path);
+      return read.ok ? battleBackgroundCodec.summary(read.value) : null;
+    },
+    isCommand: battleBackgroundCodec.isCommand,
     recoveryMarker: () => null,
   },
   {
@@ -339,4 +355,9 @@ export function asSpecialMoveDocument(document: AnyDocument): SpecialMoveDocumen
 export function asStatusEffectDocument(document: AnyDocument): StatusEffectDocument {
   if (document.kind !== "status-effect") throw new Error(`${document.identity.path} is a ${document.kind} document, not a status effect.`);
   return document as unknown as StatusEffectDocument;
+}
+/** The document as a fight-background document (see `asMainDocument`). */
+export function asBattleBackgroundDocument(document: AnyDocument): BattleBackgroundDocument {
+  if (document.kind !== "battle-background") throw new Error(`${document.identity.path} is a ${document.kind} document, not a fight background.`);
+  return document as unknown as BattleBackgroundDocument;
 }

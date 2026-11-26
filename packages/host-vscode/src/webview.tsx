@@ -122,9 +122,9 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
             get initialBoardPath() { return remote.initialBoardPath ?? ""; },
           },
         } : {}),
-        ...(remote.kind === "special-move" || remote.kind === "status-effect" ? {
-          // The forms hand over the project-relative path of the file they checked, so the visit opens it as it is.
+        ...(remote.kind === "special-move" || remote.kind === "status-effect" || remote.kind === "battle-background" ? {
           navigation: {
+            layout: browserLayout,
             pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),
             open: async (path: string) => {
               const outcome = await remote.visit(path);
