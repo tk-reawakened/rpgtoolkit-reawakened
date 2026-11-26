@@ -262,8 +262,8 @@ export async function runVscodeBoardUpgradeProof(
       let firstCount = 0;
       let secondCount = 0;
       for (let index = 0; index < pixels.length; index += 4) {
-        if (pixels[index] === expected[0][0] && pixels[index + 1] === expected[0][1] && pixels[index + 2] === expected[0][2]) firstCount += 1;
-        if (pixels[index] === expected[1][0] && pixels[index + 1] === expected[1][1] && pixels[index + 2] === expected[1][2]) secondCount += 1;
+        if (pixels[index] === expected[0]![0] && pixels[index + 1] === expected[0]![1] && pixels[index + 2] === expected[0]![2]) firstCount += 1;
+        if (pixels[index] === expected[1]![0] && pixels[index + 1] === expected[1]![1] && pixels[index + 2] === expected[1]![2]) secondCount += 1;
       }
       return { firstCount, secondCount };
     }, [first, second]);
