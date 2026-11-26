@@ -194,7 +194,9 @@ async function runStructuredAuthoring(
   await expect(lines).toContainText('text(2, 2, "Native canvas")');
 
   // One native undo step per card edit, from the same text document.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  const handwrittenRegion = pane.locator("fieldset").filter({ hasText: "handwritten opaque line" });
+  await expect(handwrittenRegion).toHaveCount(1);
+  await handwrittenRegion.getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await command("Undo");
   await expect(lines).toContainText('text(5, 13, "Native canvas")');
@@ -226,14 +228,14 @@ async function runStructuredAuthoring(
   await card("Delay").getByRole("spinbutton", { name: "Seconds" }).fill("0");
   await card("Delay").getByRole("button", { name: "Apply Delay" }).click();
   await pane.getByRole("button", { name: "Move Read gold up" }).click();
-  const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\nmwin("Native tracer event")\nwait()\nmwincls()';
+  const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\nmwin("Native tracer event via text")\nwait()\nmwincls()\n// tail opaque block';
   await expect.poll(text).toBe(program);
   // Save from the focused text editor itself, as a person does; the palette command would act on the webview.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await handwrittenRegion.getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await page.keyboard.press("ControlOrMeta+S");
   await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH)), { timeout: 20_000 }).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
-  await expect(pane.getByRole("group", { name: "Code the builder does not edit", exact: true })).toContainText("handwritten opaque line");
+  await expect(handwrittenRegion).toContainText("handwritten opaque line");
   return program;
 }
 

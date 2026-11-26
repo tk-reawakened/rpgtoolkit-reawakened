@@ -49,6 +49,7 @@ import {
   type CreateBoardResult,
   type NewBoardSettings,
   type LayoutModel,
+  type AssetContent,
   type PickOutcome,
   type ProjectLayout,
   type ProjectTree,
@@ -85,10 +86,17 @@ export interface WorkbenchOptions {
   readonly main?: string;
 }
 
+/** The kinds whose files a linked Open can show in their own editor tab here; a picture or sound file is not one of them. */
+const LINKED_EDITOR_KINDS = ["board", "program", "item", "character", "tile-bitmap", "animation", "special-move", "status-effect"] as const;
+type LinkedEditorKind = (typeof LINKED_EDITOR_KINDS)[number];
+const isLinkedEditorKind = (kind: string | undefined): kind is LinkedEditorKind => (LINKED_EDITOR_KINDS as readonly (string | undefined)[]).includes(kind);
+
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
 export interface PickAssetRequest {
   readonly kind: AssetKind;
   readonly extensions: readonly string[];
+  /** Also offer files outside `extensions` whose own bytes the field accepts (audio: a WAV or MIDI header). */
+  readonly content?: AssetContent;
   readonly field: string;
   /** The picker's title, when it should say more than the field. */
   readonly title?: string;
@@ -377,12 +385,20 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             layout: owner.layout,
+            canOpen: (path) => isLinkedEditorKind(kindForPath(path)?.id),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
               const layout = document.kind === "main" ? projectLayout : owner.layout;
-              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation" && kind !== "special-move" && kind !== "status-effect") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              if (!isLinkedEditorKind(kind)) return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              // A battle-data form hands over the project path of the file it checked, the very path `canOpen` judged: open exactly that file, never a reserved-folder rewrite of it.
+              if (document.kind === "special-move" || document.kind === "status-effect" || document.kind === "battle-background") {
+                const checked = await visits.visit(document, path);
+                if (!checked.ok) return "message" in checked.error ? checked.error.message : checked.error.error.message;
+                await show(checked.document);
+                return null;
+              }
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : kind === "special-move" ? "specialMoves" : kind === "status-effect" ? "statusEffects" : "animations";
-              // The battle-data forms hand over the project-relative path of the file they checked; every other caller hands over the stored reference.
+              // Every other caller hands over the stored reference (or a path inside its folder).
               const inFolder = path.toLowerCase().startsWith(referencePath(layout, folder, "").toLowerCase());
               const target = kind === "animation" || (kind === "tile-bitmap" && inFolder) || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
@@ -1076,6 +1092,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         layout: owner.layout,
         kind: request.kind,
         extensions: request.extensions,
+        ...(request.content === undefined ? {} : { content: request.content }),
         field: request.field,
       });
       const overlay = doc.createElement("div");

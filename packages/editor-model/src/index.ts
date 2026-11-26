@@ -561,6 +561,7 @@ export {
   type AssetPickerSnapshot,
   type PickOutcome,
 } from "./asset-picker.ts";
+export { audioContentOf, matchesAssetContent, type AssetContent, type AudioContent } from "./audio-content.ts";
 export {
   copyIntoReservedFolder,
   linkFor,
