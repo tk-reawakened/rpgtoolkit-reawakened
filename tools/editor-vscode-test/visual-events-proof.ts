@@ -192,8 +192,8 @@ async function runStructuredAuthoring(
   await card("Set variable").getByRole("button", { name: "Apply Set variable" }).click();
   await card("Delay").getByRole("spinbutton", { name: "Seconds" }).fill("0");
   await card("Delay").getByRole("button", { name: "Apply Delay" }).click();
-  await pane.getByRole("button", { name: "Move Set variable up" }).click();
-  const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\ngold = 25\nif (gold > 10) {\n}\ndelay(0)\ngetgp(gold)\nmwin("Native tracer event")\nwait()\nmwincls()';
+  await pane.getByRole("button", { name: "Move Read gold up" }).click();
+  const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\nmwin("Native tracer event")\nwait()\nmwincls()';
   await expect.poll(text).toBe(program);
   // Save from the focused text editor itself, as a person does; the palette command would act on the webview.
   await pane.getByRole("button", { name: "Open in editor", exact: true }).click();

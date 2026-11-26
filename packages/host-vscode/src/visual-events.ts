@@ -193,11 +193,11 @@ export function registerVisualEvents(context: vscode.ExtensionContext): void {
         if (current === undefined) report(state, "The source document is no longer open.");
         else snapshot(state, current);
       } else if (message.type === "action" && isPaneActionMessage(message)) {
-        await vscode.commands.executeCommand(VISUAL_EVENT_COMMANDS[message.action.type], state.uri, message);
+        await vscode.commands.executeCommand(commandForAction(message.action), state.uri, message);
       } else if (message.type === "pick-asset" && isPickAssetMessage(message)) {
         let reference: string | null = null;
         try {
-          reference = await pickAsset(message.request);
+          reference = await pickAsset(message.request, state.uri);
         } catch (error) {
           report(state, `The project's files could not be read for this field: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -210,9 +210,9 @@ export function registerVisualEvents(context: vscode.ExtensionContext): void {
       panels.delete(documentKey);
     }));
   }));
-  for (const [type, command] of Object.entries(VISUAL_EVENT_COMMANDS)) {
+  for (const command of new Set(Object.values(VISUAL_EVENT_COMMANDS))) {
     context.subscriptions.push(vscode.commands.registerCommand(command, async (uri: unknown, message: unknown) => {
-      if (!(uri instanceof vscode.Uri) || !isPaneActionMessage(message) || message.action.type !== type) return;
+      if (!(uri instanceof vscode.Uri) || !isPaneActionMessage(message) || commandForAction(message.action) !== command) return;
       const state = panels.get(key(uri));
       if (state === undefined) return;
       await applyActionSerially(state, message);
@@ -221,6 +221,14 @@ export function registerVisualEvents(context: vscode.ExtensionContext): void {
       if (document !== undefined) snapshot(state, document);
     }));
   }
+}
+
+/** The one registered action an action runs: a nudge names its direction, every other action its own command. */
+function commandForAction(action: VisualEventAction): string {
+  if (action.type !== "nudge") return VISUAL_EVENT_COMMANDS[action.type];
+  if (action.dx < 0) return VISUAL_EVENT_COMMANDS.nudgeLeft;
+  if (action.dx > 0) return VISUAL_EVENT_COMMANDS.nudgeRight;
+  return action.dy < 0 ? VISUAL_EVENT_COMMANDS.nudgeUp : VISUAL_EVENT_COMMANDS.nudgeDown;
 }
 
 function isPaneActionMessage(value: unknown): value is PaneActionMessage {
@@ -248,7 +256,27 @@ function isPickAssetMessage(value: unknown): value is PickAssetMessage {
  * legacy `\` separator (T-05), so the saved program links the way every other editor writes it. Files are read with
  * `workspace.fs`, which every host provides; a host without a file search still offers its own project's files.
  */
-async function pickAsset(request: PickAssetMessage["request"]): Promise<string | null> {
+async function isDirectory(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.readDirectory(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The document's owning game folder: its nearest ancestor that holds this asset type's folder. */
+async function owningFolder(uri: vscode.Uri, folder: string): Promise<vscode.Uri | null> {
+  const segments = uri.path.split("/").filter((segment) => segment !== "");
+  for (let up = segments.length - 1; up >= 0; up -= 1) {
+    const ancestor = uri.with({ path: `/${segments.slice(0, up).join("/")}` });
+    const candidate = vscode.Uri.joinPath(ancestor, folder);
+    if (await isDirectory(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function pickAsset(request: PickAssetMessage["request"], document: vscode.Uri): Promise<string | null> {
   const folder = ASSET_FOLDERS[request.kind].toLowerCase();
   const wanted = new Set(request.extensions.map((extension) => extension.toLowerCase()));
   const choices: { readonly label: string; readonly reference: string }[] = [];
@@ -267,17 +295,19 @@ async function pickAsset(request: PickAssetMessage["request"]): Promise<string |
         if (name !== "node_modules" && !name.startsWith(".")) await visit(child, depth + 1);
         continue;
       }
-      const segments = child.path.split("/").filter((segment) => segment !== "");
-      const at = segments.map((segment) => segment.toLowerCase()).lastIndexOf(folder);
-      if (at === -1 || at === segments.length - 1) continue;
-      const leaf = segments.at(-1)!.toLowerCase();
+      const leaf = name.toLowerCase();
       const dot = leaf.lastIndexOf(".");
       if (wanted.size > 0 && !wanted.has(dot === -1 ? "" : leaf.slice(dot))) continue;
-      const reference = segments.slice(at + 1).join("\\");
+      const at = child.path.toLowerCase().lastIndexOf(`/${folder}/`);
+      if (at === -1) continue;
+      const reference = child.path.slice(at + folder.length + 2).split("/").join("\\");
       if (!choices.some((choice) => choice.reference === reference)) choices.push({ label: reference, reference });
     }
   };
-  for (const folderUri of vscode.workspace.workspaceFolders ?? []) await visit(folderUri.uri, 0);
+  // Only the owning game's folder: another game in the same workspace keeps its own assets.
+  const owner = await owningFolder(document, ASSET_FOLDERS[request.kind]);
+  if (owner !== null) await visit(owner, 0);
+  else for (const folderUri of vscode.workspace.workspaceFolders ?? []) await visit(folderUri.uri, 0);
   choices.sort((left, right) => left.label.localeCompare(right.label));
   if (choices.length === 0) {
     void vscode.window.showWarningMessage(`No matching files were found in the project's ${folder} folder. Add one there first.`);

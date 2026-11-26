@@ -12,6 +12,7 @@ import {
   type VisualEventCard,
   type VisualEventField,
   type VisualEventTemplate,
+  type EditableVisualEvent,
   type VisualProgramRegion,
 } from "@tk-reawakened/editor-model";
 import type { AssetKind } from "@tk-reawakened/core";
@@ -29,10 +30,23 @@ export const VISUAL_EVENT_COMMANDS = {
   condition: "program.visual.editCondition",
   delete: "program.visual.removeEvent",
   move: "program.visual.placeEvent",
-  nudge: "program.visual.nudgeEvent",
   reorder: "program.visual.reorderEvent",
+  // One registered action per direction: a palette entry for a single "nudge" id would have no direction to apply.
+  nudgeLeft: "program.visual.nudgeEvent.left",
+  nudgeRight: "program.visual.nudgeEvent.right",
+  nudgeUp: "program.visual.nudgeEvent.up",
+  nudgeDown: "program.visual.nudgeEvent.down",
   open: "program.visual.openSource",
-} as const satisfies Record<VisualEventAction["type"], string>;
+};
+
+/** The four nudges a placed card offers, each a registered action (ADR 0038). */
+const NUDGES = [["left", -1, 0], ["right", 1, 0], ["up", 0, -1], ["down", 0, 1]] as const;
+const NUDGE_COMMANDS = {
+  left: VISUAL_EVENT_COMMANDS.nudgeLeft,
+  right: VISUAL_EVENT_COMMANDS.nudgeRight,
+  up: VISUAL_EVENT_COMMANDS.nudgeUp,
+  down: VISUAL_EVENT_COMMANDS.nudgeDown,
+} as const;
 
 /** What the shared asset picker is asked for; the host supplies the picker (browser overlay, native quick pick). */
 export type VisualAssetPicker = (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
@@ -373,7 +387,6 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
             const at = position(item);
             return (
               <button key={item.line} type="button" class="tkr-visual-item" data-selected={item === active ? "true" : "false"}
-                data-editor-command-id={`${VISUAL_EVENT_COMMANDS.nudge}.${item.line}`}
                 aria-label={`${item.label} "${item.text}" at ${item.x}, ${item.y}`}
                 aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
                 disabled={readOnly}
@@ -440,6 +453,13 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
         </div>
         <button type="submit" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.move}.${active.line}`}
           disabled={readOnly || (shown.x === String(active.x) && shown.y === String(active.y))}>Apply placement</button>
+        <div class="tkr-visual-actions">
+          {NUDGES.map(([direction, dx, dy]) => (
+            <button key={direction} type="button" aria-label={`Nudge ${active.label} ${direction}`}
+              data-editor-command-id={`${NUDGE_COMMANDS[direction]}.${active.line}`} disabled={readOnly}
+              onClick={() => dispatch({ type: "nudge", from: active.from, dx, dy })}>Move {direction}</button>
+          ))}
+        </div>
         <p class="tkr-visual-note">Arrow keys on a placed item move it one unit; Shift moves ten.</p>
       </form>
     </section>
@@ -453,9 +473,14 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
 function useDispatch(source: string, error: string | null, onAction: Dispatch): Dispatch {
   const latest = useRef({ source, onAction });
   latest.current = { source, onAction };
-  const state = useRef<{ inflight: string | null; queued: Extract<VisualEventAction, { type: "nudge" }> | null; timer: ReturnType<typeof setTimeout> | undefined }>({
+  const state = useRef<{ inflight: string | null; queued: { readonly from: number; readonly line: number; readonly templateId: string; readonly dx: number; readonly dy: number } | null; timer: ReturnType<typeof setTimeout> | undefined }>({
     inflight: null, queued: null, timer: undefined,
   });
+  /** The card a gesture was made on, by offset, line and command: its own value edits keep all three, a swap does not. */
+  const cardAt = (text: string, from: number): { readonly line: number; readonly templateId: string } | null => {
+    const region = projectVisualProgram(text).regions.find((item): item is EditableVisualEvent => item.type !== "opaque" && item.from === from);
+    return region !== undefined && region.type === "event" ? { line: region.line, templateId: region.templateId } : null;
+  };
   const send = (action: VisualEventAction, to: Dispatch, from: string): void => {
     const current = state.current;
     current.inflight = from;
@@ -470,7 +495,12 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     current.inflight = null;
     const queued = current.queued;
     current.queued = null;
-    if (queued !== null) send(queued, latest.current.onAction, latest.current.source);
+    if (queued === null) return;
+    // The gesture belongs to the card it was made on: a card that swapped places, changed command or went away drops it.
+    const region = projectVisualProgram(latest.current.source).regions.find((item): item is EditableVisualEvent =>
+      item.type === "event" && item.from === queued.from && item.line === queued.line && item.templateId === queued.templateId);
+    if (region === undefined) return;
+    send({ type: "nudge", from: region.from, dx: queued.dx, dy: queued.dy }, latest.current.onAction, latest.current.source);
   };
   useEffect(settle, [source, error]);
   useEffect(() => () => clearTimeout(state.current.timer), []);
@@ -480,9 +510,13 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
       send(action, onAction, source);
       return;
     }
+    const card = cardAt(latest.current.source, action.from);
+    if (card === null) return;
     const queued = current.queued;
-    current.queued = queued !== null && queued.from === action.from
-      ? { type: "nudge", from: action.from, dx: queued.dx + action.dx, dy: queued.dy + action.dy } : action;
+    const same = queued !== null && queued.from === action.from && queued.line === card.line && queued.templateId === card.templateId;
+    current.queued = same
+      ? { ...queued, dx: queued.dx + action.dx, dy: queued.dy + action.dy }
+      : { from: action.from, line: card.line, templateId: card.templateId, dx: action.dx, dy: action.dy };
   };
 }
 
@@ -505,15 +539,15 @@ export function VisualEventPane({ source, readOnly, error, onAction, pickAsset }
         const canUp = supported(index - 1);
         const canDown = supported(index + 1);
         if (region.type === "show-message") {
-          return <MessageCard key={`message:${region.line}`} card={region} readOnly={readOnly} dispatch={dispatch} canUp={canUp} canDown={canDown} source={source} />;
+          return <MessageCard key={region.id} card={region} readOnly={readOnly} dispatch={dispatch} canUp={canUp} canDown={canDown} source={source} />;
         }
         if (region.type === "event") {
           const template = TEMPLATES.get(region.templateId)!;
-          return <EventCardView key={`event:${region.line}`} card={region} template={template} readOnly={readOnly} dispatch={dispatch}
+          return <EventCardView key={region.id} card={region} template={template} readOnly={readOnly} dispatch={dispatch}
             canUp={canUp} canDown={canDown} pickAsset={pickAsset} />;
         }
         if (region.type === "condition") {
-          return <ConditionCardView key={`condition:${region.line}`} card={region} readOnly={readOnly} dispatch={dispatch} canUp={canUp} canDown={canDown} />;
+          return <ConditionCardView key={region.id} card={region} readOnly={readOnly} dispatch={dispatch} canUp={canUp} canDown={canDown} />;
         }
         return <OpaqueBlock key={`opaque:${region.from}`} region={region} dispatch={dispatch} />;
       })}

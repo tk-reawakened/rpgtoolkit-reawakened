@@ -88,6 +88,8 @@ export const VISUAL_PREVIEW_SCREEN = { width: 640, height: 480 } as const;
 /** A source-backed Show message card. Offsets use the program snapshot's LF-only UTF-16 text. */
 export interface ShowMessageCard {
   readonly type: "show-message";
+  /** Stable identity: the card's own text plus its position among identical cards. */
+  readonly id: string;
   readonly message: string;
   readonly from: number;
   readonly to: number;
@@ -97,6 +99,8 @@ export interface ShowMessageCard {
 /** A supported one-line command or assignment. */
 export interface VisualEventCard {
   readonly type: "event";
+  /** Stable identity: the card's own text plus its position among identical cards. */
+  readonly id: string;
   readonly templateId: string;
   readonly values: readonly VisualEventValue[];
   readonly from: number;
@@ -108,6 +112,8 @@ export interface VisualEventCard {
 /** A simple condition header plus its complete brace-delimited body. The body remains read-only source. */
 export interface VisualConditionCard {
   readonly type: "condition";
+  /** Stable identity: the card's own text plus its position among identical cards. */
+  readonly id: string;
   readonly condition: string;
   readonly body: string;
   readonly conditionFrom: number;
@@ -158,12 +164,10 @@ const WAIT_LINE = /^[ \t]*wait\(\)[ \t]*$/i;
 const CLOSE_LINE = /^[ \t]*mwincls\(\)[ \t]*$/i;
 const CALL_LINE = /^([ \t]*)([A-Za-z_][A-Za-z0-9_]*)[ \t]*\((.*)\)[ \t]*$/;
 const ASSIGNMENT_LINE = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)[ \t]*$/;
-const CONDITION_LINE = /^[ \t]*if[ \t]*\(([^()\r\n]*)\)[ \t]*\{[ \t]*$/i;
 const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
-const CONDITION_VALUE = `(?:[A-Za-z_][A-Za-z0-9_]*|[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?|"[^"\\r\\n]*")`;
+const NUMBER = /^[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?$/;
+const CONDITION_VALUE = `(?:[A-Za-z_][A-Za-z0-9_]*|[+-]?\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?|"[^"\\r\\n]*")`;
 const CONDITION = new RegExp(`^\\s*${CONDITION_VALUE}\\s*(?:==|!=|<=|>=|<|>)\\s*${CONDITION_VALUE}\\s*$`);
-const KEYWORDS_AFTER_BLOCK = new Set(["else", "elseif"]);
 
 function tokenize(source: string): Token[] | null {
   try { return tokenizeObjects(source); } catch { return null; }
@@ -195,8 +199,31 @@ function classifyLines(tokens: readonly Token[], lines: readonly string[]): Line
     if (brackets !== 0 || index < 0 || index >= lines.length) continue;
     if (token.kind === "identifier") names[index]!.push(token.name.toLowerCase());
   }
-  for (; filled < lines.length; filled += 1) depth[filled] = braces;
-  return { names, ends, depth };
+  let ast: Ast;
+  try {
+    ast = parse(tokens);
+  } catch {
+    return { names, statements };
+  }
+  // A statement's own text ends on its last line that holds a token: a trailing comment or blank line is not part of it.
+  const terminal = lines.map(() => false);
+  for (const token of tokens) {
+    if (token.kind === "end" || token.kind === "eof") continue;
+    if (token.line - 1 < terminal.length) terminal[token.line - 1] = true;
+  }
+  // A function or class definition between two statements ends the earlier statement: it owns no card but it is a boundary.
+  const boundaries = [...new Set([
+    ...ast.statements.map((statement) => statement.line - 1),
+    ...ast.functions.map((definition) => definition.line - 1),
+    ...ast.classes.map((definition) => definition.line - 1),
+  ])].sort((left, right) => left - right);
+  for (const statement of ast.statements) {
+    const start = statement.line - 1;
+    let end = (boundaries.find((line) => line > start) ?? lines.length) - 1;
+    while (end > start && !terminal[end]) end -= 1;
+    statements.set(start, { kind: statement.kind, end, otherwise: statement.kind === "if" && statement.elseBody !== null });
+  }
+  return { names, statements };
 }
 
 function opaque(source: string, compiled: boolean, lexicalError: boolean): VisualProgramProjection {
@@ -266,6 +293,13 @@ function parseCall(template: VisualEventTemplate, line: string): readonly Visual
 
 const CALL_TEMPLATES = new Map(VISUAL_EVENT_TEMPLATES.filter((item) => item.kind === "call").map((item) => [item.command, item]));
 const ASSIGN_TEMPLATE = VISUAL_EVENT_TEMPLATES.find((item) => item.kind === "assignment")!;
+
+/** A `name = number` card must never write a reserved word, a keyword, or a command a card can call. */
+const NOT_WRITABLE = new Set<string>([
+  "true", "false", "null", "if", "else", "elseif", "while", "for", "function", "return", "local", "global",
+  "branch", "end", "break", "continue", "class", "new",
+  ...VISUAL_EVENT_TEMPLATES.filter((template) => template.kind === "call").map((template) => template.command),
+]);
 
 /** The expression of `if ( … ) {`, scanned so a quoted `(` is text rather than a group. */
 function conditionHeader(line: string): { readonly expression: string; readonly at: number } | null {
@@ -400,7 +434,14 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     opaqueLine = line + 2;
   }
   flushOpaque(source.length, lines.length);
-  return { source, compiled: false, lexicalError: false, regions };
+  // A card's identity also names how many identical cards there are: removing one renames the survivors, so a draft
+  // typed into the deleted card is never inherited by an identical neighbour.
+  const base = (id: string): string => id.slice(0, id.lastIndexOf("#"));
+  const totals = new Map<string, number>();
+  for (const region of regions) if (region.type !== "opaque") totals.set(base(region.id), (totals.get(base(region.id)) ?? 0) + 1);
+  const identified = regions.map((region): VisualProgramRegion => region.type === "opaque" ? region
+    : { ...region, id: `${region.id}/${totals.get(base(region.id))}` });
+  return { source, compiled: false, lexicalError: false, regions: identified };
 }
 
 function safeString(value: string): string | null {
@@ -636,6 +677,13 @@ export function nudgeVisualEvent(projection: VisualProgramProjection, from: numb
   return moveVisualEvent(projection, from, sum(target.card.values[xField], dx), sum(target.card.values[yField], dy));
 }
 
+/** How many source lines a card covers: one for a command, three for the message sequence, the block for a condition. */
+function coveredLines(region: EditableVisualEvent): number {
+  if (region.type === "show-message") return 3;
+  if (region.type !== "condition") return 1;
+  return 2 + region.body.split("\n").length - (region.body.endsWith("\n") ? 1 : 0);
+}
+
 /** Swap a card with its neighbour inside one contiguous run of supported cards; opaque source is never crossed. */
 export function reorderVisualEvent(projection: VisualProgramProjection, from: number, direction: "up" | "down"): VisualEventEditResult {
   const blocked = refusal(projection);
@@ -650,6 +698,10 @@ export function reorderVisualEvent(projection: VisualProgramProjection, from: nu
   const second = direction === "up" ? card : neighbour;
   const firstText = projection.source.slice(first.from, first.to);
   const secondText = projection.source.slice(second.from, second.to);
+  // Line endings belong to their line, so a swap keeps them only when both cards cover the same number of lines.
+  if (coveredLines(first) !== coveredLines(second)) {
+    return { ok: false, reason: "Only cards with the same number of lines can swap places: line endings stay with their line, so a multi-line body would change." };
+  }
   // Only the last statement of a program may lack its line break; it keeps that property in its new position.
   const replacement = secondText.endsWith("\n") ? secondText + firstText : `${secondText}\n${firstText.slice(0, -1)}`;
   return { ok: true, edit: { from: first.from, to: second.to, text: replacement } };

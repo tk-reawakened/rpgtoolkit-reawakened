@@ -670,8 +670,8 @@ test("structured visual events: every category, pointer, keyboard and numeric pl
   await card("Delay").getByRole("spinbutton", { name: "Seconds" }).fill("0");
   await card("Delay").getByRole("button", { name: "Apply Delay" }).click();
   await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ndelay(0)\ngetgp(gold)');
-  await pane.getByRole("button", { name: "Move Set variable up" }).click();
-  await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\ngold = 25\nif (gold > 10) {\n}\ndelay(0)\ngetgp(gold)');
+  await pane.getByRole("button", { name: "Move Read gold up" }).click();
+  await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)');
 
   // Insert a pixel-placed line before a chosen card, then the message that the player will wait on.
   await pane.getByRole("button", { name: "Add Show message", exact: true }).click();
@@ -685,7 +685,7 @@ test("structured visual events: every category, pointer, keyboard and numeric pl
   await pane.getByLabel("Placed X").fill("100");
   await pane.getByLabel("Placed Y").fill("200");
   await pane.getByRole("button", { name: "Apply placement" }).click();
-  const program = '// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\ngold = 25\nif (gold > 10) {\n}\ndelay(0)\ngetgp(gold)\npixeltext(100, 200, "Pixel proof")\nmwin("Structured proof")\nwait()\nmwincls()';
+  const program = '// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\npixeltext(100, 200, "Pixel proof")\nmwin("Structured proof")\nwait()\nmwincls()';
   await expect.poll(text).toBe(program);
 
   // The opaque handwritten line is untouched and the saved bytes keep the file's own CRLF endings.

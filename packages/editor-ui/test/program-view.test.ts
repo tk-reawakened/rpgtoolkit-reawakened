@@ -1070,6 +1070,62 @@ test("nudges made while an earlier edit is still being applied are added togethe
   equal(textOf(s), 'text(2, 3, "HP")\n');
 });
 
+test("each nudge direction is its own registered action, so the palette can run it", async () => {
+  const s = await setup({ content: 'text(2, 3, "HP")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  for (const direction of ["left", "right", "up", "down"]) {
+    const button = ariaButton(s.el, `Nudge Draw text ${direction}`);
+    ok((button.getAttribute("data-editor-command-id") ?? "").startsWith(`program.visual.nudgeEvent.${direction}.`), direction);
+  }
+  await act(() => ariaButton(s.el, "Nudge Draw text right").click());
+  await settled();
+  equal(textOf(s), 'text(3, 3, "HP")\n');
+  await act(() => ariaButton(s.el, "Nudge Draw text down").click());
+  await settled();
+  equal(textOf(s), 'text(3, 4, "HP")\n');
+});
+
+test("a nudge made before another edit can only ever move its own card", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\npixeltext(40, 50, "B")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  gate.resolve();
+  await settled();
+  await settled();
+  const text = textOf(s);
+  equal(text.includes('pixeltext(40, 50, "B")'), true, `the other card is untouched: ${JSON.stringify(text)}`);
+  equal(text.includes('pixeltext(41, 50, "B")'), false, "no press is applied to the card that took the first one's place");
+  equal(/text\((3|4), 2, "A"\)/.test(text), true, "the presses stay on the card they were made on");
+});
+
+test("a deleted card's draft is not inherited by an identical neighbour", async () => {
+  const pair = 'mwin("Same")\nwait()\nmwincls()\n';
+  const s = await setup({ content: pair + pair });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const messages = () => [...s.el.querySelectorAll<HTMLInputElement>('.tkr-visual-events input[type="text"]')].filter((input) => input.closest("fieldset")?.querySelector("legend")?.textContent === "Show message");
+  await fill(messages()[0]!, "Never applied");
+  await act(() => s.el.querySelectorAll<HTMLButtonElement>('button[data-editor-command-id^="program.visual.removeEvent"]')[0]!.click());
+  await settled();
+  equal(textOf(s), pair, "the first sequence was removed");
+  equal(messages().length, 1);
+  equal(messages()[0]!.value, "Same", "the survivor shows its own message, not the deleted card's draft");
+});
+
 test("a blank placement coordinate is refused instead of reading as zero", async () => {
   const s = await setup({ content: 'pixeltext(40, 50, "B")\n' });
   show(s);

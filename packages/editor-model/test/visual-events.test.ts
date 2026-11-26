@@ -1,4 +1,4 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { applyUiEffect, compileInline, createGameState } from "@tk-reawakened/core";
@@ -262,9 +262,46 @@ test("reorder swaps adjacent cards, keeps the last line unterminated, and never 
   equal(reorderVisualEvent(projection, eventAt(projection, 1).from, "down").ok, false, "opaque comment lies between");
   equal(reorderVisualEvent(projection, eventAt(projection, 0).from, "up").ok, false, "nothing above the first card");
   const sequence = projectVisualProgram('mwin("A")\nwait()\nmwincls()\ndelay(1)\n');
-  equal(applied(sequence.source, reorderVisualEvent(sequence, 0, "down")), 'delay(1)\nmwin("A")\nwait()\nmwincls()\n');
+  const mixed = reorderVisualEvent(sequence, 0, "down");
+  equal(mixed.ok, false, "a three-line card cannot swap with a one-line card: line endings follow the line");
+  if (!mixed.ok) match(mixed.reason, /same number of lines/);
   const block = projectVisualProgram("if (a == 1) {\n    b()\n}\ndelay(1)\n");
-  equal(applied(block.source, reorderVisualEvent(block, 0, "down")), "delay(1)\nif (a == 1) {\n    b()\n}\n");
+  equal(reorderVisualEvent(block, 0, "down").ok, false, "a block never swaps with a one-line card");
+  const equalLines = projectVisualProgram('delay(1)\ngetgp(gold)\n');
+  equal(applied(equalLines.source, reorderVisualEvent(equalLines, 0, "down")), "getgp(gold)\ndelay(1)\n");
+});
+
+test("a statement that continues from the line above never owns a card", () => {
+  // The parser owns "\`gold = …\`" as one statement, so its second line is not a card of its own.
+  const continued = 'gold =\n  getgp(gold)\ndelay(1)\n';
+  const projection = projectVisualProgram(continued);
+  deepEqual(projection.regions.filter((region) => region.type === "event").map((region) => region.type === "event" ? region.templateId : ""), ["delay"]);
+  equal(deleteVisualEvent(projection, projection.source.indexOf("getgp")).ok, false);
+  const parenthesised = 'bitmap(\n  "t.png")\nwait()\n';
+  deepEqual(projectVisualProgram(parenthesised).regions.filter((region) => region.type === "event").length, 1);
+});
+
+test("a quoted parenthesis and a leading-dot number are recognised conditions and round-trip", () => {
+  const source = 'if (name == "(x)") {\n    b()\n}\n';
+  const projection = projectVisualProgram(source);
+  const card = projection.regions.find((region) => region.type === "condition");
+  if (card === undefined || card.type !== "condition") throw new Error("expected a condition card");
+  equal(card.condition, 'name == "(x)"');
+  const single = projectVisualProgram('if (a > 0.5) {\n}\n');
+  const singleCard = single.regions.find((region) => region.type === "condition");
+  if (singleCard === undefined || singleCard.type !== "condition") throw new Error("expected a condition card");
+  equal(applied(single.source, editVisualCondition(single, singleCard.from, 'name == "(y)"')), 'if (name == "(y)") {\n}\n');
+  // `.5` is not RPGCode source (the lexer reads `.` as a member operator), so neither side may accept it.
+  equal(projectVisualProgram('if (a > .5) {\n}\n').regions.some((region) => region.type === "condition"), false);
+  equal(editVisualCondition(single, singleCard.from, "a > .5").ok, false);
+  equal(projectVisualProgram('if (a > 0.5) {}\n').regions.some((region) => region.type === "condition"), false, "a one-line block is not a card");
+});
+
+test("a reserved word or a command name is never an assignment card", () => {
+  for (const source of ["true = 1\n", "delay = 1\n", "wait = 2\n", "null = 0\n", "if = 3\n"]) {
+    equal(projectVisualProgram(source).regions.some((region) => region.type === "event"), false, JSON.stringify(source));
+  }
+  equal(applied("hp = 1\n", editVisualEvent(projectVisualProgram("hp = 1\n"), 0, ["hp", 5])), "hp = 5\n");
 });
 
 test("a command is inserted before a chosen card or at the program start without touching other lines", () => {

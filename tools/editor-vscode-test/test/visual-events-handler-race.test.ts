@@ -5,7 +5,7 @@ import { setImmediate } from "node:timers/promises";
 
 const FAKE_VSCODE = `
 const state = { commands: new Map(), textDocuments: [], pendingEdits: [], panel: undefined, activeTextEditor: undefined, messages: [], files: [], quickPicks: [], pickIndex: 0 };
-export class Uri { constructor(path) { this.path = path; } static file(path) { return new Uri(path); } static joinPath(base, ...parts) { return new Uri([base.path, ...parts].join("/")); } toString() { return "file://" + this.path; } }
+export class Uri { constructor(path) { this.path = path; } static file(path) { return new Uri(path); } with(change) { return new Uri(change.path ?? this.path); } static joinPath(base, ...parts) { return new Uri([base.path, ...parts].join("/")); } toString() { return "file://" + this.path; } }
 export class Position { constructor(line, character) { this.line = line; this.character = character; } }
 export class Range { constructor(start, end) { this.start = start; this.end = end; } }
 export class Selection extends Range {}
@@ -30,6 +30,8 @@ export const workspace = {
         if (rest.length === 1) entries.set(rest[0], FileType.File);
         else if (!entries.has(rest[0])) entries.set(rest[0], FileType.Directory);
       }
+      // A missing directory rejects, as workspace.fs does; an empty array would make every ancestor look like an owner.
+      if (entries.size === 0) return Promise.reject(new Error("FileNotFound"));
       return Promise.resolve([...entries]);
     },
   },
@@ -239,9 +241,9 @@ test("every visual action kind reaches the native document as one range edit, an
   equal(fake.pendingEdits.length, 0);
   equal(document.getText(), before);
 
-  fake.files.push("/Game/Example/Bitmap/sub/pic.png", "/Game/Example/Bitmap/notes.txt", "/Game/Example/Item/potion.itm");
+  fake.files.push("/Game/Example/Bitmap/sub/pic.png", "/Game/Example/Bitmap/notes.txt", "/Game/Example/Item/potion.itm", "/Game/Other/Bitmap/other.png");
   await panel.receive({ type: "pick-asset", id: 7, request: { kind: "bitmaps", extensions: [".png", ".bmp"], field: "Choose bitmap file" } });
-  deepEqual(fake.quickPicks.at(-1), [{ label: "sub\\pic.png", reference: "sub\\pic.png" }]);
+  deepEqual(fake.quickPicks.at(-1), [{ label: "sub\\pic.png", reference: "sub\\pic.png" }], "only the owning game's folder, keeping the nested path");
   deepEqual(fake.messages.filter((message) => message.type === "asset-picked").at(-1), { type: "asset-picked", id: 7, reference: "sub\\pic.png" });
   const picks = fake.quickPicks.length;
   await panel.receive({ type: "pick-asset", id: 8, request: { kind: "notAKind", extensions: [], field: "x" } });
