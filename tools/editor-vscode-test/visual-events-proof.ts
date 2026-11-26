@@ -97,7 +97,9 @@ export async function runVscodeVisualEventsProof(
   await expect.poll(output, { timeout: 30_000 }).toContain("Native tracer event");
   // The saved program draws where its cards say: font size 16 makes cell (2, 2) the pixel origin (16, 16).
   expect(await drawn()).toEqual(expect.arrayContaining([expect.objectContaining({ text: "Native canvas", x: 16, y: 16 })]));
-  expect(new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH))).toBe(program.replaceAll("\n", "\r\n"));
+  const saved = new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH));
+  expect(saved.replaceAll("\r\n", "\n").trimEnd()).toBe(program);
+  expect(/(^|[^\r])\n/.test(saved)).toBe(false);
   await player.locator("#screen").press("Enter");
   await expect.poll(output, { timeout: 30_000 }).not.toContain("Native tracer event");
 }
@@ -193,8 +195,11 @@ async function runStructuredAuthoring(
   await pane.getByRole("button", { name: "Move Set variable up" }).click();
   const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\ngold = 25\nif (gold > 10) {\n}\ndelay(0)\ngetgp(gold)\nmwin("Native tracer event")\nwait()\nmwincls()';
   await expect.poll(text).toBe(program);
-  await command("File: Save");
-  await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH))).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
+  // Save from the focused text editor itself, as a person does; the palette command would act on the webview.
+  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH)), { timeout: 20_000 }).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
   await expect(pane.getByRole("group", { name: "Code the builder does not edit", exact: true })).toContainText("handwritten opaque line");
   return program;
 }
