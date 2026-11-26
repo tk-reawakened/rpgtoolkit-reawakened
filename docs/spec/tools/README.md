@@ -7,6 +7,7 @@ Python 3 tools that implement the layouts in [../formats/](../formats/README.md)
 | [rpgtk_formats.py](rpgtk_formats.py) | Readers for `.gam .brd .tem .itm .ene .anm .tbm .tan .bkg .ste .spc .tst .iso .sav`, a `.gph` decoder, the standalone-EXE trailer, and a byte writer. Every read records `(offset, size, field, value)` for annotated listings. | standard library |
 | [render.py](render.py) | Renders tilesets (every detail level), isometric tiles and boards to PNG | Pillow |
 | [build_example_game.py](build_example_game.py) | Draws placeholder art and writes the complete example game in [../examples/](../examples/), then reads every file back and fails if any does not end exactly at its last byte | Pillow |
+| [build_autotile_example.py](build_autotile_example.py) | Draws an original 52-slot autotile set and a board laid out by the rules in [../editor/autotiling.md](../editor/autotiling.md), written to [../editor/examples/autotiling/](../editor/examples/autotiling/). `--check` fails if the committed files differ; `test_autotile_example.py` checks the rules against hand-read table values | Pillow for the renders only |
 | [build_version_examples.py](build_version_examples.py) | Writes one example file for **every version of every asset format** (binary minors, Toolkit 1/2 text, tileset detail levels, `.gph` variants) to [../examples/versions/](../examples/versions/README.md), as fixtures for an importer that upgrades on the fly. Each file is written by running the reader's own layout in write mode, then read back. | Pillow |
 
 ## Usage
@@ -19,6 +20,7 @@ python3 render.py tileset <project folder>/Tiles/village.tst sheet.png
 python3 render.py iso <project folder>/Tiles/grass.iso 1 iso.png
 python3 build_example_game.py                      # rebuild ../examples/
 python3 build_version_examples.py                  # rebuild ../examples/versions/
+python3 build_autotile_example.py                  # rebuild ../editor/examples/autotiling/
 ```
 
 ## Listing format

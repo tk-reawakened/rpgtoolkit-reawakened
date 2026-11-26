@@ -184,3 +184,16 @@ The reshape region spans x−1 to x+1 and y−2 to y+2 (5 rows × 3 columns), cl
   - Autotile sets are identified by name only.
 
   An editor that marks sets explicitly should still recognise the `AUTOTILES_` name and this tile numbering when importing older sets.
+
+## 6. Example
+
+[examples/autotiling/](examples/autotiling/) holds an original autotile set and a board built from this page by [`tools/build_autotile_example.py`](../tools/build_autotile_example.py). The art is drawn procedurally and carries no third-party assets.
+
+| File | What it shows |
+|---|---|
+| `Tiles/AUTOTILES_Water.tst` | A complete 52-slot set: water with a sand shore, drawn in the slot order of 1.2. Slots 9, 18, 27, 36 and 45 are transparent. [Sheet, nine tiles wide](examples/autotiling/water_tiles.png) |
+| `Tiles/Grass.tst` | One ordinary grass tile for the ground layer |
+| `Boards/Marsh.brd` | A 20 × 15 board: grass on layer 1, autotiled water on layer 2. The water uses all 47 shapes, and a strip on the bottom row shows that the board edge never connects (3.7). [Render](examples/autotiling/marsh.png) |
+
+[`tools/test_autotile_example.py`](../tools/test_autotile_example.py) checks the rules against tile numbers read by hand from the table. It also checks that painting cell by cell (3.1) gives the same board in any order, and that the committed files match the builder.
+

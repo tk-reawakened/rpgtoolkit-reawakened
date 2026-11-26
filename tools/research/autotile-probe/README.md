@@ -2,6 +2,8 @@
 
 Checks the clean-room specification [docs/spec/editor/autotiling.md](../../../docs/spec/editor/autotiling.md) against the **released Toolkit 3.1 editor**, by observing it, not by reading its source (G7). We paint a known shape with our own numbered tiles, save the board, read back the tile numbers the autotiler chose and compare them with the spec's table.
 
+**Optional.** The spec is normative (ADR 0007), and the example in `docs/spec/editor/examples/autotiling/` is built from it, so this probe is not needed to build or ship the feature. It is only an extra check if anyone doubts the spec.
+
 The tiles are drawn by `probe.py`, so the evidence carries no third-party art.
 
 ## What you need
