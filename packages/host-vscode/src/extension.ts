@@ -20,7 +20,7 @@ import { registerBoardUpgradeCommands } from "./board-upgrade-commands.ts";
 import { boardPreviewRootForLayout, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
-import { registerPackageGameCommand } from "./package-game-command.ts";
+import { registerGameSetupCommand, registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
@@ -73,6 +73,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   registerPackageGameCommand(context);
+  registerGameSetupCommand(context);
   registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);

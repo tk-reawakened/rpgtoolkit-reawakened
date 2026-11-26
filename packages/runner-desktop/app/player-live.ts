@@ -69,9 +69,9 @@ function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
         stage.status.textContent = result.message ?? "Setup installation failed.";
         return;
       }
-      stage.status.textContent = result.message ?? "Game installed. Saves are preserved.";
       list.remove();
       offerLibrary(host, await host.launchInfo(), stage);
+      stage.status.textContent = result.message ?? "Game installed. Saves are preserved.";
     }).catch((error: unknown) => {
       stage.status.textContent = `Setup installation failed: ${error instanceof Error ? error.message : String(error)}`;
       install.disabled = false;
@@ -105,7 +105,7 @@ function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
         if (result.ok) {
           list.remove();
           offerLibrary(host, await host.launchInfo(), stage);
-          stage.status.textContent = `${row.title} removed. Saved games were kept.`;
+          stage.status.textContent = result.message ?? `${row.title} removed. Saved games were kept.`;
         } else {
           stage.status.textContent = result.message ?? "Could not remove the game.";
           remove.disabled = false;

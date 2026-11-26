@@ -94,6 +94,9 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
   const openPackage = (): void => {
     setPackageOpen(true);
     setPrepared(null);
+    setPreparedSetup(null);
+    setInventoryReviewed(false);
+    setSetupReviewed(false);
     setPackageMessage("Loading main files…");
     void fs.list("Main").then((listing) => {
       if (!listing.ok) {
@@ -118,6 +121,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
     setPackageBusy(true);
     setPrepared(null);
     setPreparedSetup(null);
+    setInventoryReviewed(false);
     setSetupReviewed(false);
     setPackageMessage("Saving open documents and checking the package…");
     void onPackage(mainPath, packageVersion).then((outcome) => {
@@ -272,6 +276,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
               setPreparedSetup(null);
               setInventoryReviewed(false);
               setSetupReviewed(false);
+              if (prepared !== null) setPackageMessage("Main file changed. Prepare and review the package again.");
             }}
             disabled={packageBusy || mainFiles.length === 0}
           >
@@ -290,6 +295,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
               setPreparedSetup(null);
               setInventoryReviewed(false);
               setSetupReviewed(false);
+              if (prepared !== null) setPackageMessage("Release version changed. Prepare and review the package again.");
             }}
             disabled={packageBusy}
           />
@@ -307,7 +313,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
               <p>This preflight uses the saved project files from the time it completed. The setup is an unsigned ZIP, not an installer; it contains no executable or scripts. A browser editor can create and download it, but cannot install or sign it.</p>
               <p>This page cannot tell whether a folder entry is a link to somewhere else on your computer. Every file that will be packaged is listed in the inventory below; do not use the setup if it lists files that do not belong to your game.</p>
               <details>
-                <summary>Review included and excluded game files</summary>
+                <summary>Included and excluded file inventory</summary>
                 <h4>Included</h4>
                 <ul>{prepared.includedFiles.map((path) => <li key={`in-${path}`}>{path}</li>)}</ul>
                 <h4>Excluded</h4>
@@ -323,7 +329,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
                   disabled={packageBusy}
                   onChange={(event) => setInventoryReviewed(event.currentTarget.checked)}
                 />
-                I reviewed the included and excluded game files.
+                I reviewed the included and excluded files.
               </label>
               <div class="tkr-files-package-downloads">
                 <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>

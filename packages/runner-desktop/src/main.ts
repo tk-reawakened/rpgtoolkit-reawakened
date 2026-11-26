@@ -223,7 +223,8 @@ function registerIpc(): void {
   });
   ipcMain.handle("desktop:library.remove", (_event, gameId: string) => {
     const removed = removeInstalledGame({ userData: app.getPath("userData"), gameId });
-    return removed.ok ? { ok: true } : { ok: false, message: removed.error };
+    if (!removed.ok) return { ok: false, message: removed.error };
+    return removed.cleanupWarning === undefined ? { ok: true } : { ok: true, message: removed.cleanupWarning };
   });
   // The bytes for the game this launch opens; `gameId` picks a library entry the page offered. A resolution that refuses
   // a package (a hash or size mismatch, a missing file) rejects, so the page shows the reason instead of a blank canvas.

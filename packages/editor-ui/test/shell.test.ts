@@ -395,6 +395,24 @@ test("changing the release version invalidates the prepared inventory and its co
   match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /Release version changed\. Prepare and review the package again\./);
 });
 
+test("preparing the package again clears the earlier inventory approval", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  const reviewed = s.el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(() => { reviewed.checked = true; reviewed.dispatchEvent(new Event("change", { bubbles: true })); });
+  equal(button(s.el, "Download game.tpk").disabled, false);
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  deepEqual(s.packageCalls, ["Main/example.gam@1.2.3", "Main/example.gam@1.2.3"]);
+  equal(s.el.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked, false, "the earlier approval is cleared");
+  equal(button(s.el, "Download game.tpk").disabled, true, "downloads wait for a fresh review");
+  equal([...s.el.querySelectorAll("button")].some((candidate) => candidate.textContent === "Build setup ZIP for review" && !candidate.hasAttribute("disabled")), false, "the setup build also waits for a fresh review");
+});
+
 test("package release version remains visible and actionable after closing and reopening the panel", async () => {
   const s = await setup();
   await click(button(s.el, "Package game…"));
