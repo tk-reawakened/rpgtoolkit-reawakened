@@ -16,7 +16,7 @@ import { runVscodeScriptWorkflowProof, scriptWorkflowProofFiles } from "./script
 import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, runVscodeFontProof, runVscodeBattleDataProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeBoardUpgradeProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { runVscodeDesignProof } from "./design-proof.ts";
 import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
-import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-scene-proof.ts";
+import { NATIVE_ROLES_SCENE, NATIVE_ROLES_SCENE_PATH, NATIVE_SCENE_PROOF_PATH, NATIVE_SCENE_RECIPE, runVscodeNativeSceneProof, runVscodeTerrainRoleRefreshProof } from "./native-scene-proof.ts";
 import { runVscodeBoardImportProof } from "./board-import-proof.ts";
 import { geometryProofFiles } from "./native-geometry-fixture.ts";
 import { runVscodeNativeGeometryProof } from "./native-geometry-vscode-proof.ts";
@@ -159,6 +159,16 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
   if (nativeSceneBytes !== undefined) {
     await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
     await writeFile(resolve(proofWorkspace, NATIVE_SCENE_PROOF_PATH), nativeSceneBytes);
+    // A second scene whose recipes the proof edits while it is open (#3533): a minimal native tileset and a small region.
+    await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+    const recipeSheet = new Uint8Array(64 * 32 * 4);
+    for (let y = 0; y < 32; y += 1) for (let x = 0; x < 64; x += 1) recipeSheet.set(x < 32 ? [20, 80, 160, 255] : [140, 90, 30, 255], (64 * y + x) * 4);
+    await writeFile(resolve(proofWorkspace, "Tiles/roles-sheet.png"), encodeScenePng({ w: 64, h: 32, rgba: recipeSheet }));
+    for (const [name, column] of [["water", 0], ["bank", 32]]) {
+      await writeFile(resolve(proofWorkspace, `Tiles/roles-${name}.tkrtle`), new TextEncoder().encode(`contract: tile\nversion: 1.0.0-pre.1\nname: ${name}\nprojection: 2d\nrole: floor\nvisual:\n  transparent: {mode: alpha}\n  sample: {file: Tiles/roles-sheet.png, rect: [${column}, 0, 32, 32]}\n`));
+    }
+    await writeFile(resolve(proofWorkspace, "Tiles/roles.tkrtst"), new TextEncoder().encode(NATIVE_SCENE_RECIPE));
+    await writeFile(resolve(proofWorkspace, NATIVE_ROLES_SCENE_PATH), new TextEncoder().encode(NATIVE_ROLES_SCENE));
     // A supported older board (minor 3, pre-vector): the legacy editor cannot open it for editing, but Import as Scene can.
     await copyFile(resolve(root, "docs/spec/examples/versions/board/board_minor3.brd"), resolve(proofWorkspace, "Boards/older-board.brd"));
     await copyFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem"), resolve(proofWorkspace, "Chrs/ada.tem"));
@@ -540,6 +550,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     if (nativeSceneBytes !== undefined) {
       await runVscodeNativeSceneProof(page, expect, workbenchUrl, readBacking, writeBacking, nativeSceneBytes);
       console.log("vscode.dev native scene preview, terrain edit, save, recovery and play proof passed");
+      await runVscodeTerrainRoleRefreshProof(page, expect, workbenchUrl, readBacking);
+      console.log("vscode.dev native terrain roles refresh on a saved recipe, and stale preview invalidation proof passed");
       await runVscodeBoardImportProof(page, expect, readBacking, {
         listScenes: async () => {
           try {
