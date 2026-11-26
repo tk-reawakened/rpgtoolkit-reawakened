@@ -164,12 +164,15 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
         return;
       }
       if (layoutTicket.current !== openedAt) {
-        // A refresh found newer folders while the picker was open; they win over the folders it read.
+        // The project's folders changed while the picker was open, so the reference it returned names a file in folders
+        // the project no longer reads: the same relative name may be another picture there, or no picture at all. It is
+        // never written. The newer folders stand and the user chooses again.
         await resolveOwnership();
-      } else {
-        layoutTicket.current += 1;
-        adopt(outcome.layout);
+        setMessage("The project's picture folders changed while the picker was open, so the picture you chose belongs to the older folders. Nothing was changed; choose the picture again.");
+        return;
       }
+      layoutTicket.current += 1;
+      adopt(outcome.layout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
       // Choosing the picture the document already names is a successful no-edit: no command, no refusal, the draft as it
       // is. The document is asked now, not at the render that opened the picker: an edit may have landed meanwhile.
