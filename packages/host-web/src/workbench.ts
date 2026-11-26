@@ -105,6 +105,8 @@ export interface Workbench {
   returnFromVisit(): Promise<ReturnResult>;
   /** Resolve the declared owner and type-folder layout for any project-relative document path. */
   ownerForDocumentPath(path: string): Promise<ProjectLayoutOwner>;
+  /** Make the board-audition panel owned by this workbench for an additional view of its document. */
+  auditionForDocument(document: AnyDocument): DocumentView["audition"];
   /** Show a folder-aware picker over the workbench and resolve with its outcome; unchosen leaves the field as it was. */
   pickAsset(request: PickAssetRequest, originPath?: string): Promise<PickOutcome>;
   /**
@@ -252,6 +254,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       controls: createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, layout: owner.layout, main: owner.mainPath }),
       commands: auditionRegistry,
     };
+  };
+  const auditionForDocument = (document: AnyDocument): AuditionPanel | undefined => {
+    const panel = auditionFor(document);
+    if (panel === undefined) return undefined;
+    return { controls: panel.controls, commands: createCommandRegistry(createAuditionCommands(() => panel.controls)) };
   };
   let version = 0;
   let disposed = false;
@@ -984,6 +991,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     visits,
     openPath,
     ownerForDocumentPath: ownerForPath,
+    auditionForDocument,
     async visit(origin, path) {
       const result = await visits.visit(origin, path);
       if (result.ok) {

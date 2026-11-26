@@ -63,10 +63,9 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: 
         return platformOk(undefined);
       } catch (error) {
         try { await writable?.abort(); } catch { /* Keep the original write error. */ }
-        if (!existed && target !== undefined) {
-          try { await (await dir(parts.slice(0, -1))).removeEntry(parts.at(-1)!); } catch { /* Keep the original write error. */ }
-        }
-        return fail(error, path);
+        const failure = fail(error, path);
+        if (existed || failure.ok) return failure;
+        return platformError(failure.error.code, `${failure.error.message}. A destination may remain; this browser API cannot prove that this write created it, and removing it could delete another writer's file.`);
       }
     },
     async createFolder(path) {

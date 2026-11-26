@@ -179,7 +179,13 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     tilesetHeader.setUint16(0, 20, true);
     tilesetHeader.setUint16(2, 218, true);
     tilesetHeader.setUint16(4, 3, true);
-    tileset.fill(42, 6);
+    for (let tile = 0; tile < 218; tile += 1) {
+      for (let y = 0; y < 32; y += 1) {
+        for (let x = 0; x < 32; x += 1) {
+          tileset[6 + tile * 1024 + y * 32 + x] = (x + y) % 2 === 0 ? 42 : 43;
+        }
+      }
+    }
     const programFiles = [...new Set(parsedLegacy.value.programs.map(({ file }) => file).filter((file) => file.length > 0))]
       .map((file) => ({ path: `Game/Example/Prg/${file}`, bytes: new Uint8Array() }));
     const itemBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/versions/item/item_minor7.itm")));

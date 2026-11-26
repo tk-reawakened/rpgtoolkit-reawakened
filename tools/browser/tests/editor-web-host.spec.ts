@@ -15,6 +15,7 @@ interface ProofWindow extends Window {
   __tkrDenyFileRead?: (name: string, successfulReadsAllowed?: number) => void;
   __tkrWriteTestFile?: (path: string, bytes: readonly number[]) => Promise<void>;
   __tkrDenyFileWrite?: (name: string) => void;
+  __tkrAllowFileWrite?: (name: string) => void;
 }
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
@@ -1132,15 +1133,16 @@ async function installFolderPicker(
       });
     };
     const originalCreateWritable = FileSystemFileHandle.prototype.createWritable;
-    (window as ProofWindow).__tkrDenyFileWrite = (target) => {
-      Object.defineProperty(FileSystemFileHandle.prototype, "createWritable", {
-        configurable: true,
-        value: async function (this: FileSystemFileHandle, ...args: Parameters<typeof originalCreateWritable>) {
-          if (this.name === target) throw new DOMException("Permission denied", "NotAllowedError");
-          return originalCreateWritable.apply(this, args);
-        },
-      });
-    };
+    const deniedWrites = new Set<string>();
+    Object.defineProperty(FileSystemFileHandle.prototype, "createWritable", {
+      configurable: true,
+      value: async function (this: FileSystemFileHandle, ...args: Parameters<typeof originalCreateWritable>) {
+        if (deniedWrites.has(this.name)) throw new DOMException("Permission denied", "NotAllowedError");
+        return originalCreateWritable.apply(this, args);
+      },
+    });
+    (window as ProofWindow).__tkrDenyFileWrite = (target) => { deniedWrites.add(target); };
+    (window as ProofWindow).__tkrAllowFileWrite = (target) => { deniedWrites.delete(target); };
     armed = true;
 
     if (!canPersist) {
@@ -1319,18 +1321,44 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   await page.getByRole("treeitem", { name: "Prg, folder, closed", exact: true }).press("ArrowRight");
   await page.getByRole("treeitem", { name: /^warp00000002\.prg, program editor/ }).dblclick();
   const scriptEditor = page.locator(".monaco-editor");
-  await scriptEditor.locator(".view-line").first().click();
-  await page.keyboard.press("Control+A");
-  await page.keyboard.type("// Pending authored edit; cancellation and copy-write failure must leave it open.\n");
-  await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
-  const readScriptBytes = async (): Promise<number[]> => await page.evaluate(async (path) => {
+  const readPathBytes = async (path: string): Promise<number[]> => await page.evaluate(async (filePath) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");
-    const parts = path.split("/");
+    const parts = filePath.split("/");
     let parent = root;
     for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
     return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
-  }, scriptPath);
+  }, path);
+  const pathExists = async (path: string): Promise<boolean> => await page.evaluate(async (filePath) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const parts = filePath.split("/");
+    let parent = root;
+    try {
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      await parent.getFileHandle(parts.at(-1)!);
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") return false;
+      throw error;
+    }
+  }, path);
+  const dismissScriptWriteFailure = async (): Promise<void> => {
+    const failure = page.getByRole("dialog").filter({ hasText: "warp00000002.prg" });
+    if (await failure.isVisible()) await failure.getByRole("button", { name: "OK", exact: true }).click();
+  };
+  const scriptBytesBeforeUpgrade = await readPathBytes(scriptPath);
+  await page.evaluate((name) => (window as ProofWindow).__tkrDenyFileWrite?.(name), scriptPath.split("/").at(-1)!);
+  const assertPendingScript = async (): Promise<void> => {
+    await dismissScriptWriteFailure();
+    await page.getByRole("tab", { name: scriptPath }).click();
+    await dismissScriptWriteFailure();
+    await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
+    await expect(page.locator(".tkr-program-state")).toHaveText("Unsaved changes");
+    expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
+    await page.getByRole("tab", { name: copyPath, exact: true }).click();
+    await dismissScriptWriteFailure();
+  };
   await page.getByRole("tab", { name: copyPath, exact: true }).click();
 
   const setupButton = page.getByRole("group", { name: "Run" }).getByRole("button", { name: "New run setup" });
@@ -1392,9 +1420,16 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
     expect(visible, "the authored alternating tile pattern must be drawn in the game framebuffer").toBe(true);
   };
   await assertAuthoredChecker();
-  await expect.poll(async () => new TextDecoder().decode(new Uint8Array(await readScriptBytes())).includes("Pending authored edit"), { timeout: 30_000 }).toBe(true);
-  const scriptBytesBeforeUpgrade = await readScriptBytes();
+  await page.getByRole("tab", { name: scriptPath }).click();
+  await scriptEditor.locator(".view-line").first().click();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("// Pending authored edit; cancellation and copy-write failure must leave it open.\n");
+  await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
+  await expect(page.locator(".tkr-program-state")).toHaveText("Unsaved changes");
+  await dismissScriptWriteFailure();
+  expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
   await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await dismissScriptWriteFailure();
   await page.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
   const coordinatePreview = page.getByRole("dialog").filter({ hasText: "Convert tile coordinates to pixels" });
   await expect(coordinatePreview).toBeVisible();
@@ -1406,6 +1441,9 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   await cancelledPixelDialog.getByRole("textbox").fill(cancelledPixelPath);
   await cancelledPixelDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("tab", { name: cancelledPixelPath, exact: true })).toHaveCount(0);
+  expect(await pathExists(cancelledPixelPath)).toBe(false);
+  if (await coordinatePreview.isVisible()) await coordinatePreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  await assertPendingScript();
   const reopenCoordinatePreview = async () => {
     if (!await coordinatePreview.isVisible()) {
       await page.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
@@ -1419,27 +1457,23 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   const failedPixelDialog = page.getByRole("dialog", { name: `Save ${copyPath} as` });
   await failedPixelDialog.getByRole("textbox").fill(failedPixelPath);
   await failedPixelDialog.getByRole("button", { name: "Save", exact: true }).click();
-  const failedMessage = `Could not write ${failedPixelPath}: ${failedPixelPath}: Permission denied`;
-  const failedWriteNotice = page.getByRole("dialog").filter({ hasText: failedMessage });
+  const failedWriteNotice = page.getByRole("dialog").filter({ hasText: /Could not write .*red\.failed-write\.brd/ });
   await expect(failedWriteNotice).toBeVisible();
+  await expect(failedWriteNotice).toContainText("A destination may remain");
+  await expect(failedWriteNotice).toContainText("cannot prove that this write created it");
   await failedWriteNotice.getByRole("button", { name: "OK", exact: true }).click();
-  expect(await page.evaluate(async (path) => {
-    const root = (window as ProofWindow).__tkrTestFolder;
-    if (!root) throw new Error("The owned browser folder is missing.");
-    const parts = path.split("/");
-    let parent = root;
-    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
-    try { await parent.getFileHandle(parts.at(-1)!); return true; } catch { return false; }
-  }, failedPixelPath)).toBe(false);
-  expect(await page.evaluate(async (path) => {
-    const root = (window as ProofWindow).__tkrTestFolder;
-    if (!root) throw new Error("The owned browser folder is missing.");
-    const parts = path.split("/");
-    let parent = root;
-    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
-    return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
-  }, scriptPath)).toEqual(scriptBytesBeforeUpgrade);
-  await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
+  expect(await pathExists(failedPixelPath)).toBe(true);
+  expect(await readPathBytes(failedPixelPath)).toEqual([]);
+  if (await coordinatePreview.isVisible()) await coordinatePreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  await assertPendingScript();
+  expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
+  await page.evaluate((name) => (window as ProofWindow).__tkrAllowFileWrite?.(name), scriptPath.split("/").at(-1)!);
+  await page.getByRole("tab", { name: scriptPath }).click();
+  await page.keyboard.press("Control+S");
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+  const savedScriptBytes = await readPathBytes(scriptPath);
+  expect(new TextDecoder().decode(new Uint8Array(savedScriptBytes))).toContain("Pending authored edit");
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
   await reopenCoordinatePreview();
   await coordinatePreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
   const pixelCopyPath = "Game/Example/Boards/red.pixels.brd";
@@ -1524,6 +1558,6 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   expect(finalFiles.source).toEqual(disk.source);
   expect(finalFiles.upgraded).toEqual(disk.destination);
   expect(finalFiles.pixelCopy).toEqual(pixelCopyBytes);
-  expect(finalFiles.script).toEqual(scriptBytesBeforeUpgrade);
+  expect(finalFiles.script).toEqual(savedScriptBytes);
   await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
 });

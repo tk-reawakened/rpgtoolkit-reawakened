@@ -46,6 +46,7 @@ interface Shown {
 }
 let shown: Shown | null = null;
 const mirrors = new Map<AnyDocument, { readonly view: DocumentView; readonly element: HTMLElement }>();
+const pendingMirrors = new Set<AnyDocument>();
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
 let mirrorGeneration = 0;
@@ -583,8 +584,9 @@ function updateActions(current: Shown): void {
 }
 
 function syncMirror(): void {
-  const active = activeDocument(shown);
-  const project = shown?.project ?? null;
+  const current = shown;
+  const active = activeDocument(current);
+  const project = current?.project ?? null;
   const visible = active !== null && project !== null && mirrorRequested;
   mirrorElement.hidden = !visible;
   mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
@@ -601,17 +603,35 @@ function syncMirror(): void {
     }
   }
   mirroredProject = project;
-  if (!visible || shown === null || active === null || project === null) {
+  if (!visible || current === null || active === null || project === null) {
+    mirrorGeneration += 1;
     mirrorElement.replaceChildren();
     return;
   }
-  let mirror = mirrors.get(active);
+  const mirror = mirrors.get(active);
   if (mirror === undefined) {
+    if (pendingMirrors.has(active)) return;
     const element = mirrorElement.ownerDocument.createElement("div");
     mirrorElement.replaceChildren(element);
-    const view = mountDocumentView(project, active, element, shown.projectLayout, undefined, undefined, shown.main);
-    mirror = { view, element };
-    mirrors.set(active, mirror);
+    pendingMirrors.add(active);
+    const generation = ++mirrorGeneration;
+    void current.workbench.ownerForDocumentPath(active.identity.path).then((owner) => {
+      pendingMirrors.delete(active);
+      if (generation !== mirrorGeneration || shown !== current || !mirrorRequested ||
+          activeDocument(current) !== active || mirrors.has(active)) {
+        element.remove();
+        if (shown === current && mirrorRequested && activeDocument(current) === active && !mirrors.has(active)) syncMirror();
+        return;
+      }
+      const view = mountDocumentView(project, active, element, owner.layout, undefined, undefined, owner.mainPath,
+        undefined, undefined, current.workbench.auditionForDocument(active));
+      mirrors.set(active, { view, element });
+      syncMirror();
+    }).catch((error: unknown) => {
+      pendingMirrors.delete(active);
+      element.remove();
+      if (shown === current) showFailure(error);
+    });
   } else if (mirror.element.parentElement !== mirrorElement) {
     mirrorElement.replaceChildren(mirror.element);
     mirror.view.refreshAssets?.();

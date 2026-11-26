@@ -243,6 +243,41 @@ export async function runVscodeBoardUpgradeProof(
   workbenchUrl: string,
   readBacking: (path: string) => Promise<Uint8Array>,
 ): Promise<void> {
+  const assertAuthoredChecker = async (frame: Frame): Promise<void> => {
+    await expect.poll(async () => await frame.evaluate(() => {
+      const screen = document.querySelector<HTMLCanvasElement>("#screen");
+      const gl = screen?.getContext("webgl2") ?? screen?.getContext("webgl");
+      if (!screen || !gl) return false;
+      const pixels = new Uint8Array(screen.width * screen.height * 4);
+      gl.finish();
+      gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      const color = (x: number, y: number) => {
+        const offset = (y * screen.width + x) * 4;
+        return `${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`;
+      };
+      for (let scale = 1; scale <= 8; scale *= 2) {
+        const side = 8 * scale;
+        for (let y = 0; y + side <= screen.height; y += scale) {
+          for (let x = 0; x + side <= screen.width; x += scale) {
+            const first = color(x, y);
+            const second = color(x + scale, y);
+            if (first === second) continue;
+            let matches = true;
+            for (let row = 0; row < 8 && matches; row += 1) {
+              for (let column = 0; column < 8; column += 1) {
+                if (color(x + column * scale, y + row * scale) !== ((row + column) % 2 === 0 ? first : second)) {
+                  matches = false;
+                  break;
+                }
+              }
+            }
+            if (matches) return true;
+          }
+        }
+      }
+      return false;
+    }), { intervals: [50, 100, 200], timeout: 5_000 }).toBe(true);
+  };
   const sourcePath = "Game/Example/Boards/village.brd";
   const copyPath = "Game/Example/Boards/village.pixels.brd";
   const decode = (bytes: Uint8Array) => {
@@ -350,6 +385,7 @@ export async function runVscodeBoardUpgradeProof(
   expect(legacyRun?.board).toContain("red.upgraded.brd");
   expect(legacyRun?.player).toEqual({ x: 48, y: 63 });
   expect(legacyRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await assertAuthoredChecker(legacyPlayer);
   await verifyHostRunHash(page, legacyPlayer, expect);
   const legacyCopyTabAfterRun = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
   await legacyCopyTabAfterRun.getByRole("button", { name: /^Close/ }).click();
@@ -494,6 +530,7 @@ export async function runVscodeBoardUpgradeProof(
   // flag 4 makes (2,2) an absolute-pixel run start.
   expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
   expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await assertAuthoredChecker(player);
   await verifyHostRunHash(page, player, expect);
   await openNativeQuickOpenFile(page, expect, scriptPath);
   await expect(pendingScriptEditor).toContainText("Pending authored edit");

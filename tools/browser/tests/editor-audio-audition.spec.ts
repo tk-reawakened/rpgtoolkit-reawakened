@@ -200,7 +200,21 @@ test("a loose board auditions its root Media folder while a nested game Main is 
   const boards = page.getByRole("treeitem", { name: /^Boards, folder/ });
   if (await boards.getAttribute("aria-expanded") !== "true") await boards.dblclick();
   await page.getByRole("treeitem", { name: /^loose\.brd,/ }).dblclick();
-  const properties = page.locator(".tkr-board-properties");
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+  const mirror = page.locator("#mirror");
+  const mirrorProperties = mirror.locator(".tkr-board-properties");
+  await expect(mirrorProperties).toBeVisible();
+  await mirrorProperties.locator("summary").click();
+  const mirrorField = mirrorProperties.getByRole("textbox", { name: "Background music", exact: true });
+  await mirrorField.fill("tone.wav");
+  const mirrorPlay = mirrorProperties.getByRole("group", { name: "Background music audition" })
+    .getByRole("button", { name: "Play background music", exact: true });
+  await mirrorPlay.click();
+  await expect.poll(async () => (await signal(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
+
+  const properties = page.locator("#settings .tkr-board-properties");
   await properties.locator("summary").click();
   const field = properties.getByRole("textbox", { name: "Background music", exact: true });
   const play = properties.getByRole("group", { name: "Background music audition" }).getByRole("button", { name: "Play background music", exact: true });
