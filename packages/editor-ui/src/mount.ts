@@ -23,6 +23,7 @@ import {
   type TileBitmapDocumentSnapshot,
   type TileBitmapPicture,
   type PendingEdits,
+  type ProjectLayout,
   type TilesetArtCommand,
   type TilesetArtSnapshot,
   projectLayoutForDocumentPath,
@@ -134,6 +135,8 @@ export interface ViewContext {
   readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** Where this document's project folders are now, re-resolved by the host on a refresh (tab activation, asset change). */
+  readonly resolveLayout?: () => Promise<ProjectLayout>;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
   readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset"> & Partial<BoardPropertiesNavigation>;
   /**
@@ -313,6 +316,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       projectId: document.identity.projectId,
       // The host names the document's project folders; a standalone mount infers them from the path (ADR 0022 D1.2).
       layout: ctx.browser?.layout ?? projectLayoutForDocumentPath(document.identity.path),
+      ...(ctx.resolveLayout === undefined ? {} : { resolveLayout: ctx.resolveLayout }),
       ...(ctx.navigation?.pickAsset === undefined ? {} : { pickAsset: ctx.navigation.pickAsset }),
     });
   } else if (isNativeGeometryView(document)) {

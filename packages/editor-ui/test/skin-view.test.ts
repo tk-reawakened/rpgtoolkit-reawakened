@@ -196,3 +196,108 @@ test("a pick previews from the folders the picker read, so a changed game layout
     root.remove();
   }
 });
+
+/** The memory host's reads, recorded, so a test can say which project folders the preview walked. */
+function recordingReader(host: ReturnType<typeof createMemoryPlatformServices>, reads: string[]) {
+  return { readProject: async (projectId: string, path: string) => { reads.push(path); return host.fs.readProject(projectId, path); } };
+}
+
+test("a refresh re-resolves the project folders, so a moved game needs no pick (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/Old", "Game/New"].flatMap((folder) => ["window.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  let owner = { projectFolder: "Game/Old" };
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
+    // The host's answer to "where are this document's folders now": the game file moved while the tab was hidden.
+    resolveLayout: async () => owner,
+  });
+  const canvases = () => root.querySelectorAll("canvas");
+  try {
+    await settleUntil(() => reads.includes("Game/Old/Bitmap/window.png") && reads.includes("Game/Old/Bitmap/button.png"));
+    await settleUntil(() => canvases().length === 2);
+    // The tab becomes active again (the host's refresh) with no picker involved at all.
+    owner = { projectFolder: "Game/New" };
+    reads.length = 0;
+    await act(() => { handle.refreshAssets?.(); });
+    // The refresh itself re-renders once with the folders the view already had; the host's answer then wins, so the
+    // last read of each picture is from the new folders and both are shown again.
+    await settleUntil(() => reads.filter((read) => read.endsWith("/window.png")).at(-1) === "Game/New/Bitmap/window.png"
+      && reads.filter((read) => read.endsWith("/button.png")).at(-1) === "Game/New/Bitmap/button.png");
+    await settleUntil(() => canvases().length === 2);
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("a cancelled pick still re-resolves the folders (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/Old", "Game/New"].flatMap((folder) => ["window.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  let owner = { projectFolder: "Game/Old" };
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
+    navigation: { pickAsset: async () => { owner = { projectFolder: "Game/New" }; return { chosen: false }; } },
+    resolveLayout: async () => owner,
+  });
+  try {
+    await settleUntil(() => reads.includes("Game/Old/Bitmap/window.png"));
+    reads.length = 0;
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    await settleUntil(() => reads.includes("Game/New/Bitmap/window.png"));
+    equal(opened.document.getSnapshot().dirty, false, "a cancelled pick changes nothing");
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("choosing the picture already named is a successful no-edit that adopts the picker's folders (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/Old", "Game/New"].flatMap((folder) => ["window.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Old" } },
+    navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/New" } }) },
+  });
+  try {
+    await settleUntil(() => reads.includes("Game/Old/Bitmap/window.png"));
+    reads.length = 0;
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    await settleUntil(() => reads.includes("Game/New/Bitmap/window.png"));
+    equal(opened.document.getSnapshot().dirty, false, "the same picture is not an edit");
+    equal(opened.document.getSnapshot().edits.length, 0);
+    const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "");
+    equal(spoken.some((text) => /did not change|invalid/i.test(text)), false, `no refusal is shown: ${spoken.join(" | ")}`);
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});

@@ -511,6 +511,8 @@ export function mountDocumentView(
   runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"],
   /** The board's background-music audition and its palette commands, created by the caller; the view disposes the audition with itself. */
   audition?: AuditionPanel,
+  /** Where this document's folders are now; the host re-resolves them when a mounted view is refreshed. */
+  resolveLayout?: () => Promise<ProjectLayout>,
 ): DocumentView {
   const browserLayout = projectLayout;
   let mounted: ViewHandle | null = null;
@@ -537,6 +539,7 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      ...(resolveLayout === undefined ? {} : { resolveLayout }),
       ...(document.kind !== "animation" ? {} : { animationAuthoring: createAnimationAuthoring(webCheckpointEnvironment(project, document.identity.key), asAnimationDocument(document), async () => {
         const saved = await document.save();
         return saved.ok ? platformOk(undefined) : platformError("io-error", saved.failure.message);

@@ -104,6 +104,8 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
         },
         boardPreferences: remote.boardPreferences,
         pendingEdits: remote.pendingEdits,
+        // A refresh (the editor becoming active, the assets changing) re-resolves the document's owning game folders.
+        resolveLayout: () => layoutForDocument(remote),
         ...(remote.kind === "board" ? {
           navigation: {
             pickAsset: (request) => remote.pickAsset(request),

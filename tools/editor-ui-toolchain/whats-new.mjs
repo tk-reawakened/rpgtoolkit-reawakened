@@ -9,7 +9,11 @@ export const CHANGELOG_URL = `${REPOSITORY_BLOB}CHANGELOG.md`;
 export const WHATS_NEW_LIMIT = 12;
 
 export function absoluteRepositoryLinks(markdown) {
-  return markdown.replace(/\]\((?!https?:\/\/)([^)\s]+)\)/g, (_match, target) => `](${REPOSITORY_BLOB}${target})`);
+  return markdown.replace(/\]\((?!https?:\/\/)([^)\s]+)\)/g, (_match, target) => {
+    // A fragment names a heading in the changelog it came from, so it points at that file, not the repository root.
+    const file = target.startsWith("#") ? `CHANGELOG.md${target}` : target;
+    return `](${REPOSITORY_BLOB}${file})`;
+  });
 }
 
 /**

@@ -180,10 +180,23 @@ test("bundle check CLI: exits 1 on a bundle with eval( or new Function, 0 on a c
   }
 });
 
-// #3527 and #3537: the help window makes only this repository's HTTPS links clickable, so a changelog's relative link must
-// reach What's New as the same file's absolute URL. The check uses a fixed changelog, not the rolling Unreleased list, so
-// it keeps its meaning as entries move down into a release.
-test("What's New turns a changelog's relative link into the repository's absolute URL", async () => {
+// The help window's own rule (`safeExternalHref` in packages/editor-ui/src/help-document.tsx): an HTTPS link to this
+// repository's GitHub pages is clickable, and anything else stays text. The test states that rule rather than a narrower
+// one of its own, so an issue or pull link the renderer accepts is not rejected here.
+const helpLinkClickable = (destination) => {
+  try {
+    const url = new URL(destination);
+    return url.protocol === "https:" && url.hostname === "github.com" && url.port === "" && url.username === "" && url.password === ""
+      && url.pathname.startsWith("/tk-reawakened/rpgtoolkit-reawakened/");
+  } catch {
+    return false;
+  }
+};
+
+// #3527, #3537 and the fragment case: the help window makes only this repository's HTTPS links clickable, so a changelog's
+// relative link must reach What's New as a clickable URL, and a fragment must name the changelog it came from. The check
+// uses a fixed changelog, not the rolling Unreleased list, so it keeps its meaning as entries move into a release.
+test("What's New turns a changelog's relative link into a clickable repository URL", async () => {
   const { whatsNewNotes, REPOSITORY_BLOB } = await import("../whats-new.mjs");
   const changelog = [
     "# Changelog",
@@ -197,21 +210,24 @@ test("What's New turns a changelog's relative link into the repository's absolut
   ].join("\n");
   const notes = whatsNewNotes(changelog, "the fixed fixture");
   equal(notes.includes(`[native skin](${REPOSITORY_BLOB}docs/spec/formats/native-skin.md)`), true, "a relative file path names its file");
-  equal(notes.includes(`[contract](${REPOSITORY_BLOB}#skin-document)`), true, "a relative anchor keeps its anchor");
+  equal(notes.includes(`[contract](${REPOSITORY_BLOB}CHANGELOG.md#skin-document)`), true, "a fragment names the changelog it came from");
   equal(notes.includes("(https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md)"), true, "an absolute link is left alone");
   equal(notes.includes("Released entries"), false, "only Unreleased is carried");
+  for (const destination of [...notes.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1])) {
+    ok(helpLinkClickable(destination), `the help window can open ${destination}`);
+  }
   throws(() => whatsNewNotes("# Changelog\n\n## Unreleased\n", "an empty fixture"), /Missing non-empty Unreleased section/);
 });
 
-// The same rule over the shipped notes, without pinning any one entry: every link in today's What's New must be openable.
-test("every link in the shipped What's New is a clickable repository URL", async () => {
-  const { REPOSITORY_BLOB } = await import("../whats-new.mjs");
+// The same renderer rule over the shipped notes, without pinning any one entry: an issue or pull link is as openable as a
+// file link, so the check asks the renderer's question, not "is it a blob URL".
+test("every link in the shipped What's New is clickable under the renderer's policy", () => {
   const generated = readFileSync(join(repoRoot, "packages/editor-ui/src/help-content.generated.ts"), "utf8");
   const whatsNew = /export const WHATS_NEW_MARKDOWN = ("(?:[^"\\]|\\.)*");/.exec(generated);
   ok(whatsNew, "the generated What's New is present");
   const destinations = [...JSON.parse(whatsNew[1]).matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1]);
   ok(destinations.length > 0, "the notes carry links");
   for (const destination of destinations) {
-    ok(destination.startsWith(REPOSITORY_BLOB) || destination === `${REPOSITORY_BLOB}CHANGELOG.md`, `What's New link ${destination} is clickable`);
+    ok(helpLinkClickable(destination), `What's New link ${destination} is clickable`);
   }
 });

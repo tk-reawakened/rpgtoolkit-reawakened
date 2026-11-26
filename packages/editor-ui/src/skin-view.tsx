@@ -21,6 +21,12 @@ export interface NativeSkinViewProps {
    */
   readonly layout: ProjectLayout;
   readonly pickAsset?: CharacterAuthoringViewProps["pickAsset"];
+  /**
+   * Where this document's project folders are now. The host re-resolves them on a refresh (a tab becoming active, the
+   * assets changing) and after a cancelled pick, so a game file that moved the project is noticed without a new pick
+   * (#3536). The view keeps the last answer it was given.
+   */
+  readonly resolveLayout?: () => Promise<ProjectLayout>;
 }
 
 type ProjectReader = Pick<FileSystemService, "readProject"> & Partial<Pick<FileSystemService, "list">>;
@@ -93,7 +99,7 @@ function SkinImagePreview({
 }
 
 /** Shared native skin authoring surface: independently choose and inspect each role's actual image. */
-export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, projectId, layout, pickAsset }: NativeSkinViewProps) {
+export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, projectId, layout, pickAsset, resolveLayout }: NativeSkinViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const submitted = useRef(createEditTracker());
   const queue = useRef(Promise.resolve());
@@ -102,6 +108,18 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
   // A game file can change which folders a project uses while this view is open; the picker re-resolves them every time,
   // so the reference it returns is read from the folders it names, not from the ones the view mounted with.
   const [activeLayout, setActiveLayout] = useState<ProjectLayout>(layout);
+  const assetRevision = useContext(AssetRefreshContext);
+  const adopt = (next: ProjectLayout | undefined): void => {
+    if (next === undefined) return;
+    setActiveLayout((current) => (current.projectFolder === next.projectFolder ? current : next));
+  };
+  // A refresh is the host saying "look again": the game file may name different folders by now, with no pick at all.
+  useEffect(() => {
+    if (resolveLayout === undefined) return;
+    let active = true;
+    void resolveLayout().then((next) => { if (active) adopt(next); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [resolveLayout, assetRevision]);
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const skin = snapshot.skin;
   const disabled = snapshot.readOnly !== null || snapshot.conflict !== null || snapshot.saving;
@@ -133,9 +151,15 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
         extensions: IMAGE_EXTENSIONS,
         field: field === "windowImage" ? "the skin's window graphic" : "the skin's button graphic",
       });
-      if (!outcome.chosen) return;
-      if (outcome.layout !== undefined && outcome.layout.projectFolder !== activeLayout.projectFolder) setActiveLayout(outcome.layout);
+      // The picker names the folders it read; a cancel names nothing, so the host is asked where they are now.
+      if (!outcome.chosen) {
+        adopt(await resolveLayout?.());
+        return;
+      }
+      adopt(outcome.layout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+      // Choosing the picture the field already names is a successful no-edit: no command, no refusal, the draft as it was.
+      if (reference === skin[field]) return;
       await apply({ type: "set-native-skin-image", field, reference });
     } catch (error) {
       setMessage(problem(error));
