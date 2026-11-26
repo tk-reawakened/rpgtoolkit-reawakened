@@ -42,15 +42,19 @@ The recovery Quick Pick entry is present when queried but ceases to be actionabl
    **Given** the focused VS Code web proof in the CI browser environment
    **When** it runs
    **Then** it covers selecting the displayed history entry and fails if the entry disappears or the action picker does not open
-3. **Or: no change is needed, with proof**
-   **Given** the recorded reproduction
-   **When** the focused proof is run repeatedly in the CI browser environment
-   **Then** the recovery action reliably opens and the failure is shown to be transient or unrelated to this code, with the evidence recorded in Notes — this supersedes 1 and 2
+3. **Closure without a verified fix**
+   **Given** the recorded reproduction and no verified fix for its cause
+   **When** the diagnostic and final-proof criteria below are satisfied
+   **Then** record evidence showing the failure was transient or unrelated to this code in Notes. Closure may include proof-only diagnostic changes.
 
 4. **Failures stay diagnostic**
-   **Given** the proof cannot select the displayed recovery group or open its action picker
+   **Given** the proof cannot select the displayed recovery group, open its action picker, or select the attempted action
    **When** it reports the failure
-   **Then** the report names the exact selected group and attempted action; the check is not hidden by retries, a longer timeout, or a weaker assertion
+   **Then** the report names both the exact selected recovery group and attempted action (including `Restore group` when that action is being selected); the check is not hidden by retries, a longer timeout, or a weaker assertion
+5. **The final proof gates every closure path**
+   **Given** the final proof revision, including any product or diagnostic changes
+   **When** it is verified for closure
+   **Then** the complete focused proof passes repeatedly, including recovery refusal and restore, diagnostics at group selection, action-picker opening, and action selection name both the exact selected recovery group and attempted action, and the VS Code web editor acceptance proof passes on that same revision. Do not count runs from an earlier proof revision.
 
 ## References
 
