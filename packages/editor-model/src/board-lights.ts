@@ -1,5 +1,5 @@
 import { boardGrid, rasterizeLights, type BoardLight, type BoardPoint, type BoardRgb, type BoardShadeLayer } from "@tk-reawakened/core";
-import { decodeShade, encodeShade, STORED_SHADE_MAX, STORED_SHADE_MIN, type BoardDocumentFields } from "./board-document.ts";
+import { decodeShade, encodeShade, STORED_SHADE_MAX, STORED_SHADE_MIN, type BoardDocumentFields, type BoardPrecondition } from "./board-document.ts";
 
 /**
  * Pure light edits for the board editor (`docs/spec/formats/board.md#lights`). Every function returns the next stored
@@ -84,6 +84,11 @@ export interface LightConversionPreview {
   readonly shadeLayers: readonly BoardShadeLayer[];
   /** The light as it stands, so Apply can tell the author reviewed this very light and not an edited one. */
   readonly light: BoardLight;
+  /**
+   * What the stored board must still hold for Apply to run: the lights and shading this preview was worked out from. Apply sends
+   * it with the command, and the document checks it against the stored board, so a second editor's edit refuses the Apply.
+   */
+  readonly precondition: BoardPrecondition;
   /** Shade cells across and down. */
   readonly width: number;
   readonly height: number;
@@ -158,6 +163,7 @@ export function previewLightConversion(board: LightBoard, index: number): LightC
     lights: board.lights.filter((_light, at) => at !== index),
     shadeLayers: [{ castLayer: existing.castLayer, records: encodeShade(into, cells) }],
     light,
+    precondition: { lights: board.lights, shadeLayers: board.shadeLayers },
     width: grid.width,
     height: grid.height,
     added,

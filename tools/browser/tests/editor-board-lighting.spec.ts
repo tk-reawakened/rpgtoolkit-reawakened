@@ -218,6 +218,36 @@ test("production browser workbench: Convert reviews before baking, Cancel change
   expect(afterCancel.ok && afterCancel.value.shadeLayers).toEqual(before.ok && before.value.shadeLayers);
   await expect(panel.getByLabel("Light 1 type")).toHaveValue("0");
 
+  // Escape claims the review from wherever focus is: with focus off the review (on the page itself) it still closes it.
+  await convert.click();
+  await expect(review).toBeVisible();
+  await expect(review.getByRole("button", { name: "Cancel converting Light 1" })).toBeFocused();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  
+  await page.keyboard.press("Escape");
+  await expect(review).toHaveCount(0);
+  await expect(state(page)).toHaveText("All changes saved");
+
+  // A region path is pending on the canvas. Enter on the review's Cancel button belongs to the button, not to the board's
+  // "finish the path" shortcut, so nothing is stored; the pending path is still the board's afterwards.
+  await page.locator('[data-board-mode="vectors"]').click();
+  const canvas = page.locator("canvas.tkr-board-canvas");
+  await canvas.scrollIntoViewIfNeeded();
+  const box = (await canvas.boundingBox())!;
+  for (const cellAt of [{ x: 1, y: 1 }, { x: 5, y: 1 }]) {
+    const at = onPage(box, cellAt);
+    await page.mouse.click(at.x, at.y);
+  }
+  await convert.click();
+  await expect(review).toBeVisible();
+  await expect(review.getByRole("button", { name: "Cancel converting Light 1" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(review).toHaveCount(0);
+  await expect(state(page)).toHaveText("All changes saved");
+  expect(await boardBytes(page, folder)).toEqual(saved);
+  await expect(convert).toBeFocused();
+  await page.locator('[data-board-mode="tiles"]').click();
+
   // Apply bakes: the light is gone and the board is unsaved. A save the file system refuses keeps all of it.
   await convert.click();
   await review.getByRole("button", { name: "Apply conversion of Light 1 to shading" }).click();

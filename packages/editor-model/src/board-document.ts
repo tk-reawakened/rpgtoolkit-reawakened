@@ -79,6 +79,10 @@ export interface BoardPrecondition {
   readonly programs?: Board["programs"];
   readonly sprites?: Board["sprites"];
   readonly images?: Board["images"];
+  /** The stored lights must still be exactly these (an explicit light conversion's reviewed input). */
+  readonly lights?: Board["lights"];
+  /** The stored shading layers must still be exactly these (an explicit light conversion's reviewed input). */
+  readonly shadeLayers?: Board["shadeLayers"];
 }
 
 export interface SetTilesCommand {
@@ -533,7 +537,7 @@ function unmetPrecondition(previous: Board, precondition: BoardPrecondition | un
       if (values[at] !== cell.r || values[at + 1] !== cell.g || values[at + 2] !== cell.b) return changed;
     }
   }
-  for (const family of ["vectors", "programs", "sprites", "images"] as const) {
+  for (const family of ["vectors", "programs", "sprites", "images", "lights", "shadeLayers"] as const) {
     const wanted = precondition[family];
     if (wanted !== undefined && !sameStoredValue(previous[family], wanted)) return changed;
   }
@@ -712,10 +716,13 @@ function isLights(value: unknown): boolean {
 function isPrecondition(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const precondition = value as Record<string, unknown>;
-  if (!Object.keys(precondition).every((key) => ["cells", "shadeCells", "vectors", "programs", "sprites", "images"].includes(key))) return false;
+  if (!Object.keys(precondition).every((key) => ["cells", "shadeCells", "vectors", "programs", "sprites", "images", "lights", "shadeLayers"].includes(key))) return false;
   if (precondition.cells !== undefined && !(Array.isArray(precondition.cells) && precondition.cells.length <= BOARD_MAX_CELLS && precondition.cells.every(isAssignment))) return false;
   if (precondition.shadeCells !== undefined && !(Array.isArray(precondition.shadeCells) && precondition.shadeCells.length <= BOARD_MAX_CELLS
     && precondition.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isStoredShadeChannel((cell as Record<string, unknown>)[channel]))))) return false;
+  // Lights and shading layers are only compared for equality, so any array is a safe requirement (a legacy light with extra nodes can still be required).
+  if (precondition.lights !== undefined && !Array.isArray(precondition.lights)) return false;
+  if (precondition.shadeLayers !== undefined && !isShadeLayers(precondition.shadeLayers)) return false;
   return (["vectors", "programs", "sprites", "images"] as const).every((family) => precondition[family] === undefined || isBoardObjectRecords(precondition[family], family));
 }
 

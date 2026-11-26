@@ -162,3 +162,39 @@ test("previewLightConversion counts cells past the draw range, a light that adds
   equal(JSON.stringify(full), before);
   equal(previewLightConversion(base, 4).ok, false);
 });
+
+test("Apply's command carries the reviewed lights and shading, and the document refuses it when either changed since", async () => {
+  const { doc } = await open();
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  ok(doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  const reviewed = previewLightConversion(doc.getSnapshot(), 0);
+  ok(reviewed.ok);
+  const apply = { type: "set-board-fields", precondition: reviewed.precondition, fields: { lights: reviewed.lights, shadeLayers: reviewed.shadeLayers } } as const;
+
+  // Another editor moves the light first: this Apply must not bake the old light or drop the new position.
+  const other = await open();
+  ok(other.doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  ok(other.doc.apply({ type: "set-board-fields", fields: { lights: [{ ...light, nodes: [{ x: 8, y: 8 }, light.nodes[1]!] }] } }).ok);
+  const staleLight = other.doc.apply(apply);
+  equal(staleLight.ok, false);
+  ok(!staleLight.ok && /board changed since this edit was prepared/.test(staleLight.rejection.message));
+  equal(other.doc.getSnapshot().lights.length, 1);
+  deepEqual(other.doc.getSnapshot().lights[0]?.nodes[0], { x: 8, y: 8 });
+
+  // Another editor paints shading first: the sum the review showed is no longer what Apply would store.
+  const shaded = await open();
+  ok(shaded.doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  ok(shaded.doc.apply({ type: "set-shade-cells", cells: [{ x: 1, y: 1, r: 40, g: 0, b: 0 }] }).ok);
+  const before = shaded.doc.getSnapshot();
+  equal(shaded.doc.apply(apply).ok, false);
+  deepEqual(shaded.doc.getSnapshot().shadeLayers, before.shadeLayers);
+  deepEqual(shaded.doc.getSnapshot().lights, before.lights);
+
+  // Unchanged inputs apply, as one edit that one undo takes back.
+  const edits = doc.getSnapshot().edits.length;
+  ok(doc.apply(apply).ok);
+  equal(doc.getSnapshot().edits.length, edits + 1);
+  equal(doc.getSnapshot().lights.length, 0);
+  ok(doc.undo().ok);
+  deepEqual(doc.getSnapshot().lights, [light]);
+});

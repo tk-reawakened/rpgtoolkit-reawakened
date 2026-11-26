@@ -39,6 +39,8 @@ interface Setup {
   readonly doc: BoardDocument;
   readonly root: HTMLElement;
   renderView(): void;
+  /** Make the view keep seeing the board as it is now while the document moves on, as a second editor's edit does before the host notifies this one. */
+  freeze(): void;
 }
 
 let Harness: () => preact.JSX.Element;
@@ -51,10 +53,11 @@ async function setup(): Promise<Setup> {
   if (!opened.ok) throw new Error(JSON.stringify(opened.error));
   const doc = opened.document;
   const pendingEdits = createPendingEdits();
+  let held: ReturnType<typeof doc.getSnapshot> | null = null;
   const view: BoardViewDocument = {
     kind: doc.kind,
     identity: doc.identity,
-    getSnapshot: () => doc.getSnapshot(),
+    getSnapshot: () => held ?? doc.getSnapshot(),
     subscribe: (listener) => doc.subscribe(listener),
     apply: (command) => doc.apply(command),
     save: () => doc.save(),
@@ -77,7 +80,7 @@ async function setup(): Promise<Setup> {
     render(createElement(Harness, {}), root);
   };
   await act(() => renderView());
-  return { host, doc, root, renderView };
+  return { host, doc, root, renderView, freeze: () => { held = doc.getSnapshot(); } };
 }
 
 function input(root: HTMLElement, label: string): HTMLInputElement {
@@ -250,4 +253,78 @@ test("a shade cell is painted from the numeric fields and an off-board cell expl
   deepEqual(s.doc.getSnapshot().shadeLayers, before);
   await click(s.root, "Zero RGB");
   equal(input(s.root, "Shade Green").value, "0");
+});
+
+test("Apply is refused by the document when another editor changed the light or the shading after the review, and nothing is baked", async () => {
+  for (const [name, change] of [
+    ["light", (doc: BoardDocument) => doc.apply({ type: "set-board-fields", fields: { lights: [{ ...doc.getSnapshot().lights[0]!, colours: [{ r: 7, g: 8, b: 9 }, { r: 4, g: 5, b: 6 }] }] } })],
+    ["shading", (doc: BoardDocument) => doc.apply({ type: "set-shade-cells", cells: [{ x: 1, y: 1, r: 33, g: 0, b: 0 }] })],
+  ] as const) {
+    const s = await setup();
+    await click(s.root, "Add spotlight");
+    await click(s.root, CONVERT);
+    s.freeze();
+    ok((await change(s.doc)).ok);
+    const afterOther = fingerprint(s.doc);
+    ok(review(s.root) !== null, `the view has not heard about the other editor's ${name} edit, so its review is still open`);
+    await press(s.root, "Apply conversion of Light 1 to shading");
+    equal(fingerprint(s.doc), afterOther, `a stale Apply after a ${name} edit stores nothing`);
+    equal(s.doc.getSnapshot().lights.length, 1, "the other editor's light is still there");
+    ok(/board changed since this edit was prepared/.test(s.root.querySelector('[role="alert"]')?.textContent ?? ""), `${name}: the refusal is explained`);
+    equal(review(s.root), null);
+  }
+});
+
+test("undoing a shade edit while the review is open closes it: the picture and counts were for the old shading", async () => {
+  const s = await setup();
+  await click(s.root, "Add spotlight");
+  await click(s.root, "Shade cell");
+  equal(s.doc.getSnapshot().shadeLayers.length, 1);
+  await click(s.root, CONVERT);
+  ok(review(s.root) !== null);
+  ok(/already has/.test(review(s.root)!.textContent ?? ""));
+  await act(async () => { ok(s.doc.undo().ok); await Promise.resolve(); });
+  equal(review(s.root), null, "the review closed when its source shading changed");
+  ok(/nothing was converted/.test(s.root.querySelector('[role="alert"]')?.textContent ?? ""));
+  equal(s.doc.getSnapshot().lights.length, 1, "the light is still editable");
+  equal(s.doc.getSnapshot().shadeLayers.length, 0);
+});
+
+test("Escape cancels the review from wherever focus has moved, but leaves another open dialog its own Escape", async () => {
+  const s = await setup();
+  await click(s.root, "Add spotlight");
+  const before = fingerprint(s.doc);
+  await click(s.root, CONVERT);
+  const escape = (target: Element): KeyboardEvent => {
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  };
+  // Focus moved out of the review to the page itself.
+  await act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  const inner = document.createElement("button");
+  dialog.append(inner);
+  document.body.append(dialog);
+  const own = await (async () => { let event!: KeyboardEvent; await act(() => { event = escape(inner); }); return event; })();
+  equal(own.defaultPrevented, false, "another dialog's Escape is not claimed");
+  ok(review(s.root) !== null);
+  dialog.remove();
+  let event!: KeyboardEvent;
+  await act(() => { event = escape(document.body); });
+  equal(event.defaultPrevented, true, "the review claimed the key");
+  equal(review(s.root), null);
+  equal(fingerprint(s.doc), before);
+});
+
+test("the review says its picture is only what the light adds, and counts the cells whose total is clamped", async () => {
+  const s = await setup();
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { shadeLayers: [{ castLayer: 2, records: [{ runCount: 12, r: 250, g: 0, b: 0 }] }] } })).ok);
+  await act(() => s.renderView());
+  await click(s.root, "Add gradient");
+  await click(s.root, CONVERT);
+  const text = review(s.root)!.textContent ?? "";
+  ok(/This picture shows only what Light 1 adds/.test(text) && /does not show where that total is clamped at 255/.test(text));
+  ok(/\d+ cells? would total more than 255 either way/.test(text), "the clamped cells are counted");
 });

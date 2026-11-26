@@ -1,5 +1,5 @@
 import { addLight, moveLightNode, newLight, previewLightConversion, removeLight, setLightColour, setLightType, SHADE_TOOLS, type LightConversionPreview, type LightType, type LightEdit, type SetBoardFieldsCommand, type ShadeTool } from "@tk-reawakened/editor-model";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { BoardSubmit } from "./use-board-submit.ts";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -101,6 +101,10 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
   const locked = disabled || busy || review !== null;
   const reviewLocked = disabled || busy;
 
+  /** A plain key pressed inside the review belongs to the review's buttons: the board's own Enter, Space and letter shortcuts never see it. */
+  const keepKeyInReview = (event: KeyboardEvent): void => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) event.stopPropagation();
+  };
   const closeReview = (focus: number | "list" | null): void => {
     returnFocus.current = focus;
     setReview(null);
@@ -116,28 +120,43 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
     if (review === null || reviewLocked) return;
     closeReview(review.index);
   };
-  /** The one place a light is baked: the board is worked out again, and only the conversion that was shown is stored, in one command. */
+  /**
+   * The one place a light is baked. The command carries the lights and shading the review was worked out from, and the document
+   * checks them against the stored board, so an edit from another view or editor since the review refuses the Apply and changes nothing.
+   */
   const applyConvert = (): void => {
     if (review === null || reviewLocked) return;
-    const fresh = previewLightConversion(snapshot, review.index);
-    if (!fresh.ok) { closeReview(review.index); setMessage(fresh.message); return; }
-    if (!sameData(fresh.light, review.preview.light) || !sameData(fresh.shadeLayers, review.preview.shadeLayers) || !sameData(fresh.lights, review.preview.lights)) {
-      closeReview(review.index);
-      setMessage(STALE_REVIEW);
-      return;
-    }
     closeReview("list");
-    void submitFields({ lights: fresh.lights, shadeLayers: fresh.shadeLayers });
+    void submit({ type: "set-board-fields", precondition: review.preview.precondition, fields: { lights: review.preview.lights, shadeLayers: review.preview.shadeLayers } });
   };
 
   useEffect(() => {
     if (review === null) return;
-    const current = snapshot.lights[review.index];
-    if (current === undefined || !sameData(current, review.preview.light)) {
+    // Any change to the lights or the shading the review was worked out from makes the picture and counts wrong: close it.
+    const source = review.preview.precondition;
+    if (!sameData(snapshot.lights, source.lights) || !sameData(snapshot.shadeLayers, source.shadeLayers)) {
       closeReview(null);
       setMessage(STALE_REVIEW);
     }
   }, [snapshot, review]);
+  // While a review is open it has first claim on Escape: it cancels from wherever focus is on this page, before the board's own
+  // Escape (which would cancel a pending path or gesture) or any other shortcut sees the key. Another open dialog keeps its own Escape.
+  // A layout effect, so the claim exists the moment the review is on screen and not a frame later.
+  useLayoutEffect(() => {
+    if (review === null) return;
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const root = panel.current;
+      if (root === null || !root.isConnected || root.closest('[hidden], [inert], [aria-hidden="true"]') !== null) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target !== null && !root.contains(target) && target.closest('dialog[open], [role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]') !== null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelConvert();
+    };
+    document.addEventListener("keydown", onEscape, true);
+    return () => document.removeEventListener("keydown", onEscape, true);
+  }, [review, reviewLocked]);
   useEffect(() => {
     if (review === null) {
       const target = returnFocus.current;
@@ -225,11 +244,14 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
               <button type="button" disabled={locked} aria-label={`Remove ${name}`} onClick={() => editLights(removeLight(snapshot, index))}>Remove</button>
               {review !== null && review.index === index ? (
                 <div class="tkr-board-light-review" role="group" aria-labelledby={`tkr-light-review-${index}`}
-                  onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelConvert(); } }}>
+                  onKeyDown={keepKeyInReview}>
                   <h3 id={`tkr-light-review-${index}`}>Convert {name} to shading?</h3>
                   <p class="tkr-board-note">{describeConversion(name, review.preview)}</p>
                   <p class="tkr-board-note">Apply adds this into the board's shading and removes the light, in one step that Undo takes back. Cancel, or Escape, changes nothing and keeps the light editable.</p>
-                  <canvas ref={previewCanvas} class="tkr-board-light-preview" aria-hidden="true" width={review.preview.width} height={review.preview.height} />
+                  <figure class="tkr-board-light-figure">
+                    <canvas ref={previewCanvas} class="tkr-board-light-preview" aria-hidden="true" width={review.preview.width} height={review.preview.height} />
+                    <figcaption class="tkr-board-note">This picture shows only what {name} adds, one pixel per cell: grey where it adds nothing, lighter where it adds shade, darker where it takes shade away. It does not show the board's shading plus the light, so it does not show where that total is clamped at 255; the count above does.</figcaption>
+                  </figure>
                   <button type="button" disabled={reviewLocked} data-light-review-cancel aria-label={`Cancel converting ${name}`} onClick={cancelConvert}>Cancel</button>
                   <button type="button" disabled={reviewLocked} aria-label={`Apply conversion of ${name} to shading`} onClick={applyConvert}>Apply conversion</button>
                 </div>
