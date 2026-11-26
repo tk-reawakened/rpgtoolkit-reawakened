@@ -29,7 +29,7 @@ Epic 22's highlighting/outline consumer 22.9 now pins 11.3 and 11.7. Foundation 
 - Dock Spawn is a candidate, not an approved dependency. Monaco version, worker/LSP integration and native-text lifecycle need proof under ADR 0021.
 - Settings schema metadata, scopes and reset semantics need a shared contract; game settings and personal workspace preferences remain different data.
 - Visual event/test representations need an explicit supported subset and safe handwritten-code boundary, not an arbitrary code-to-visual promise.
-- Art reuse needs licence and integration evidence; autotile ordering needs approved clean-room sample evidence.
+- Art reuse needs licence and integration evidence; autotile ordering is specified in [autotiling.md](../../../docs/spec/editor/autotiling.md) (#1732).
 - Existing Epic 10 framework gaps remain in 10.8; 11.9 adds the newly requested real-engine fixture/action and host integration surface without replacing that framework. Open runner/tooling providers remain real gates.
 - Native signing, distribution credentials and Windows/macOS/Linux measurements require genuine operator evidence.
 - The inherited audio/video import handoff is allocated to 14.11–14.14. Owner approval of pending format contracts, G6 evidence and actual host/portable playback support precede the conversion tools.
