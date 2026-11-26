@@ -579,7 +579,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("VS Code native Visual events edit, one-URI undo/navigation, close/reopen reconstruction, clean diagnostics, CRLF save and player dismissal proof passed");
     } else if (visualFixturesProof) {
       await runVscodeVisualFixturesProof(page, expect, workbenchUrl, { readBacking, writeBacking });
-      console.log("VS Code native TOOL-12 fixture cards saved opaque CRLF source, ran wall and door cases through the existing TOOL-5 runner, and located the deliberate wall failure");
+      console.log("VS Code native TOOL-12 fixture cards saved opaque CRLF source, ran wall and door cases through the existing TOOL-5 runner, and located the broken-door and broken-wall failures at their own authored lines");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {

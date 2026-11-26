@@ -13,6 +13,15 @@ type VisualFixtureProofHost = {
 export const VISUAL_FIXTURE_PROOF_PATH = ".tkr-tests/Prg/visual-fixtures.spec.prg";
 const DOOR_PATH = ".tkr-tests/Boards/door.brd";
 
+/*
+ * Why the door is a step-on region and why the destination is asserted by `specWait`:
+ * - TOOL-5's scripted `specInput`/`specAction` edges never reach a key-press (E-41) region, so a confirm-driven door
+ *   cannot be proven here. That seam is its own bug, #3590, and not a gate for this proof.
+ * - `Send` stops the old board's non-persistent threads, which includes the spec's own thread, so no `expect` can run
+ *   after the board changes. The case therefore asserts the start (board and gold) first, and `specWait` is the
+ *   destination assertion: it returns only once the engine's active board is the destination and otherwise raises
+ *   `spec.timeout` at its own authored line.
+ */
 /** The authored doorway: stepping onto the top-left tile runs this region's own program. */
 export function doorRegion(): WorldProgram {
   return {
@@ -64,11 +73,10 @@ export function visualFixtureProofFiles(): readonly File[] {
     'function handwrittenFixture() { preservedText = "yes" }',
     'specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 2, facing: "E", gold: 25 })',
     'it("door opens onto its destination", () => {',
+    '  expect(specValue("board")).toBe("boards/wall.brd")',
+    '  expect(specValue("gold")).toBe(25)',
     '  specAction("up", 20)',
     '  specWait("board", "Boards/door.brd", 12)',
-    '  expect(specValue("board")).toBe("Boards/door.brd")',
-    '  expect(specValue("player.tileX")).toBe(3)',
-    '  expect(specValue("gold")).toBe(25)',
     "})",
     "// opaque trailer stays in place",
     "",
@@ -146,11 +154,10 @@ export async function runVscodeVisualFixturesProof(
     'function handwrittenFixture() { preservedText = "yes" }',
     SAVED_FIXTURE,
     'it("door opens onto its destination", () => {',
+    '  expect(specValue("board")).toBe("boards/wall.brd")',
+    '  expect(specValue("gold")).toBe(25)',
     '  specAction("up", 20)',
     '  specWait("board", "Boards/door.brd", 12)',
-    '  expect(specValue("board")).toBe("Boards/door.brd")',
-    '  expect(specValue("player.tileX")).toBe(3)',
-    '  expect(specValue("gold")).toBe(25)',
     "})",
     "// opaque trailer stays in place",
     SAVED_WALL_CASE,
@@ -169,6 +176,8 @@ export async function runVscodeVisualFixturesProof(
   await fixtureTab.click();
   await expect(fixture.getByRole("button", { name: "Save and run saved tests" })).toBeVisible();
   await fixture.getByRole("button", { name: "Save and run saved tests" }).click();
+  await expect(tests.getByRole("heading", { name: "Fail: door opens onto its destination" })).toBeVisible({ timeout: 30_000 });
+  await expect(tests.getByRole("heading", { name: "Pass: wall stops at the authored boundary" })).toBeVisible({ timeout: 30_000 });
   await expect(tests.getByRole("status")).toHaveText("Failed: 1 passing cases, 1 failing cases, 0 skipped cases.", { timeout: 30_000 });
   const doorFailure = tests.locator('tr[data-outcome="fail"]');
   await expect(doorFailure).toHaveCount(1);
@@ -184,7 +193,7 @@ export async function runVscodeVisualFixturesProof(
     throw new Error(`The broken door wait does not locate its own authored source: ${doorTitle}`);
   }
 
-  // The wall mutation keeps the door in place and turns only the movement assertion red, at its own authored line.
+  // The wall mutation keeps the door in place and turns only the wall case red, at its own authored lines.
   const parsedWall = readBoard(new BinaryReader(authoredBoard.bytes));
   if (!parsedWall.ok) throw new Error(`The native fixture proof wall board could not be read: ${parsedWall.error.message}`);
   const openBoard = writeBoard({ ...parsedWall.value, vectors: [], programs: [doorRegion()] });
@@ -192,19 +201,24 @@ export async function runVscodeVisualFixturesProof(
   await host.writeBacking(CREATOR_TEST_BOARD_PATH, openBoard.value);
   await fixtureTab.click();
   await fixture.getByRole("button", { name: "Save and run saved tests" }).click();
+  // The previous broken-door run shows the same count text, so wait for this run's own headings before reading rows.
+  await expect(tests.getByRole("heading", { name: "Pass: door opens onto its destination" })).toBeVisible({ timeout: 30_000 });
+  await expect(tests.getByRole("heading", { name: "Fail: wall stops at the authored boundary" })).toBeVisible({ timeout: 30_000 });
   await expect(tests.getByRole("status")).toHaveText("Failed: 1 passing cases, 1 failing cases, 0 skipped cases.", { timeout: 30_000 });
+  // Removing the wall turns both of the wall case's own lines red: the bounded wait times out and the assertion reads the wrong tile.
   const wallFailure = tests.locator('tr[data-outcome="fail"]');
-  await expect(wallFailure).toHaveCount(1);
-  const wallWaitLine = expectedSource.split("\r\n").findIndex((line) => line.includes('specWait("player.tileX", 2, 60)')) + 1;
-  const wallLocation = wallFailure.getByRole("button", { name: /^Line \d+, column \d+$/ });
-  const wallLabel = await wallLocation.innerText();
-  const reportedWallLine = Number(wallLabel.match(/^Line (\d+),/)?.[1]);
-  if (!Number.isInteger(reportedWallLine) || reportedWallLine !== wallWaitLine || wallWaitLine < 1) {
-    throw new Error(`The wall guard did not report its own authored wait line ${wallWaitLine}: ${wallLabel}`);
-  }
-  const wallTitle = await wallLocation.getAttribute("title");
-  if (wallTitle === null || !wallTitle.startsWith(`${VISUAL_FIXTURE_PROOF_PATH}:${wallWaitLine}:`)) {
-    throw new Error(`The wall wait does not locate its own authored source: ${wallTitle}`);
+  await expect(wallFailure).toHaveCount(2);
+  const sourceLines = expectedSource.split("\r\n");
+  const wallWaitLine = sourceLines.findIndex((line) => line.includes('specWait("player.tileX", 2, 60)')) + 1;
+  const wallExpectLine = sourceLines.findIndex((line) => line.includes('expect(specValue("player.tileX")).toBe(2)')) + 1;
+  if (wallWaitLine < 1 || wallExpectLine < 1) throw new Error("The authored wall case lost its wait or assertion line.");
+  for (const line of [wallWaitLine, wallExpectLine]) {
+    const location = wallFailure.getByRole("button", { name: new RegExp(`^Line ${line}, column \\d+$`) });
+    await expect(location, `the wall mutation must report authored line ${line}`).toHaveCount(1);
+    const title = await location.getAttribute("title");
+    if (title === null || !title.startsWith(`${VISUAL_FIXTURE_PROOF_PATH}:${line}:`)) {
+      throw new Error(`The wall mutation line ${line} does not locate its own authored source: ${title}`);
+    }
   }
 
   await fixtureTab.click();
