@@ -4,7 +4,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { readTileset } from "@tk-reawakened/native-data";
-import { inspectTerrainRoles, terrainSceneTilesets } from "../src/index.ts";
+import { inspectTerrainRoles, terrainSceneAssets, terrainSceneTilesets } from "../src/index.ts";
 import { resolveSceneTerrain, type TerrainScene } from "../src/scene-terrain.ts";
 import type { TerrainRecipe } from "../src/terrain-matcher.ts";
 
@@ -129,4 +129,40 @@ outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles
   equal(entry?.terrains[0]?.label, "Water");
   equal(entry?.terrains[0]?.roles.missing.length, 8);
   deepEqual(entry?.terrains[0]?.roles.rules.map(({ id, tiles }) => [id, tiles]), [["east", ["Tiles/water.tkrtle"]]]);
+});
+
+test("a tileset's revision follows the whole recipe, not only the roles it reports", () => {
+  const text = (extra: string, weight: number): string => `contract: tileset
+version: 1.0.0-pre.2
+name: Pond
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles: [{tile: Tiles/water.tkrtle}, {tile: Tiles/lily.tkrtle}]
+terrains:
+  - id: water
+    name: Water
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: complete
+    sync: independent
+${extra}    rules: [{id: any, when: {}, variants: [{tile: Tiles/water.tkrtle, weight: ${weight}}, {tile: Tiles/lily.tkrtle, weight: 1}]}]
+outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles/water.tkrtle}, {slot: 2, tile: Tiles/lily.tkrtle}]}
+`;
+  const revisionOf = (source: string): string => {
+    const read = readTileset(source);
+    ok(read.ok, JSON.stringify(read));
+    const [entry] = terrainSceneTilesets(new Map([["Tiles/Pond.tkrtst", read.tileset]]));
+    return entry!.revision;
+  };
+  const base = revisionOf(text("", 3));
+  equal(revisionOf(text("", 3)), base, "an identical read has the same revision");
+  ok(revisionOf(text("    outside: same\n", 3)) !== base, "only the outside policy changed");
+  ok(revisionOf(text("    seed: 7\n", 3)) !== base, "only the seed changed");
+  ok(revisionOf(text("", 5)) !== base, "only a variant weight changed");
+});
+
+test("a failed inventory read clears the roles and says why, so older rules are never kept as current", () => {
+  const cleared = terrainSceneAssets({ ok: false, problems: [{ path: "Tiles/pond.tkrtst", message: "rules[0] must name a palette member" }] });
+  deepEqual(cleared.tilesets, []);
+  deepEqual(cleared.assetTiles, []);
+  deepEqual(cleared.problems, ["Tiles/pond.tkrtst: rules[0] must name a palette member"]);
 });

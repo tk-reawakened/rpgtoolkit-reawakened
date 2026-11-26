@@ -34,8 +34,9 @@ async function show(tilesets: readonly TerrainSceneTileset[], assets?: MutableTe
   return el;
 }
 
-const entry = (coverage: "complete" | "partial", rules: Parameters<typeof inspectTerrainRoles>[0]["rules"]): TerrainSceneTileset => ({
+const entry = (coverage: "complete" | "partial", rules: Parameters<typeof inspectTerrainRoles>[0]["rules"], revision = JSON.stringify([coverage, rules])): TerrainSceneTileset => ({
   path: "Tiles/Pond.tkrtst",
+  revision,
   terrains: [{ id: "water", label: "Water", roles: inspectTerrainRoles({ neighbours: "cardinal-4", coverage, rules }) }],
 });
 
@@ -97,7 +98,7 @@ test("a terrain that a refresh removes falls back to the first one instead of ke
   const shore = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
   const assets = createTerrainSceneAssets({ tilesets: [shore], assetTiles: [], packs: [] });
   const el = await show([shore], assets);
-  const renamed: TerrainSceneTileset = { path: "Tiles/Pond.tkrtst", terrains: [{ id: "river", label: "River", roles: inspectTerrainRoles({ neighbours: "cardinal-4", coverage: "complete", rules: [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }] }) }] };
+  const renamed: TerrainSceneTileset = { path: "Tiles/Pond.tkrtst", revision: "renamed", terrains: [{ id: "river", label: "River", roles: inspectTerrainRoles({ neighbours: "cardinal-4", coverage: "complete", rules: [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }] }) }] };
   await act(async () => { assets.set({ tilesets: [renamed], assetTiles: [], packs: [] }); await new Promise<void>((resolve) => setImmediate(resolve)); });
   match(el.textContent ?? "", /Native terrain rules: River/);
 });
@@ -157,4 +158,16 @@ test("a failed re-read is reported and no older rules are presented as current",
   ok(alert !== null);
   match(alert?.textContent ?? "", /could not be read, so none are shown as current.*rules\[0\] must name a palette member/);
   equal(el.querySelector('[data-tkr-terrain-roles]'), null, "no stale role panel is left behind");
+});
+
+test("a recipe change that leaves the roles the same still hides the preview built from the old one", async () => {
+  const rules = [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }] as const;
+  const before = entry("complete", rules, "seed 0");
+  const assets = createTerrainSceneAssets({ tilesets: [before], assetTiles: [], packs: [] });
+  const el = await show([before], assets, { onPreview: async () => ({ ok: false, message: "Built with seed 0." }) });
+  await act(async () => { el.querySelector<HTMLButtonElement>("button")!.click(); await new Promise<void>((r) => setImmediate(r)); });
+  match(el.textContent ?? "", /Built with seed 0\./);
+  // Same rules, same coverage, same roles - only a seed (or outside policy, or a variant weight) differs.
+  await act(async () => { assets.set({ tilesets: [entry("complete", rules, "seed 7")], assetTiles: [], packs: [] }); await new Promise<void>((r) => setImmediate(r)); });
+  ok(!(el.textContent ?? "").includes("Built with seed 0."), "the build of the old seed is not shown as current");
 });

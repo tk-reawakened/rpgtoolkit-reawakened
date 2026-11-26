@@ -345,7 +345,7 @@ export {
   scenePackPlacementMissing, type TerrainScenePack, type TerrainScenePackAsset,
 } from "./scene-pack-placements.ts";
 export { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
-export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, terrainSceneTilesets, type TerrainSceneTileset, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
+export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, terrainSceneAssets, terrainSceneTilesets, type TerrainSceneAssetsData, type TerrainSceneTileset, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
 export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
 export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";
 export { registerTerrainSceneConflictReview } from "./terrain-scene-save.ts";

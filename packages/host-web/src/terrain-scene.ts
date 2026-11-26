@@ -1,4 +1,4 @@
-import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneTilesets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
+import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneAssets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
 import { createTerrainSceneAssets, mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createTerrainSceneMount } from "./terrain-scene-mount.ts";
 import type { WebProject } from "./index.ts";
@@ -68,17 +68,15 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
   let read = 0;
   const load = async (): Promise<boolean> => {
     const mine = ++read;
-    const inventory = await loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text);
+    let inventory: Awaited<ReturnType<typeof loadTerrainSceneProjectInventory>>;
+    try { inventory = await loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text); }
+    catch (error) { inventory = { ok: false, problems: [{ path: document.identity.path, message: String(error) }] }; }
     if (disposed || mine !== read) return false;
+    // A failed read clears the roles instead of leaving the last good ones on screen as current.
+    assets.set(terrainSceneAssets(inventory));
     if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return false; }
     report(inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
     owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
-    // A no-op when no recipe changed, so an edit or a reactivation never resets the view's selected terrain or tool.
-    assets.set({
-      tilesets: terrainSceneTilesets(inventory.tilesets),
-      assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
-      packs: inventory.packs,
-    });
     return true;
   };
   const mount = (): void => {

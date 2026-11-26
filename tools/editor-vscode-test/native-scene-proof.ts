@@ -4,6 +4,9 @@ import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 type Expect = typeof playwrightExpect;
 export const NATIVE_SCENE_PROOF_PATH = "Boards/terrain-proof.tkrscn";
+/** The one line the proof rewrites: the same recipe with a single rule that covers every neighbourhood. */
+export const NATIVE_SCENE_RULES_BEFORE = "rules: [{id: east, when: {e: same}, use: {tile: Tiles/roles-water.tkrtle}}]";
+export const NATIVE_SCENE_RULES_AFTER = "rules: [{id: any, when: {}, use: {tile: Tiles/roles-water.tkrtle}}]";
 /** A second scene, and the minimal recipe it reads, for the roles-refresh proof (#3533). */
 export const NATIVE_ROLES_SCENE_PATH = "Boards/roles-proof.tkrscn";
 export const NATIVE_SCENE_RECIPE = `contract: tileset
@@ -18,7 +21,7 @@ terrains:
     neighbours: cardinal-4
     coverage: partial
     sync: independent
-    rules: [{id: east, when: {e: same}, use: {tile: Tiles/roles-water.tkrtle}}]
+    ${NATIVE_SCENE_RULES_BEFORE}
 outputBinding: {target: Tiles/roles.tst, detail: 1, slots: [{slot: 1, tile: Tiles/roles-water.tkrtle}, {slot: 2, tile: Tiles/roles-bank.tkrtle}]}
 `;
 export const NATIVE_ROLES_SCENE = `contract: scene
@@ -33,9 +36,6 @@ terrainRegions:
     coverage: {shape: tile-grid, spans: [[0, 0, 2]]}
 start: {x: 16, y: 31, floor: ground}
 `;
-export const NATIVE_SCENE_RECIPE_COMPLETE = NATIVE_SCENE_RECIPE
-  .replace("coverage: partial", "coverage: complete")
-  .replace("{id: east, when: {e: same}, use: {tile: Tiles/roles-water.tkrtle}}", "{id: any, when: {}, use: {tile: Tiles/roles-water.tkrtle}}");
 const boardPath = "Boards/terrain-proof.brd";
 export async function runVscodeNativeSceneProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>, writeBacking: (path: string, bytes: Uint8Array) => Promise<void>, original: Uint8Array): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
@@ -155,12 +155,21 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
  */
 export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
   await openNativeQuickOpenFile(page, expect, NATIVE_ROLES_SCENE_PATH);
-  let view: Frame | undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) if (await frame.getByRole("main", { name: "Native scene" }).isVisible().catch(() => false)) { view = frame; return true; }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  if (view === undefined) throw new Error("The roles-proof scene did not open");
+  // Two native scenes are open by now; the roles scene is the one with a 4 x 3 grid (the first is 2 x 2).
+  const rolesScene = async (): Promise<Frame> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        if (await frame.getByRole("button", { name: /^Cell 3, 2:/ }).isVisible().catch(() => false)) { found = frame; return true; }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error("The roles-proof scene is not showing");
+    return found;
+  };
+  let view = await rolesScene();
+  await view.getByRole("combobox", { name: "Tileset", exact: true }).selectOption("Tiles/roles.tkrtst");
+  await view.getByRole("combobox", { name: "Terrain", exact: true }).selectOption({ label: "Shore" });
   const roles = view.getByRole("region", { name: "Native terrain roles" });
   await expect(roles).toContainText("Native terrain rules: Shore");
   await expect(roles).toContainText("Four neighbours, partial coverage: 8 of 16 neighbourhoods have a tile");
@@ -173,23 +182,35 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
   await openNativeQuickOpenFile(page, expect, "Tiles/roles.tkrtst");
   const recipeTab = page.getByRole("tab").filter({ hasText: "roles.tkrtst" }).first();
   await expect(recipeTab).toBeVisible();
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.keyboard.type(NATIVE_SCENE_RECIPE_COMPLETE);
+  // Replace only the rules line, in one insertion, so auto-indent and bracket pairing cannot change the document: the cursor
+  // goes to line 13 and the selection runs from its first character to its end.
+  await page.locator(".monaco-editor:visible .view-lines").first().click();
+  // "Go to line" is the one navigation that cannot land elsewhere: line 13 is the rules line of the recipe.
+  await page.keyboard.press("ControlOrMeta+p");
+  const goTo = page.locator(".quick-input-widget input:visible");
+  await expect(goTo).toHaveCount(1);
+  await goTo.fill(":13");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".quick-input-widget")).toBeHidden({ timeout: 10_000 });
+  // End, then Shift+Home, selects from the line's first character to its end; the replacement has no break, so nothing is auto-indented.
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Home");
+  await page.keyboard.insertText(NATIVE_SCENE_RULES_AFTER);
   await expect(recipeTab).toHaveClass(/dirty/);
+  // Wait out the typing pause (250 ms) so its read has already happened, on the bytes still on disk: only the save is left
+  // that can bring the new recipe in, so removing the save hook makes this proof fail instead of passing on the pause.
+  await page.waitForTimeout(1_000);
+  expect(new TextDecoder().decode(await readBacking("Tiles/roles.tkrtst"))).toContain(NATIVE_SCENE_RULES_BEFORE);
   await page.keyboard.press("ControlOrMeta+s");
   await expect(recipeTab).not.toHaveClass(/dirty/);
-  await expect.poll(async () => new TextDecoder().decode(await readBacking("Tiles/roles.tkrtst"))).toContain("coverage: complete");
+  await expect.poll(async () => new TextDecoder().decode(await readBacking("Tiles/roles.tkrtst"))).toContain(NATIVE_SCENE_RULES_AFTER);
 
   // Back on the scene: the saved recipe's roles are what the panel reports, and the old build is no longer shown as current.
   await page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" }).first().click();
-  view = undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) if (await frame.getByRole("main", { name: "Native scene" }).isVisible().catch(() => false)) { view = frame; return true; }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  if (view === undefined) throw new Error("The roles-proof scene did not come back");
-  await expect(roles).toContainText("Four neighbours, complete coverage: 16 of 16 neighbourhoods have a tile", { timeout: 15_000 });
-  await expect(roles).toContainText("Every neighbourhood has a tile");
-  await expect(roles).not.toContainText("Missing role assignments");
+  view = await rolesScene();
+  const rolesAgain = view.getByRole("region", { name: "Native terrain roles" });
+  await expect(rolesAgain).toContainText("Four neighbours, partial coverage: 16 of 16 neighbourhoods have a tile", { timeout: 15_000 });
+  await expect(rolesAgain).toContainText("Every neighbourhood has a tile");
+  await expect(rolesAgain).not.toContainText("Missing role assignments");
   await expect(view.getByRole("status").filter({ hasText: "No tile rule matches ground" })).toHaveCount(0);
 }

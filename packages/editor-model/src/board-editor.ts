@@ -356,6 +356,17 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     return brush.tile;
   };
 
+  /**
+   * The cells a stroke segment reaches that are visits of their own. The segment's first cell is where the stroke already
+   * was, so it is dropped - but only when the segment starts on a cell. `cellsBetween` samples off the board produce no
+   * cell, so after a pointer re-enters from outside the first cell it returns is a real new visit and must stay.
+   */
+  const newVisits = (board: ToolBoard, from: Pixel, to: Pixel): Cell[] => {
+    const cells = cellsBetween(board, from, to);
+    const start = pixelToCell(board, from.x, from.y);
+    return start !== null && cells[0] !== undefined && key(cells[0]) === key(start) ? cells.slice(1) : cells;
+  };
+
   /** The legacy-set mark the brush carries, if any, so a marked set reshapes like a named one. */
   const brushAutotileSource = (): string | undefined => {
     const brush = options.brush();
@@ -1054,8 +1065,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         publish({ pending: { kind: "pan", from: screen } });
       } else if (pending.kind === "stroke") {
         const from = lastPixel ?? pixel;
-        // The segment's first cell is where the stroke already was; only the cells it reaches are visits of their own.
-        const reached = cellsBetween(options.board(), from, pixel).slice(1);
+        const reached = newVisits(options.board(), from, pixel);
         lastPixel = pixel;
         for (const crossed of reached) { strokeVisits.push(crossed); strokeShifts.push(modifiers.shift === true); }
         const added = reached.filter((crossed) => !strokeKeys.has(key(crossed)));
@@ -1089,7 +1099,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         const tile = tool === "erase" ? "" : needTile();
         if (tile === null) return void publish({ pending: null });
         // The release position counts even when the pointer did not move after its last move event.
-        const released = cellsBetween(board, lastPixel ?? pixel, pixel).slice(1);
+        const released = newVisits(board, lastPixel ?? pixel, pixel);
         for (const last of released) { strokeVisits.push(last); strokeShifts.push(modifiers.shift === true); }
         // The release position counts even when the pointer did not move after its last move event.
         if (released.length === 0 && at !== null && !strokeKeys.has(key(at))) { strokeVisits.push(at); strokeShifts.push(modifiers.shift === true); }

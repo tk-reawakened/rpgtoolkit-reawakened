@@ -29,6 +29,12 @@ type InventoryFailure = Extract<TerrainSceneProjectInventory, { readonly ok: fal
 /** The tilesets the scene view offers: each native terrain with the rule coverage its own matcher reports. */
 export type TerrainSceneTileset = {
   readonly path: string;
+  /**
+   * Everything in the tileset document a build reads from it - the tiles, every terrain's full recipe (outside policy, seed,
+   * variant weights, rules) and the output binding. Two reads with the same roles but another seed or weight differ here,
+   * so a preview built from the earlier one is not shown as current.
+   */
+  readonly revision: string;
   readonly terrains: readonly { readonly id: string; readonly label: string; readonly roles: TerrainRoleReport }[];
 };
 
@@ -36,8 +42,30 @@ export type TerrainSceneTileset = {
 export function terrainSceneTilesets(tilesets: ReadonlyMap<string, Tileset>): readonly TerrainSceneTileset[] {
   return [...tilesets].map(([path, tileset]) => ({
     path,
+    revision: JSON.stringify(tileset),
     terrains: (tileset.terrains ?? []).map((terrain) => ({ id: terrain.id, label: terrain.name, roles: inspectTerrainRoles(terrain) })),
   }));
+}
+
+/** What a scene view shows from one inventory read; a failed read shows nothing as current and says why. */
+export type TerrainSceneAssetsData = {
+  readonly tilesets: readonly TerrainSceneTileset[];
+  readonly assetTiles: readonly { readonly label: string; readonly tile: { readonly tile: string } }[];
+  readonly packs: readonly TerrainScenePack[];
+  readonly problems: readonly string[];
+};
+
+export function terrainSceneAssets(inventory: TerrainSceneProjectInventory): TerrainSceneAssetsData {
+  if (!inventory.ok) {
+    // The older roles are not kept on screen as if they were still the recipe: a failed read clears them.
+    return { tilesets: [], assetTiles: [], packs: [], problems: inventory.problems.map(({ path, message }) => `${path}: ${message}`) };
+  }
+  return {
+    tilesets: terrainSceneTilesets(inventory.tilesets),
+    assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
+    packs: inventory.packs,
+    problems: [],
+  };
 }
 
 export type TerrainSceneProjectInventory =

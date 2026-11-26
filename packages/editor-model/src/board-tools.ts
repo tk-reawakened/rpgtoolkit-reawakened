@@ -141,6 +141,11 @@ export function floodArea(board: ToolBoard, layer: number, start: Cell, tile: st
 
 /** The Flood fill tool (T-23): `floodArea` painted with `tile`, leaving cells that already show it unchanged. */
 export function floodFill(board: ToolBoard, layer: number, start: Cell, tile: string, acrossLayers: boolean): ToolOutcome {
+  if (!cellOnBoard(board, start.x, start.y)) return fail("That place is not on the board.");
+  const target = boardTileAt(board, layer, start.x, start.y);
+  if (target === null) return fail("That place is not on the board.");
+  // A region that already holds the tile is nothing to fill: answer before the walk, which would visit every cell of it.
+  if (target === tile) return ok([]);
   const area = floodArea(board, layer, start, tile, acrossLayers);
   if (!area.ok) return area;
   return ok(area.cells.filter(({ layer: l, x, y }) => boardTileAt(board, l, x, y) !== tile));

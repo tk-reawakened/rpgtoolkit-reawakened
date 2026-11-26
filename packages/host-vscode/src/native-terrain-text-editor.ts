@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { applyTerrainSceneEdit, createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, terrainSceneTilesets, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
+import { applyTerrainSceneEdit, createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, terrainSceneAssets, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
 import type { RunService } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
@@ -78,10 +78,11 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       else sendStatus(target, `The native scene is invalid; repair it in the text editor before terrain editing. ${parsed.problems.map(({ message }) => message).join("; ")}`);
     }
   };
-  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(({ document }) => {
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
     refresh(document);
-    // A recipe update changes the roles the scene view reports, so re-read the tilesets (bounded, once per burst).
-    tilesetRefresh.edited(document.uri.path);
+    // A recipe update changes the roles the scene view reports, so re-read the tilesets (bounded, once per burst). A change
+    // event with no content change is VS Code reporting a dirty-state flip (a save), not an edit: that is the save hook's.
+    if (contentChanges.length > 0) tilesetRefresh.edited(document.uri.path);
   }));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => tilesetRefresh.saved(document.uri.path)));
   context.subscriptions.push({ dispose: () => tilesetRefresh.dispose() });
@@ -95,7 +96,7 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] };
       const projectPath = folder === undefined ? undefined : relativeToWorkspace(folder.uri, document.uri);
       const inventory = folder === undefined || projectPath === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
-      const tilesets = inventory?.ok ? terrainSceneTilesets(inventory.tilesets) : [];
+      const tilesets = inventory?.ok ? terrainSceneAssets(inventory).tilesets : [];
       const assetTiles = inventory?.ok ? inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })) : [];
       const packs = inventory?.ok ? inventory.packs : [];
       let ownerPaths = new Set([...(inventory?.ok === true ? inventory.tiles : []), ...packs.map(({ path }) => path)]);
@@ -106,22 +107,10 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
         const mine = ++reads;
         const fresh = await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
         if (disposed || mine !== reads) return;
-        if (!fresh.ok) {
-          // Never leave the last good roles looking current: say the read failed and keep the tilesets but not as advice.
-          await panel.webview.postMessage({ type: "assets", assets: {
-            tilesets: [], assetTiles: [], packs: [],
-            problems: fresh.problems.map(({ path, message }) => `${path}: ${message}`),
-          } });
-          sendStatus(target, `Terrain roles could not be re-read: ${fresh.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`);
-          return;
-        }
+        // A failed read clears the roles and says why; the last good ones are never left on screen as current.
+        await panel.webview.postMessage({ type: "assets", assets: terrainSceneAssets(fresh) });
+        if (!fresh.ok) { sendStatus(target, `Terrain roles could not be re-read: ${fresh.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`); return; }
         ownerPaths = new Set([...fresh.tiles, ...fresh.packs.map(({ path }) => path)]);
-        await panel.webview.postMessage({ type: "assets", assets: {
-          tilesets: terrainSceneTilesets(fresh.tilesets),
-          assetTiles: fresh.tiles.map((tile) => ({ label: tile, tile: { tile } })),
-          packs: fresh.packs,
-          problems: [],
-        } });
       };
       assetReloads.add(postAssets);
       panel.webview.onDidReceiveMessage(async (value: unknown) => {

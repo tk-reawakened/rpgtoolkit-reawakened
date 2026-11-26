@@ -506,3 +506,48 @@ test("ordinary Fill keeps its early exit: a uniform region that already holds th
   // The tool itself answers with nothing before the editor looks at layers, as it always did.
   deepEqual(floodFill(s.doc.getSnapshot(), 0, c, water(51), true), { ok: true, cells: [] });
 });
+
+test("a stroke that re-enters the board keeps the first cell it comes back onto, with the Shift of that visit", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  const top = { x: c.x, y: 0 };
+  const other = { x: Math.min(c.x + 3, 7), y: 0 };
+  // A stale sand tile beside the re-entry cell, placed while autotiling was off.
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: other.x, y: 1 });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  const board = s.doc.getSnapshot();
+  const above = (cell: Cell): { x: number; y: number } => {
+    const centre = cellCentre(board, cell.x, cell.y);
+    return boardToScreen(s.editor.getState().viewport, centre.x, -48);
+  };
+  // Out through the top edge and back in somewhere else: the cell it comes back onto is a visit of its own.
+  s.editor.pointerDown(at(s, top), none);
+  s.editor.pointerMove(above(top), none);
+  s.editor.pointerMove(above(other), none);
+  s.editor.pointerMove(at(s, other), { shift: true });
+  await s.editor.pointerUp(at(s, other), none);
+  equal(tile(s, other.x, other.y), water(51), "the re-entry cell was painted");
+  equal(tile(s, other.x, 1), `${sand}14`, "with the Shift it was entered with, so the other set was left alone");
+});
+
+test("ordinary Fill over a region that already holds the tile answers before walking it", () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const snapshot = s.doc.getSnapshot();
+  let reads = 0;
+  const counted = { ...snapshot, tileMatrix: new Proxy(snapshot.tileMatrix, { get(target, key) {
+    if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+    return Reflect.get(target, key);
+  } }) };
+  // Every cell of both layers is empty, so a walk would read all 128; the early exit reads only the clicked cell.
+  deepEqual(floodFill(counted, 0, c, "", true), { ok: true, cells: [] });
+  ok(reads <= 1, `the clicked cell alone was read (read ${reads})`);
+  reads = 0;
+  const filled = floodFill(counted, 0, c, water(51), true);
+  ok(filled.ok && filled.cells.length === 128, "a real fill covers both layers");
+  ok(reads > 64, `a real fill does walk the region (read ${reads})`);
+});
