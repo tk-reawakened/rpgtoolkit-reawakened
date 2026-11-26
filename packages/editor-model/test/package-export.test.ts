@@ -108,6 +108,52 @@ test("packaging refuses unsaved documents instead of saving them for the author"
   workspace.dispose();
 });
 
+test("packaging refuses a view's buffered accepted edits even when the snapshot is clean", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok, opened.ok ? "" : opened.message);
+  if (!opened.ok) return;
+  const unregister = workspace.pendingEdits(opened.document).register({ busy: () => true, idle: async () => {}, holdsDraft: () => false });
+  try {
+    equal(opened.document.getSnapshot().dirty, false, "the model has not received the view's edits yet");
+    const before = host.bytesOf("Main/demo.gam");
+    const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+    equal(outcome.ok, false);
+    if (!outcome.ok) {
+      match(outcome.message, /still holds edits for Main\/demo\.gam/);
+      match(outcome.message, /does not save them for you/);
+    }
+    equal(opened.document.getSnapshot().dirty, false, "packaging never wrote a document");
+    deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  } finally {
+    unregister();
+    workspace.dispose();
+  }
+});
+
+test("packaging refuses a view's held draft text even when the snapshot is clean", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok, opened.ok ? "" : opened.message);
+  if (!opened.ok) return;
+  const unregister = workspace.pendingEdits(opened.document).register({ busy: () => false, idle: async () => {}, holdsDraft: () => true });
+  try {
+    equal(opened.document.getSnapshot().dirty, false, "typed text is not applied to the document");
+    const before = host.bytesOf("Main/demo.gam");
+    const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+    equal(outcome.ok, false);
+    if (!outcome.ok) {
+      match(outcome.message, /still holds edits for Main\/demo\.gam/);
+      match(outcome.message, /does not save them for you/);
+    }
+    equal(opened.document.getSnapshot().dirty, false, "packaging never applied or wrote the draft");
+    deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  } finally {
+    unregister();
+    workspace.dispose();
+  }
+});
+
 test("game setup is one reviewed ZIP containing the unchanged package, matching descriptor, and instructions", async () => {
   const { workspace, services } = packageHost(authoredFiles());
   const preparedPackage = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3" });
