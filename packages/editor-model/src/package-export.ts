@@ -182,10 +182,11 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   const exportService: PackageExportService | undefined = options.services.packageExport;
   if (exportService === undefined) return failure("This host does not provide package export support.");
 
-  const saves = await options.workspace.saveAll();
-  const saveFailures = saves.filter(({ result }) => !result.ok);
-  if (saveFailures.length > 0) {
-    return failure(`Save open documents before packaging: ${saveFailures.map(({ result }) => result.ok ? "" : result.failure.message).join("; ")}`);
+  // Packaging reads saved files and never saves for the author: a save would commit edits the author may have
+  // cancelled the export to keep unsaved. Name every unsaved document so the author can save exactly those.
+  const unsaved = options.workspace.documents().filter((document) => document.getSnapshot().dirty).map((document) => document.identity.path);
+  if (unsaved.length > 0) {
+    return failure(`Save these open documents before packaging: ${unsaved.join(", ")}. Packaging does not save them for you.`);
   }
 
   const collected = await collectFiles(options.services.fs, options.mainPath, options.inventoryFilter ?? isExcluded);

@@ -86,11 +86,11 @@ export async function preflightGamePackage(
     // packaging to keep unsaved, so refuse and name what has to be saved first. Native text editors are tracked by VS
     // Code rather than by the editor model, so both are consulted.
     const unsavedPaths = new Set(dirtyPackagingDocuments(workspace.documents()));
-    for (const textDocument of vscode.workspace.textDocuments) {
-      if (!textDocument.isDirty || textDocument.isUntitled) continue;
-      const owner = vscode.workspace.getWorkspaceFolder(textDocument.uri);
-      if (owner === undefined || owner.uri.toString() !== folder.uri.toString()) continue;
-      unsavedPaths.add(vscode.workspace.asRelativePath(textDocument.uri, false));
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (!tab.isDirty) continue;
+        unsavedPaths.add(tab.label);
+      }
     }
     const unsaved = [...unsavedPaths];
     if (unsaved.length > 0) {

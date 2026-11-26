@@ -89,6 +89,25 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   workspace.dispose();
 });
 
+test("packaging refuses unsaved documents instead of saving them for the author", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok, opened.ok ? "" : opened.message);
+  if (!opened.ok) return;
+  ok(opened.document.apply({ type: "set-game-title", title: "Unsaved title" }).ok);
+  equal(opened.document.getSnapshot().dirty, true, "the edit is unsaved");
+  const before = host.bytesOf("Main/demo.gam");
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+  equal(outcome.ok, false);
+  if (!outcome.ok) {
+    match(outcome.message, /Save these open documents before packaging: Main\/demo\.gam/);
+    match(outcome.message, /does not save them for you/);
+  }
+  equal(opened.document.getSnapshot().dirty, true, "packaging never saved the document");
+  deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  workspace.dispose();
+});
+
 test("game setup is one reviewed ZIP containing the unchanged package, matching descriptor, and instructions", async () => {
   const { workspace, services } = packageHost(authoredFiles());
   const preparedPackage = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3" });
