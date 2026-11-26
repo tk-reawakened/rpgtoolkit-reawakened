@@ -403,10 +403,12 @@ export async function runVscodeBoardUpgradeProof(
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   // The browser may restore earlier custom-editor tabs after navigation; close them before reopening a single board preview.
   const restoredBoardTabs = page.getByRole("tab", { name: /\.brd/ });
-  while (await restoredBoardTabs.count() > 0) {
-    const restoredBoardTab = restoredBoardTabs.first();
-    await restoredBoardTab.getByRole("button", { name: /^Close/ }).click();
-    await expect(restoredBoardTab).toHaveCount(0);
+  let restoredCount = await restoredBoardTabs.count();
+  while (restoredCount > 0) {
+    await restoredBoardTabs.first().click();
+    await closeActiveEditor(page, expect);
+    restoredCount -= 1;
+    await expect(restoredBoardTabs).toHaveCount(restoredCount);
   }
   await openNativeQuickOpenFile(page, expect, sourcePath);
   let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
@@ -460,8 +462,10 @@ export async function runVscodeBoardUpgradeProof(
   await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
   const failedSavePath = page.getByRole("textbox", { name: "Folder path" });
   await expect(failedSavePath).toBeVisible({ timeout: 15_000 });
+  await expect(failedSavePath).toHaveValue(/^\/Game\/Example\/Boards\/[^/]*\.brd$/);
   await failedSavePath.fill(`/${failedPath}`);
-  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(failedSavePath).toHaveValue(`/${failedPath}`);
+  await failedSavePath.press("Enter");
   const writeErrorNotification = page.getByRole("alert").filter({ hasText: /Could not write .*village\.failed-write\.brd/ });
   await expect(writeErrorNotification).toBeVisible({ timeout: 15_000 });
   if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
