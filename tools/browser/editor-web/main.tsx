@@ -79,31 +79,44 @@ let mirrorRequested = false;
 let mirrorGeneration = 0;
 let tutorialView: ViewHandle | null = null;
 let tutorialSurface: FirstBoardHelpSurface | null = null;
-let tutorialInvoker: HTMLElement | null = null;
+let tutorialReturnTarget: HTMLElement | null = null;
 
-function canReceiveFocus(element: HTMLElement | null): element is HTMLElement {
-  return element !== null && element.isConnected && !element.closest("[hidden]") && element.getClientRects().length > 0;
+if (tutorialPanel !== null) {
+  tutorialPanel.addEventListener("focusin", (event) => {
+    const previous = event.relatedTarget;
+    if (previous instanceof HTMLElement && previous !== document.body && !tutorialPanel.contains(previous)) {
+      tutorialReturnTarget = previous;
+    }
+  });
+}
+
+function focusTutorialReturnTarget(element: HTMLElement | null): boolean {
+  if (element === null || element === document.body || !element.isConnected) return false;
+  element.focus();
+  return document.activeElement === element;
 }
 
 function closeFirstBoardHelp(): void {
+  const active = document.activeElement;
+  const restoreFocus = active === null || active === document.body || tutorialPanel?.contains(active) === true;
+  const target = tutorialReturnTarget;
+  tutorialReturnTarget = null;
   tutorialView?.dispose();
   tutorialView = null;
   tutorialSurface = null;
   if (tutorialPanel !== null) tutorialPanel.hidden = true;
   hostLayout?.classList.remove("tkr-web-host-layout-help-open");
-  const invoker = tutorialInvoker;
-  tutorialInvoker = null;
-  const fallback = document.querySelector<HTMLElement>(".tkr-command-palette-trigger");
-  const target = canReceiveFocus(invoker) ? invoker : canReceiveFocus(fallback) ? fallback
-    : tutorialGuideButton !== null && canReceiveFocus(tutorialGuideButton) ? tutorialGuideButton : null;
-  target?.focus();
+  if (!restoreFocus || focusTutorialReturnTarget(target)) return;
+  const palette = shown?.element.querySelector<HTMLElement>(".tkr-command-palette-trigger") ?? null;
+  if (!focusTutorialReturnTarget(palette)) focusTutorialReturnTarget(tutorialGuideButton);
 }
 
 function openFirstBoardHelp(surface: FirstBoardHelpSurface, autofocus = true): void {
   if (tutorialPanel === null || tutorialContent === null) return;
   if (tutorialView !== null && tutorialSurface === surface) return;
   if (tutorialView !== null) tutorialView.dispose();
-  else tutorialInvoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const active = document.activeElement;
+  if (autofocus && active instanceof HTMLElement && !tutorialPanel.contains(active)) tutorialReturnTarget = active;
   tutorialSurface = surface;
   tutorialPanel.hidden = false;
   hostLayout?.classList.add("tkr-web-host-layout-help-open");

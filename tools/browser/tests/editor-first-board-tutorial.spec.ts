@@ -18,7 +18,13 @@ test("editor-web exposes shared first-board help on welcome and workbench and pr
   await tipsToggle.click();
   await expect(tipsToggle).not.toBeChecked();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("tkr.setting.editor.showTips"))).toBe("false");
+  const newProject = page.getByRole("button", { name: "New project…", exact: true });
+  await page.getByRole("button", { name: "Open project folder", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(newProject).toBeFocused();
   await tip.getByRole("button", { name: "Close help" }).click();
+  await expect(helpPanel).toBeHidden();
+  await expect(newProject, "Closing the automatic tip returns focus to the last used project control").toBeFocused();
 
   await page.getByRole("button", { name: "First board tutorial", exact: true }).click();
   await expect(tutorial.getByRole("heading", { name: "Step 1 of 9: Create a project" })).toBeVisible();
