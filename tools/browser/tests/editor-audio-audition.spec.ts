@@ -222,7 +222,7 @@ test("a loose board auditions its root Media folder while a nested game Main is 
   await play.click();
   await expect.poll(async () => (await signal(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
 });
-test("Save As caches the copied board's owner so its split audition uses that game's Media", async ({ page }) => {
+test("Save As refreshes a newly created game's owner before its split audition", async ({ page }) => {
   const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
   const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "B" });
   if (!mainA.ok || !mainB.ok) throw new Error("The proof main files must serialize");
@@ -233,9 +233,8 @@ test("Save As caches the copied board's owner so its split audition uses that ga
   const files = Object.fromEntries(Object.entries({
     "Main/A.gam": mainA.value,
     "Main/B.gam": mainB.value,
-    "Game/B/Boards/source.brd": board.bytes,
+    "Game/A/Boards/source.brd": board.bytes,
     "Game/A/Media/b-tone.wav": quietTone,
-    "Game/B/Media/b-tone.wav": wav(),
   }).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]));
   const folder = `Save-As-Audition-${randomUUID()}`;
   await page.addInitScript(({ files, folder }) => {
@@ -275,19 +274,41 @@ test("Save As caches the copied board's owner so its split audition uses that ga
   await expect(page.getByRole("tab", { name: "Main/A.gam", exact: true })).toBeVisible();
   const gameFolder = page.getByRole("treeitem", { name: /^Game, folder/ });
   if (await gameFolder.getAttribute("aria-expanded") !== "true") await gameFolder.dblclick();
-  const bFolder = page.getByRole("treeitem", { name: /^B, folder/ });
-  if (await bFolder.getAttribute("aria-expanded") !== "true") await bFolder.dblclick();
+  const aFolder = page.getByRole("treeitem", { name: /^A, folder/ });
+  if (await aFolder.getAttribute("aria-expanded") !== "true") await aFolder.dblclick();
   const boards = page.getByRole("treeitem", { name: /^Boards, folder/ });
   if (await boards.getAttribute("aria-expanded") !== "true") await boards.dblclick();
   await page.getByRole("treeitem", { name: /^source\.brd,/ }).dblclick();
-  await expect(page.getByRole("tab", { name: "Game/B/Boards/source.brd", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Game/A/Boards/source.brd", exact: true })).toBeVisible();
+  expect(await page.evaluate(async (folder) => {
+    const project = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder);
+    const game = await project.getDirectoryHandle("Game");
+    try {
+      await game.getDirectoryHandle("B");
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") return false;
+      throw error;
+    }
+  }, folder)).toBe(false);
   await page.getByRole("button", { name: "Application menu" }).click();
   await page.getByRole("menuitem", { name: /Save Active Document As/i }).click();
   const saveDialog = page.getByRole("dialog");
   await saveDialog.getByRole("textbox").fill("Game/B/Boards/copy.brd");
   await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Game/B/Boards/copy.brd", exact: true })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Game/B/Boards/source.brd", exact: true })).toHaveCount(0);
+  await page.evaluate(async ({ folder, encoded }) => {
+    const root = await navigator.storage.getDirectory();
+    const project = await root.getDirectoryHandle(folder);
+    const game = await project.getDirectoryHandle("Game", { create: true });
+    const destination = await game.getDirectoryHandle("B");
+    const media = await destination.getDirectoryHandle("Media", { create: true });
+    const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+    const stream = await (await media.getFileHandle("b-tone.wav", { create: true })).createWritable();
+    await stream.write(bytes);
+    await stream.close();
+  }, { folder, encoded: Buffer.from(wav()).toString("base64") });
+  await expect(page.getByRole("tab", { name: "Game/A/Boards/source.brd", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Application menu" }).click();
   await page.getByRole("menuitem", { name: "View", exact: true }).hover();
   await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();

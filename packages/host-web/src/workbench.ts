@@ -403,6 +403,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     version += 1;
     return null;
   };
+  const openDocument = async (document: AnyDocument): Promise<string | null> => {
+    try {
+      await refreshLayouts();
+    } catch (error) {
+      return `Could not refresh the owning game's layout for ${document.identity.path}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    return show(document);
+  };
   const openPath = async (path: string): Promise<void> => {
     const result = await tree.open(path);
     if (result.ok && result.via === "document") {
@@ -992,7 +1000,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     layout,
     visits,
     openPath,
-    openDocument: show,
+    openDocument,
     ownerForDocumentPath: ownerForPath,
     auditionForDocument,
     async visit(origin, path) {

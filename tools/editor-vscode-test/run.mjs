@@ -183,11 +183,11 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     for (let tile = 0; tile < 218; tile += 1) {
       for (let y = 0; y < 32; y += 1) {
         for (let x = 0; x < 32; x += 1) {
-          tileset[6 + tile * 1024 + y * 32 + x] = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213;
+          tileset[6 + tile * 1024 + y * 32 + x] = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213);
         }
       }
     }
-    // The vector example board uses a 32×32 type-1 24-bit tileset; author checker art in that format for the reopened pixel-copy run.
+    // Board tile 7 uses tileset entry 6 at the legacy (2, 2) start; village tile 1 uses entry 0 at pixel start (2, 2).
     const villageTileset = new Uint8Array(6 + 22 * 3072);
     const villageHeader = new DataView(villageTileset.buffer);
     villageHeader.setUint16(0, 20, true);

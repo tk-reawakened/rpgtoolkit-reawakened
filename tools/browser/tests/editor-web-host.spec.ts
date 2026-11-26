@@ -1191,7 +1191,7 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
     { lutIndex: 5, r: -26, g: -26, b: -26, tileType: 2 },
   ]);
 
-  // Authored two-colour checkerboards make a visible tile unmistakable; no original game artwork is copied.
+  // Board tile 7 uses tileset entry 6, under the fetched board's explicit (2, 2) runner start.
   const tileCount = 218;
   const tilesetBytes = new Uint8Array(6 + tileCount * 1024);
   const tilesetHeader = new DataView(tilesetBytes.buffer);
@@ -1200,7 +1200,7 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   tilesetHeader.setUint16(4, 3, true);
   for (let tile = 0; tile < tileCount; tile += 1) {
     for (let y = 0; y < 32; y += 1) {
-      for (let x = 0; x < 32; x += 1) tilesetBytes[6 + tile * 1024 + y * 32 + x] = (x + y) % 2 === 0 ? 42 : 43;
+      for (let x = 0; x < 32; x += 1) tilesetBytes[6 + tile * 1024 + y * 32 + x] = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213);
     }
   }
 
