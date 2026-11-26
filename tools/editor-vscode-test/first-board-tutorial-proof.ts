@@ -29,17 +29,27 @@ async function closeHelp(page: Page, expect: Expect, title: string): Promise<voi
   });
 }
 
-async function expectNativeCommandUnavailable(page: Page, expect: Expect, id: FirstBoardActionId): Promise<void> {
+async function expectNativeCommandsUnavailable(page: Page, expect: Expect, commands: readonly (readonly [FirstBoardActionId, string])[]): Promise<void> {
   await page.keyboard.press("ControlOrMeta+Shift+P");
-  const input = page.locator(".quick-input-widget input:visible");
-  await expect(input).toBeVisible();
-  // A human-readable query can yield fuzzy matches for other commands. VS Code
-  // provides exact command-ID matching, which means this inactive ID has no pick.
-  const query = `>tkr.${id}`;
-  await input.fill(query);
-  await expect(input).toHaveValue(query);
-  await expect(page.locator(".quick-input-widget").getByText("No matching commands", { exact: true })).toBeVisible();
+  const widget = page.locator(".quick-input-widget");
+  const input = widget.locator("input:visible");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue(">");
+  const keyboardSettings = widget.getByRole("option", { name: /^Preferences: Open Keyboard Shortcuts(?:,|$)/ });
+  for (const [id, title] of commands) {
+    // Wait for the filtered list to replace a known unrelated result. VS Code
+    // can offer fuzzy alternatives even when the requested command is disabled.
+    await input.fill(">workbench.action.openGlobalKeybindings");
+    await expect(keyboardSettings).toBeVisible();
+    const query = `>tkr.${id}`;
+    await input.fill(query);
+    await expect(input).toHaveValue(query);
+    await expect(keyboardSettings).toHaveCount(0);
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await expect(widget.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) }), `${title} is inapplicable`).toHaveCount(0);
+  }
   await input.press("Escape");
+  await expect(widget).toBeHidden();
 }
 
 /** Exercise startup presentation and all five native tutorial actions through the VS Code palette. */
@@ -82,9 +92,11 @@ export async function runVscodeFirstBoardTutorialProof(page: Page, expect: Expec
   let frame = await openHelp(page, expect, guide);
   await expect(frame.getByRole("heading", { name: /^Step 1 of 9:/ })).toBeVisible();
   await expect(frame.getByRole("heading", { name: /^Step 1 of 9:/ })).toBeFocused();
-  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.back");
-  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.restart");
-  await expectNativeCommandUnavailable(page, expect, "help.dailyTip.toggle");
+  await expectNativeCommandsUnavailable(page, expect, [
+    ["help.firstBoard.back", back],
+    ["help.firstBoard.restart", restart],
+    ["help.dailyTip.toggle", toggle],
+  ]);
 
   await runCommandMatching(page, expect, next, next);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9: Find Game and Files/ })).toBeVisible();
@@ -93,7 +105,7 @@ export async function runVscodeFirstBoardTutorialProof(page: Page, expect: Expec
   await runCommandMatching(page, expect, next, next);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9:/ })).toBeVisible();
   await closeHelp(page, expect, close);
-  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.next");
+  await expectNativeCommandsUnavailable(page, expect, [["help.firstBoard.next", next]]);
 
   frame = await openHelp(page, expect, guide);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9:/ })).toBeVisible();

@@ -3,7 +3,7 @@ title: "Teach a first board in both hosts"
 type: feature
 ticket: 8
 created: "2026-11-25"
-status: in-review
+status: built
 baseline_revision: "2e7a7c9579c569657095a0a9d2888fc98bb1402b"
 route: full
 route_source: auto
@@ -84,4 +84,5 @@ The browser and VS Code offer the same guide and tip using the existing Help and
 - Open a PR with `Refs #1751`; keep the human walkthrough explicitly pending and do not close the issue.
 - Local evidence: 39 focused UI/model cases, 17 shell/wizard cases, four paced Chromium cases and the packaged VS Code Web Help proof passed. The browser journey reopens its saved board and proves a board test at `(112, 95)` versus normal startup at `(48, 63)`, with unchanged project bytes. VS Code's fresh creator proof passed authoring, reopening and exact-export playback. Its separate optional live board snapshot check hit the known [#2922](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2922) later-live-hash race; that proof is not claimed green.
 - Draft continuation: merged main `275f69f0324af5407d996eca00d5ecf0fb02802f`, preserving the Visual Events, battle data and board upgrade code/proofs. Scoped Chromium verified all tutorial actions from the actual palette, preference persistence/refusal, and the unchanged fresh project/board focus and gameplay assertions. The controlled focus regression failed before the layout-effect repair and passed after it. Browser typechecks and the native starter-option unit also passed.
+- The packaged VS Code Web proof passed on the branch with current main `5ec33c3728f490f5ef0399e708f7be93918e9d51`. It checks the selected game editor remains the only visible webview for the automatic tip, then drives all five actions from the native palette, checks unavailable actions are absent, and verifies resume and the persisted `editor.showTips` setting. The build, scoped test typecheck, targeted lint, BMAD store validation and ADR numbering check passed. This rerun did not run the unrelated live board-snapshot proof (#2922).
 - **Human acceptance pending:** a genuine new author still needs to perform all nine steps in each host. The automated proofs do not close that gate.
