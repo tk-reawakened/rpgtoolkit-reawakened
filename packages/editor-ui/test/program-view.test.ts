@@ -1112,6 +1112,30 @@ test("a nudge made before another edit can only ever move its own card", async (
   equal(/text\((3|4), 2, "A"\)/.test(text), true, "the presses stay on the card they were made on");
 });
 
+test("a queued nudge is dropped when two same-command cards swap before it is applied", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 9, "B")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  // The swap is in flight; the presses are made on the card that is about to move.
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(9, 9, "B")\ntext(2, 2, "A")\n', "the swap applies and neither card takes the other's gesture");
+});
+
 test("a queued nudge never lands on a same-command neighbour that inherits its slot", async () => {
   const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 9, "B")\n' });
   const gate = deferred();

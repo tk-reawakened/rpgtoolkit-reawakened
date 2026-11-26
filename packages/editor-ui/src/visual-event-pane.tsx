@@ -13,6 +13,7 @@ import {
   type VisualEventField,
   type VisualEventTemplate,
   type EditableVisualEvent,
+  type VisualEventValue,
   type VisualProgramRegion,
 } from "@tk-reawakened/editor-model";
 import type { AssetKind } from "@tk-reawakened/core";
@@ -473,13 +474,26 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
 function useDispatch(source: string, error: string | null, onAction: Dispatch): Dispatch {
   const latest = useRef({ source, onAction });
   latest.current = { source, onAction };
-  const state = useRef<{ inflight: string | null; queued: { readonly id: string; readonly from: number; readonly dx: number; readonly dy: number } | null; timer: ReturnType<typeof setTimeout> | undefined }>({
+  const state = useRef<{
+    inflight: string | null;
+    queued: {
+      readonly id: string;
+      readonly from: number;
+      readonly line: number;
+      readonly templateId: string;
+      readonly values: readonly VisualEventValue[];
+      readonly dx: number;
+      readonly dy: number;
+    } | null;
+    timer: ReturnType<typeof setTimeout> | undefined;
+  }>({
     inflight: null, queued: null, timer: undefined,
   });
-  /** The placed card a gesture was made on: its identity, which its own value edits keep and a swap or removal does not. */
-  const cardAt = (text: string, from: number): { readonly id: string } | null => {
+  /** The placed card a gesture was made on, with what it looked like: a swap or removal must not pass for it. */
+  const cardAt = (text: string, from: number): { readonly id: string; readonly line: number; readonly templateId: string; readonly values: readonly VisualEventValue[] } | null => {
     const region = projectVisualProgram(text).regions.find((item): item is EditableVisualEvent => item.type !== "opaque" && item.from === from);
-    return region !== undefined && region.type === "event" ? { id: region.id } : null;
+    return region !== undefined && region.type === "event"
+      ? { id: region.id, line: region.line, templateId: region.templateId, values: region.values } : null;
   };
   const send = (action: VisualEventAction, to: Dispatch, from: string): void => {
     const current = state.current;
@@ -498,10 +512,9 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     if (queued === null) return;
     // The gesture belongs to the card it was made on: a card that swapped places or went away drops it, even when a
     // neighbour of the same command now sits at the old offset.
-    const region = projectVisualProgram(latest.current.source).regions.find((item): item is EditableVisualEvent =>
-      item.type === "event" && item.id === queued.id);
-    if (region === undefined) return;
-    send({ type: "nudge", from: region.from, dx: queued.dx, dy: queued.dy }, latest.current.onAction, latest.current.source);
+    const card = resolveQueued(projectVisualProgram(latest.current.source).regions, queued);
+    if (card === null) return;
+    send({ type: "nudge", from: card.from, dx: queued.dx, dy: queued.dy }, latest.current.onAction, latest.current.source);
   };
   useEffect(settle, [source, error]);
   useEffect(() => () => clearTimeout(state.current.timer), []);
@@ -517,8 +530,24 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     const same = queued !== null && queued.id === card.id;
     current.queued = same
       ? { ...queued, dx: queued.dx + action.dx, dy: queued.dy + action.dy }
-      : { id: card.id, from: action.from, dx: action.dx, dy: action.dy };
+      : { ...card, from: action.from, dx: action.dx, dy: action.dy };
   };
+}
+
+/**
+ * The card a queued gesture belongs to, or `null` when it is gone. A card's own nudges change its statement text, so
+ * after its identity no longer matches, the same offset, line and command with every other value unchanged is still
+ * that card; a swapped-in neighbour of the same command differs outside the placement fields and drops the gesture.
+ */
+function resolveQueued(regions: readonly VisualProgramRegion[], queued: { readonly id: string; readonly from: number; readonly line: number; readonly templateId: string; readonly values: readonly VisualEventValue[] }): VisualEventCard | null {
+  const card = regions.find((item): item is VisualEventCard => item.type === "event" && item.from === queued.from);
+  if (card === undefined) return null;
+  if (card.id === queued.id) return card;
+  if (card.line !== queued.line || card.templateId !== queued.templateId) return null;
+  const { placement } = VISUAL_EVENT_TEMPLATES.find((template) => template.id === queued.templateId) ?? {};
+  if (placement === undefined || card.values.length !== queued.values.length) return null;
+  const unchanged = card.values.every((value, index) => index === placement.xField || index === placement.yField || value === queued.values[index]);
+  return unchanged ? card : null;
 }
 
 /** A projection of the live program text, not a second document or undo history (TOOL-12). */

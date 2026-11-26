@@ -271,18 +271,13 @@ test("reorder swaps adjacent cards, keeps the last line unterminated, and never 
   equal(applied(equalLines.source, reorderVisualEvent(equalLines, 0, "down")), "getgp(gold)\ndelay(1)\n");
 });
 
-test("a card keeps its identity when its own values change, and loses it when a sibling decides its slot", () => {
-  const id = (source: string, index = 0): string => {
-    const region = projectVisualProgram(source).regions.filter((item) => item.type === "event")[index];
-    if (region === undefined) throw new Error(`expected a card in ${JSON.stringify(source)}`);
-    return region.id;
-  };
-  equal(id('text(2, 2, "A")\n'), id('text(3, 2, "A")\n'), "the card's own placement edit keeps its identity");
-  equal(id('text(2, 2, "A")\n'), id('text(2, 2, "Z")\n'), "so does its own text edit");
-  const single = id('text(2, 2, "A")\n');
-  const pair = id('text(2, 2, "A")\ntext(2, 2, "A")\n');
-  equal(pair === single, false, "an identical neighbour changes the count, so the survivor is a new card");
-  equal(id('text(2, 2, "A")\ntext(9, 9, "B")\n').endsWith("/2"), true, "same-command cards are counted together, so a slot change is visible");
+test("a card's identity is its own statement text, so only its own edit renames it", () => {
+  const ids = (source: string): readonly string[] =>
+    projectVisualProgram(source).regions.filter((region) => region.type === "event").map((region) => region.type === "event" ? region.id : "");
+  equal(ids('text(2, 2, "A")\n')[0] === ids('text(3, 2, "A")\n')[0], false, "its own placement edit is a new identity; the pane matches the card by offset and command instead");
+  equal(ids('text(2, 2, "A")\n')[0], ids('delay(1)\ntext(2, 2, "A")\n')[1], "an insert of another command does not rename it");
+  equal(ids('text(2, 2, "A")\n')[0], ids('text(9, 9, "B")\ntext(2, 2, "A")\n')[1], "nor does a same-command card with other text");
+  equal(ids('text(2, 2, "A")\n')[0] === ids('text(2, 2, "A")\ntext(2, 2, "A")\n')[0], false, "an identical neighbour changes the count, so the survivor is a new card");
 });
 
 test("an elseif chain is never one card: removing it must not delete another branch", () => {

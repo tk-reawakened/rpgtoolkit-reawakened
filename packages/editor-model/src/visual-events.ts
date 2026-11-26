@@ -381,7 +381,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     const block = statement(line, "if");
     if (block !== null) {
       if (block.otherwise) continue;
-      const card = conditionCard(source, lines, starts, line, block.end, identify("condition"));
+      const card = conditionCard(source, lines, starts, line, block.end, identify(`condition:${lines[line]!.trim()}`));
       if (card !== null) {
         flushOpaque(card.from, card.line);
         regions.push(card);
@@ -401,7 +401,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
         const message = MESSAGE_LINE.exec(lines[line]!)![1]!;
         const to = lineTo(line + 2);
         flushOpaque(starts[line]!, line + 1);
-        regions.push({ type: "show-message", id: identify("message"), message, from: starts[line]!, to, line: line + 1 });
+        regions.push({ type: "show-message", id: identify(`message:${message}`), message, from: starts[line]!, to, line: line + 1 });
         opaqueStart = to;
         opaqueLine = line + 4;
         line += 2;
@@ -428,15 +428,15 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     const to = lineTo(line);
     flushOpaque(from, line + 1);
     regions.push({
-      type: "event", id: identify(`event:${template.id}`), templateId: template.id, values,
+      type: "event", id: identify(`event:${template.id}:${lines[line]!.trim()}`), templateId: template.id, values,
       from, to, line: line + 1, source: lines[line]!,
     });
     opaqueStart = to;
     opaqueLine = line + 2;
   }
   flushOpaque(source.length, lines.length);
-  // A card's identity also names how many identical cards there are: removing one renames the survivors, so a draft
-  // typed into the deleted card is never inherited by an identical neighbour.
+  // A card's identity is its command and its own statement text, plus how many identical cards there are: an insert of
+  // another command never renames it, while removing or swapping an identical card does, so a draft is never inherited.
   const base = (id: string): string => id.slice(0, id.lastIndexOf("#"));
   const totals = new Map<string, number>();
   for (const region of regions) if (region.type !== "opaque") totals.set(base(region.id), (totals.get(base(region.id)) ?? 0) + 1);
