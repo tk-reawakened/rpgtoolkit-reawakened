@@ -109,18 +109,28 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
   // so the reference it returns is read from the folders it names, not from the ones the view mounted with.
   const [activeLayout, setActiveLayout] = useState<ProjectLayout>(layout);
   const assetRevision = useContext(AssetRefreshContext);
-  // Every request for the folders takes a ticket. Ownership only moves forward: an answer that arrives after a later
-  // request (a picker the user confirmed while a refresh was still reading) is stale and is dropped (#3536).
-  const layoutTicket = useRef(0);
+  // Every request for the folders takes a sequence when it starts. Ownership only moves forward: a read that finishes
+  // after a newer request (a refresh, or a confirmation) is superseded, so its answer is discarded and read again; only
+  // the latest resolution sets the folders or lets a pick apply (#3536).
+  const layoutSequence = useRef(0);
   const adopt = (next: ProjectLayout | undefined): void => {
     if (next === undefined) return;
     setActiveLayout((current) => (current.projectFolder === next.projectFolder ? current : next));
   };
-  const resolveOwnership = async (): Promise<void> => {
-    if (resolveLayout === undefined) return;
-    const ticket = ++layoutTicket.current;
-    const next = await resolveLayout().catch(() => undefined);
-    if (ticket === layoutTicket.current) adopt(next);
+  /**
+   * The folders as they are now, from a read no newer request superseded. A superseded read is retried a bounded number
+   * of times and then given up on (`layout: undefined`), so two resolutions in flight together cannot chase each other.
+   */
+  const resolveOwnership = async (): Promise<{ readonly layout: ProjectLayout | undefined; readonly sequence: number } | undefined> => {
+    if (resolveLayout === undefined) return undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const sequence = ++layoutSequence.current;
+      const answer = await resolveLayout().catch(() => undefined);
+      if (sequence !== layoutSequence.current) continue;
+      adopt(answer);
+      return { layout: answer, sequence };
+    }
+    return { layout: undefined, sequence: layoutSequence.current };
   };
   // A refresh is the host saying "look again": the game file may name different folders by now, with no pick at all.
   useEffect(() => {
@@ -166,20 +176,27 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
       // What matters is the folders the picker read, not whether some refresh ran meanwhile: an unrelated refresh leaves
       // them equal. Ask where the folders are now and compare the sets themselves.
       const pickerLayout = outcome.layout ?? openedLayout;
-      if (resolveLayout !== undefined) {
-        const fresh = await resolveLayout().catch(() => undefined);
-        if (fresh !== undefined) {
-          layoutTicket.current += 1;
-          adopt(fresh);
-          if (fresh.projectFolder !== pickerLayout.projectFolder) {
-            // The reference names a file in folders the project no longer reads: the same relative name may be another
-            // picture there, or no picture at all. It is never written; the newer folders stand and the user chooses again.
-            setMessage("The project's picture folders changed while the picker was open, so the picture you chose belongs to the older folders. Nothing was changed; choose the picture again.");
-            return;
-          }
+      const resolved = await resolveOwnership();
+      if (resolved !== undefined) {
+        if (resolved.layout === undefined) {
+          // Every read was superseded, so nothing here can say which folders the reference belongs to.
+          setMessage("The project's picture folders were read again while this picture was being checked. Nothing was changed; choose the picture again.");
+          return;
         }
+        if (resolved.layout.projectFolder !== pickerLayout.projectFolder) {
+          // The reference names a file in folders the project no longer reads: the same relative name may be another
+          // picture there, or no picture at all. It is never written; the newer folders stand and the user chooses again.
+          setMessage("The project's picture folders changed while the picker was open, so the picture you chose belongs to the older folders. Nothing was changed; choose the picture again.");
+          return;
+        }
+        if (resolved.sequence !== layoutSequence.current) {
+          // A newer read started while this one was being checked, so it, not this confirmation, decides the folders.
+          setMessage("The project's picture folders were read again while this picture was being checked. Nothing was changed; choose the picture again.");
+          return;
+        }
+      } else {
+        layoutSequence.current += 1;
       }
-      layoutTicket.current += 1;
       adopt(pickerLayout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
       // Choosing the picture the document already names is a successful no-edit: no command, no refusal, the draft as it

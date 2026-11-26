@@ -65,6 +65,12 @@ test("skin view gives each image role an independent picker, labels its editor-o
   }
 });
 
+/** A 2 × 1 24-bit BMP: two azure pixels, so a preview says which of two same-named pictures it drew. */
+const BMP_2X1 = Uint8Array.from([
+  0x42, 0x4d, 62, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 24, 0,
+  0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0,
+]);
+
 /** A 1 × 1 24-bit BMP: one azure pixel, the smallest picture the shared decoder reads. */
 const BMP_1X1 = Uint8Array.from([
   0x42, 0x4d, 58, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 24, 0,
@@ -398,14 +404,15 @@ test("a refresh during the picker refuses a pick naming its older folders, whate
   const path = "Misc/stone.tkrskin";
   const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
   // The pick names a picture the document does not have yet, so "no edit" can only mean the edit was blocked. Two
-  // worlds: the new folders hold a same-named picture of another size, or no such picture at all.
+  // worlds: the new folders hold their own window-b.png of another size, or no window-b.png at all.
   for (const [label, holds] of [
     ["a same-named different picture", true],
     ["no same-named picture", false],
   ] as const) {
     const pictures: Record<string, Uint8Array> = {};
     for (const folder of ["Game/Start", "Game/Picked"]) for (const name of ["window.png", "window-b.png", "button.png"]) pictures[`${folder}/Bitmap/${name}`] = BMP_1X1;
-    for (const name of ["window.png", "button.png"]) if (holds) pictures[`Game/Refreshed/Bitmap/${name}`] = BMP_1X1;
+    for (const name of ["window.png", "button.png"]) pictures[`Game/Refreshed/Bitmap/${name}`] = BMP_1X1;
+    if (holds) pictures["Game/Refreshed/Bitmap/window-b.png"] = BMP_2X1;
     const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
     const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
     ok(opened.ok);
@@ -436,8 +443,9 @@ test("a refresh during the picker refuses a pick naming its older folders, whate
       await untilChosen(root);
       equal(opened.document.getSnapshot().edits.length, 0, `${label}: the edit is blocked`);
       equal(opened.document.getSnapshot().dirty, false, `${label}: the draft is untouched`);
-      equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png", `${label}: the reference is unchanged`);
+      equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png", `${label}: the chosen reference is never written`);
       equal(reads.some((read) => read.startsWith("Game/Picked/")), false, `${label}: the picker's older folders are never read`);
+      equal(reads.some((read) => read.endsWith("/window-b.png")), false, `${label}: the chosen picture is never read either`);
       const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "").join(" | ");
       match(spoken, /changed while the picker was open[^|]*choose the picture again/i, `${label}: the refusal says to choose again`);
     } finally {
@@ -518,6 +526,111 @@ test("an ownership change with no refresh refuses the pick at confirmation (#353
     // The newer folders are the ones in force afterwards.
     await settleUntil(() => reads.includes("Game/New/Bitmap/window.png"));
   } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("a confirmation's read that finishes after a newer refresh is discarded, not applied (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/Start", "Game/Late", "Game/Newest"].flatMap((folder) => ["window.png", "window-b.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  let answer!: (outcome: { chosen: true; reference: string; layout: { projectFolder: string } }) => void;
+  const picked = new Promise<{ chosen: true; reference: string; layout: { projectFolder: string } }>((resolve) => { answer = resolve; });
+  let releaseLate!: (value: { projectFolder: string }) => void;
+  const lateRead = new Promise<{ projectFolder: string }>((resolve) => { releaseLate = resolve; });
+  // The mount reads Game/Start; the confirmation's read is held; a refresh during it answers Game/Newest; every later
+  // read answers Game/Newest too.
+  let calls = 0;
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Start" } },
+    navigation: { pickAsset: () => picked },
+    resolveLayout: () => {
+      calls += 1;
+      if (calls === 1) return Promise.resolve({ projectFolder: "Game/Start" });
+      if (calls === 2) return lateRead;
+      return Promise.resolve({ projectFolder: "Game/Newest" });
+    },
+  });
+  try {
+    await settleUntil(() => reads.includes("Game/Start/Bitmap/window.png"));
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    answer({ chosen: true, reference: "window-b.png", layout: { projectFolder: "Game/Start" } });
+    // The confirmation's read is in flight; a newer refresh completes with Game/Newest while it is.
+    await settleUntil(() => calls >= 2);
+    reads.length = 0;
+    await act(() => { handle.refreshAssets?.(); });
+    await settleUntil(() => reads.includes("Game/Newest/Bitmap/window.png"));
+    // The held read now answers Game/Late, which is older than the refresh: it must be discarded and read again.
+    releaseLate({ projectFolder: "Game/Late" });
+    await untilChosen(root);
+    equal(reads.some((read) => read.startsWith("Game/Late/")), false, `the late read never names the folders: ${reads.join(", ")}`);
+    equal(opened.document.getSnapshot().edits.length, 0, "the pick is refused, not applied against stale folders");
+    equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png", "the chosen reference is never written");
+    const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "").join(" | ");
+    match(spoken, /choose the picture again/i, `the refusal says to choose again: ${spoken}`);
+    // Serialization is bounded: a superseded read is retried a few times, never chased for ever.
+    ok(calls <= 6, `the ownership reads were bounded: ${calls}`);
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("two owner reads in flight together settle instead of chasing each other (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["window.png", "window-b.png", "button.png"].map((name) => [`Bitmap/${name}`, BMP_1X1]));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  // Every read is released by the start of the next one, so two are always in flight and each one's answer is superseded.
+  let calls = 0;
+  const waiting: ((value: { projectFolder: string }) => void)[] = [];
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: host,
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "" } },
+    navigation: { pickAsset: async () => ({ chosen: true, reference: "window-b.png", layout: { projectFolder: "" } }) },
+    resolveLayout: () => {
+      calls += 1;
+      // Starting a read releases the one before it, and every read also answers on the next turn, so the two overlap
+      // without any read being left waiting for a caller that never comes.
+      if (waiting.length > 0) waiting.shift()!({ projectFolder: "Game/Churn" });
+      return new Promise((resolve) => {
+        waiting.push(resolve);
+        setImmediate(() => {
+          const index = waiting.indexOf(resolve);
+          if (index < 0) return;
+          waiting.splice(index, 1);
+          resolve({ projectFolder: "Game/Churn" });
+        });
+      });
+    },
+  });
+  try {
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    await untilChosen(root);
+    // The reads give up in bounded numbers and the pick is refused, never applied against folders nobody could confirm.
+    ok(calls <= 20, `the reads were bounded: ${calls}`);
+    equal(opened.document.getSnapshot().edits.length, 0, "nothing is written");
+    equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png");
+    const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "").join(" | ");
+    match(spoken, /choose the picture again/i, `the refusal says to choose again: ${spoken}`);
+  } finally {
+    for (const resolve of waiting.splice(0)) resolve({ projectFolder: "" });
     handle.dispose();
     root.remove();
   }
