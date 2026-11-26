@@ -22,6 +22,7 @@
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualFixtures.show",
     "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
     "onCommand:tkr.upgradeBoardStackedToRotated",
@@ -82,6 +83,10 @@
       {
         "command": "tkr.visualEvents.show",
         "title": "RPG Toolkit: Show Visual events"
+      },
+      {
+        "command": "tkr.visualFixtures.show",
+        "title": "RPG Toolkit: Show Visual fixtures"
       },
       {
         "command": "tkr.runSavedTests",
