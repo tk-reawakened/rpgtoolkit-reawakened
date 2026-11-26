@@ -1383,43 +1383,28 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   });
   expect(run?.player).toEqual({ x: 48, y: 63 });
   expect(run?.stateHash).toMatch(/^[a-f0-9]{16}$/);
-  const assertAuthoredChecker = async (): Promise<void> => {
-    const visible = await page.evaluate(() => {
+  const assertAuthoredTilePixels = async (): Promise<void> => {
+    const colors = await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
       const screen = frame?.contentDocument?.querySelector<HTMLCanvasElement>("#screen");
       const gl = screen?.getContext("webgl2");
-      if (!screen || !gl) return false;
-      const pixels = new Uint8Array(screen.width * screen.height * 4);
-      gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      const color = (x: number, y: number) => {
-        const offset = (y * screen.width + x) * 4;
-        return `${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`;
-      };
-      for (let scale = 1; scale <= 8; scale *= 2) {
-        const side = 8 * scale;
-        for (let y = 0; y + side <= screen.height; y += scale) {
-          for (let x = 0; x + side <= screen.width; x += scale) {
-            const first = color(x, y);
-            const second = color(x + scale, y);
-            if (first === second) continue;
-            let matches = true;
-            for (let row = 0; row < 8 && matches; row += 1) {
-              for (let column = 0; column < 8; column += 1) {
-                if (color(x + column * scale, y + row * scale) !== ((row + column) % 2 === 0 ? first : second)) {
-                  matches = false;
-                  break;
-                }
-              }
-            }
-            if (matches) return true;
-          }
-        }
+      if (!screen || !gl) return null;
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let orange = 0;
+      let olive = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] === 255 && pixels[index + 1] === 128 && pixels[index + 2] === 0) orange += 1;
+        if (pixels[index] === 56 && pixels[index + 1] === 64 && pixels[index + 2] === 32) olive += 1;
       }
-      return false;
+      return { orange, olive };
     });
-    expect(visible, "the authored alternating tile pattern must be drawn in the game framebuffer").toBe(true);
+    expect(colors?.orange, "the authored palette-42 tile pixels must be rendered").toBeGreaterThan(10_000);
+    expect(colors?.olive, "the authored palette-213 tile pixels must be rendered").toBeGreaterThan(10_000);
   };
-  await assertAuthoredChecker();
+  await assertAuthoredTilePixels();
   await page.getByRole("tab", { name: scriptPath }).click();
   await scriptEditor.locator(".view-line").first().click();
   await page.keyboard.press("Control+A");
@@ -1538,7 +1523,7 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   });
   expect(pixelRun?.player).toEqual({ x: 2, y: 2 });
   expect(pixelRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
-  await assertAuthoredChecker();
+  await assertAuthoredTilePixels();
   const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy, script }) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");

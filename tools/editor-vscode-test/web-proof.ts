@@ -245,40 +245,30 @@ export async function runVscodeBoardUpgradeProof(
   readEvents: () => readonly { readonly kind: "readDirectory" | "readFile"; readonly path: string }[],
 ): Promise<void> {
   await page.setViewportSize({ width: 1920, height: 1080 });
-  const assertAuthoredChecker = async (frame: Frame): Promise<void> => {
-    await expect.poll(async () => await frame.evaluate(() => {
+  const assertAuthoredTilePixels = async (
+    frame: Frame,
+    first: readonly [number, number, number],
+    second: readonly [number, number, number],
+  ): Promise<void> => {
+    const colors = await frame.evaluate((expected) => {
       const screen = document.querySelector<HTMLCanvasElement>("#screen");
       const gl = screen?.getContext("webgl2") ?? screen?.getContext("webgl");
-      if (!screen || !gl) return false;
-      const pixels = new Uint8Array(screen.width * screen.height * 4);
+      if (!screen || !gl) return null;
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const pixels = new Uint8Array(width * height * 4);
       gl.finish();
-      gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      const color = (x: number, y: number) => {
-        const offset = (y * screen.width + x) * 4;
-        return (pixels[offset]! | (pixels[offset + 1]! << 8) | (pixels[offset + 2]! << 16) | (pixels[offset + 3]! << 24)) >>> 0;
-      };
-      for (let scale = 1; scale <= 8; scale += 1) {
-        const side = 8 * scale;
-        for (let y = 0; y + side <= screen.height; y += 1) {
-          for (let x = 0; x + side <= screen.width; x += 1) {
-            const first = color(x, y);
-            const second = color(x + scale, y);
-            if (first === second) continue;
-            let matches = true;
-            for (let row = 0; row < 8 && matches; row += 1) {
-              for (let column = 0; column < 8; column += 1) {
-                if (color(x + column * scale, y + row * scale) !== ((row + column) % 2 === 0 ? first : second)) {
-                  matches = false;
-                  break;
-                }
-              }
-            }
-            if (matches) return true;
-          }
-        }
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let firstCount = 0;
+      let secondCount = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] === expected[0][0] && pixels[index + 1] === expected[0][1] && pixels[index + 2] === expected[0][2]) firstCount += 1;
+        if (pixels[index] === expected[1][0] && pixels[index + 1] === expected[1][1] && pixels[index + 2] === expected[1][2]) secondCount += 1;
       }
-      return false;
-    }), { intervals: [100, 250, 500], timeout: 10_000 }).toBe(true);
+      return { firstCount, secondCount };
+    }, [first, second]);
+    expect(colors?.firstCount, `authored tile color ${first.join(",")} must be rendered`).toBeGreaterThan(10_000);
+    expect(colors?.secondCount, `authored tile color ${second.join(",")} must be rendered`).toBeGreaterThan(10_000);
   };
   const sourcePath = "Game/Example/Boards/village.brd";
   const copyPath = "Game/Example/Boards/village.pixels.brd";
@@ -396,7 +386,7 @@ export async function runVscodeBoardUpgradeProof(
   // The legacy-copy runner's explicit tile start (2, 2) maps to this pixel position.
   expect(legacyRun?.player).toEqual({ x: 48, y: 63 });
   expect(legacyRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
-  await assertAuthoredChecker(legacyPlayer);
+  await assertAuthoredTilePixels(legacyPlayer, [255, 128, 0], [56, 64, 32]);
   await verifyHostRunHash(page, legacyPlayer, expect);
 
   const sourceBytes = await readBacking(sourcePath);
@@ -468,7 +458,7 @@ export async function runVscodeBoardUpgradeProof(
   await expect(failedSavePath).toBeVisible({ timeout: 15_000 });
   await failedSavePath.fill(`/${failedPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
-  const writeErrorNotification = page.getByRole("dialog", { name: /Could not write .*village\.failed-write\.brd/ });
+  const writeErrorNotification = page.getByRole("alert").filter({ hasText: /Could not write .*village\.failed-write\.brd/ });
   await expect(writeErrorNotification).toBeVisible({ timeout: 15_000 });
   if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
   const failedBytes = await readBacking(failedPath).catch(() => null);
@@ -558,7 +548,7 @@ export async function runVscodeBoardUpgradeProof(
   // flag 4 makes (2,2) an absolute-pixel run start.
   expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
   expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
-  await assertAuthoredChecker(player);
+  await assertAuthoredTilePixels(player, [42, 42, 42], [213, 213, 213]);
   await verifyHostRunHash(page, player, expect);
   await openNativeQuickOpenFile(page, expect, scriptPath);
   await expect(pendingScriptEditor).not.toContainText("Pending authored edit");
