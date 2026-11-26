@@ -149,9 +149,12 @@ The editor's **"Make package"** (T-70) **writes a distribution package** — a `
 The editor reserves `.tkr-history/` for project-local history, `.tkr-exports/` for packages produced by the editor, and `.tkr-tests/` for creator-test fixtures and helpers; none is a game asset or a second history system. **The exclusions are verified on the produced archive, not assumed from the inventory filter** (ADR 0022 D12.10 item 12): after the distribution writer has produced the archive, the exporter re-reads the entry list of those bytes and refuses the export, writing nothing, if any entry is (ASCII-case-insensitively) under `Saved/`, `.tkr-history/`, `.tkr-exports/` or `.tkr-tests/`; is a `Main/` file other than the selected `Main/<game>.gam`; is a `*.spec.prg`; has one of the editor-only extensions above; or is under the helper library's complete project-relative path `Prg/script-spec/`, matched ASCII-case-insensitively. That list is every exclusion above, not a subset. These rules apply to the distribution package this project writes and do not change the legacy `.tpk` PAK input contract. The reserved paths are Reawakened editor conventions and do not alter what legacy packages may contain.
 
 The export workflow resolves the preflight against saved files only and never saves for the author: while any open document
-has unsaved edits it refuses, naming each document, so cancelling an export cannot commit work the author kept unsaved.
-It inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, a missing main
-file, a missing startup file when `startupPrg` is non-empty, or any input the distribution writer rejects under L1–L19. An empty `startupPrg` is valid and means there is no startup program to include. It presents the inventory and exclusions before output, and writes nothing until the author confirms.
+has unsaved or still-buffered edits — a dirty revision, accepted edits a view has not yet handed to the document, or text
+the view is still holding — it refuses, naming each document, so cancelling an export cannot commit work the author kept
+unsaved. A query settlement may move a view's accepted edits into the document, which then counts as unsaved; nothing is
+written to disk. It inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, a
+missing main file, a missing startup file when `startupPrg` is non-empty, or any input the distribution writer rejects
+under L1–L19. An empty `startupPrg` is valid and means there is no startup program to include. It presents the inventory and exclusions before output, and writes nothing until the author confirms.
 
 **Detected project links (owner direction).** Tell the author which symbolic link was found. Ask whether to include it only when the host can safely follow it while enforcing containment; otherwise explicitly refuse export. An inventory-review checkbox is not proof of containment. Browser local-directory APIs do not expose links, so browser link detection is not claimed.
 
