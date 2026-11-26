@@ -467,7 +467,11 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await persistentFs.observe(() => readFile(resolve(proofWorkspace, path))));
-    const writeBacking = async (path, bytes) => { await writeFile(resolve(proofWorkspace, path), bytes); };
+    const writeBacking = async (path, bytes) => {
+      const target = resolve(proofWorkspace, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes);
+    };
     const withBackingWriteRefused = async (path, check) => {
       const target = resolve(proofWorkspace, path);
       const mode = (await stat(target)).mode & 0o777;
@@ -607,8 +611,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
       console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
     } else if (battleDataProof) {
-      await runVscodeBattleDataProof(page, expect, workbenchUrl, { readBacking });
-      console.log("vscode.dev special move form: a field nobody left is written by native Save All, Close, Undo/Redo and autosave, and held text is never written (#3385)");
+      await runVscodeBattleDataProof(page, expect, workbenchUrl, { readBacking, writeBacking });
+      console.log("vscode.dev battle-background editor: all six links survive native Save All and reopen; TBM uses the custom editor, PNG/WAV use native Open, and audio audition is unavailable in this host");
     } else if (fontProof) {
       await runVscodeFontProof(page, expect, workbenchUrl, { readBacking });
       console.log("vscode.dev bitmap font creation, pointer and keyboard drawing, preview pixels, save and reopen proof passed");

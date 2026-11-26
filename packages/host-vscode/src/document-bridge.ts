@@ -168,6 +168,11 @@ export interface BridgedDocument {
   viewSettled?(requestId: string, settled?: boolean, message?: string, kind?: SettleFailureKind): void;
 }
 
+export function scopeEditorHostRequest(request: EditorHostRequest, scope: string): EditorHostRequest {
+  return request.type === "edit" && typeof request.coalesce === "string"
+    ? { ...request, coalesce: `${scope}:${request.coalesce}` }
+    : request;
+}
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
 export async function handleEditorHostRequest(
   document: BridgedDocument,
