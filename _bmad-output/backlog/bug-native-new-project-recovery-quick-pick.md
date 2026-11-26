@@ -47,6 +47,11 @@ The recovery Quick Pick entry is present when queried but ceases to be actionabl
    **When** the focused proof is run repeatedly in the CI browser environment
    **Then** the recovery action reliably opens and the failure is shown to be transient or unrelated to this code, with the evidence recorded in Notes — this supersedes 1 and 2
 
+4. **Failures stay diagnostic**
+   **Given** the proof cannot select the displayed recovery group or open its action picker
+   **When** it reports the failure
+   **Then** the report names the exact selected group and attempted action; the check is not hidden by retries, a longer timeout, or a weaker assertion
+
 ## References
 
 - Parent story — https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1736

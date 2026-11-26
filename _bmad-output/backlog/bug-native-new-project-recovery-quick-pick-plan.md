@@ -11,4 +11,6 @@ status: ready-for-dev
 3. Make the smallest evidence-based change while preserving the recovery refusal, restore, and write-persistence checks.
 4. Run the focused native new-project proof repeatedly in the CI browser environment, then run the required editor-host acceptance proof.
 
+5. Keep failures diagnostic: report the exact recovery group and attempted action. Do not hide the failure with retries, longer timeouts, or weaker assertions.
+
 The issue may also be resolved without a code change if repeated CI-shaped runs establish that the recorded failure was transient; record that evidence before closing it.
