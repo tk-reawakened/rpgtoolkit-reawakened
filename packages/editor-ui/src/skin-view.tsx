@@ -109,16 +109,22 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
   // so the reference it returns is read from the folders it names, not from the ones the view mounted with.
   const [activeLayout, setActiveLayout] = useState<ProjectLayout>(layout);
   const assetRevision = useContext(AssetRefreshContext);
+  // Every request for the folders takes a ticket. Ownership only moves forward: an answer that arrives after a later
+  // request (a picker the user confirmed while a refresh was still reading) is stale and is dropped (#3536).
+  const layoutTicket = useRef(0);
   const adopt = (next: ProjectLayout | undefined): void => {
     if (next === undefined) return;
     setActiveLayout((current) => (current.projectFolder === next.projectFolder ? current : next));
   };
+  const resolveOwnership = async (): Promise<void> => {
+    if (resolveLayout === undefined) return;
+    const ticket = ++layoutTicket.current;
+    const next = await resolveLayout().catch(() => undefined);
+    if (ticket === layoutTicket.current) adopt(next);
+  };
   // A refresh is the host saying "look again": the game file may name different folders by now, with no pick at all.
   useEffect(() => {
-    if (resolveLayout === undefined) return;
-    let active = true;
-    void resolveLayout().then((next) => { if (active) adopt(next); }).catch(() => undefined);
-    return () => { active = false; };
+    void resolveOwnership();
   }, [resolveLayout, assetRevision]);
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const skin = snapshot.skin;
@@ -151,15 +157,17 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
         extensions: IMAGE_EXTENSIONS,
         field: field === "windowImage" ? "the skin's window graphic" : "the skin's button graphic",
       });
-      // The picker names the folders it read; a cancel names nothing, so the host is asked where they are now.
+      // The picker names the folders it read, and those are newer than any refresh still in flight.
       if (!outcome.chosen) {
-        adopt(await resolveLayout?.());
+        await resolveOwnership();
         return;
       }
+      layoutTicket.current += 1;
       adopt(outcome.layout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-      // Choosing the picture the field already names is a successful no-edit: no command, no refusal, the draft as it was.
-      if (reference === skin[field]) return;
+      // Choosing the picture the document already names is a successful no-edit: no command, no refusal, the draft as it
+      // is. The document is asked now, not at the render that opened the picker: an edit may have landed meanwhile.
+      if (reference === doc.getSnapshot().skin[field]) return;
       await apply({ type: "set-native-skin-image", field, reference });
     } catch (error) {
       setMessage(problem(error));

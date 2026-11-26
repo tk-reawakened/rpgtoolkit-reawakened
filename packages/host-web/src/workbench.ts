@@ -265,6 +265,15 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       }
     },
   });
+  /**
+   * Ownership read from the game files as they are now. `layouts()` answers from the first read for the rest of the
+   * session, which is right for a mount but wrong for a pick or a refresh: a `.gam` may have moved or nested a game since
+   * (#3536). Only those two ask this.
+   */
+  const freshOwnerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    const owner = projectLayoutOwnerForDocumentPath(path, await refreshLayouts());
+    return owner ?? fallbackOwnerForPath(path);
+  };
   /** The audition controls of the board tab in front, or none when the front tab is not a board. */
   const activeAudition = (): AuditionControls | null => {
     const active = tabs.getSnapshot().active;
@@ -419,7 +428,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           }, owner.mainPath, importBoard, (operation) => {
             const command = boardUpgradeCommands.find(({ id }) => id === `board.upgrade.${operation}`);
             if (command !== undefined) void command.run();
-          }, auditionFor(document), () => ownerForPath(document.identity.path).then((current) => current.layout)), shownIn: container };
+          }, auditionFor(document), () => freshOwnerForPath(document.identity.path).then((current) => current.layout)), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -1068,7 +1077,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return result;
     },
     async pickAsset(request, originPath) {
-      const owner = await ownerForPath(originPath ?? main ?? "");
+      const owner = await freshOwnerForPath(originPath ?? main ?? "");
       const doc = element.ownerDocument;
       const before = doc.activeElement;
       const picker = createAssetPicker({

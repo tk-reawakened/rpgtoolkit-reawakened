@@ -285,3 +285,77 @@ test("the layout is kept as identifiers and restored by a new workbench on the s
   notEqual(second.layout.getPanels().find((panel) => panel.id === "game")?.visible, false);
   second.dispose();
 });
+
+// #3536: the browser host read the game files once per session, so a picker or a refresh after a `.gam` was added could
+// name the folders as they were before. A nested game that appears while the workbench is open must own its folders at
+// once, for the picker and for the mounted skin's own refresh alike.
+test("a game added after mounting owns its folders at once for the picker and the skin refresh", async () => {
+  const { BinaryReader, readMainFile, writeMainFile } = await import("@tk-reawakened/core");
+  // A BMP of the given size, so a preview's own sentence says which folder's picture was drawn.
+  const bmp = (width: number, height: number): Uint8Array => {
+    const row = Math.ceil(width * 3 / 4) * 4;
+    const bytes = new Uint8Array(54 + row * height);
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x42, 0x4d]);
+    view.setUint32(2, bytes.length, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, width, true);
+    view.setInt32(22, height, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, row * height, true);
+    return bytes;
+  };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put("Main/example.gam", gam);
+  // The outer game's picture, and a nested folder that will gain its own game file and a differently sized picture.
+  root.put("Game/Example/Bitmap/window.png", bmp(1, 1));
+  root.put("Game/Example/Inner/Bitmap/window.png", bmp(2, 1));
+  root.put("Game/Example/Inner/Bitmap/nested.png", bmp(1, 1));
+  root.put("Game/Example/Inner/Misc/inner.tkrskin", new TextEncoder().encode("contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/window.png\n"));
+  const dialogs = new ScriptedDialogs();
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:ownership", name: "Ownership" }, { dialogs, userSettings: userStorage() });
+  document.body.replaceChildren();
+  const element = document.createElement("div");
+  document.body.append(element);
+  const source = readMainFile(new BinaryReader(gam, "Main/example.gam"));
+  ok(source.ok);
+  const bench = await benchFor(web, element);
+  try {
+    const listed = async (pending: Promise<unknown>): Promise<string[]> => {
+      await until(() => element.querySelectorAll('[role="option"]').length > 0, "the picker lists the owning game's pictures");
+      const options = [...element.querySelectorAll('[role="option"]')].map((node) => node.textContent ?? "");
+      dialogs.answers.push("cancel");
+      await click(button(element, "Cancel"));
+      await completed(pending, "cancelling finishes the picker");
+      return options;
+    };
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Inner/Misc/inner.tkrskin")), ["window.png"], "the outer game owns the folder first");
+
+    // The skin is open, drawing the outer game's 1 × 1 picture.
+    const openSkin = async (): Promise<void> => {
+      for (const folder of ["Game", "Example", "Inner", "Misc"]) await key(row(element, folder), "ArrowRight");
+      await key(row(element, "inner.tkrskin"), "Enter");
+    };
+    const skin = () => element.querySelector('.tkr-editor-slot [aria-label="Native skin authoring"]');
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("1 × 1 pixels"), `the preview starts on the outer game's picture: ${skin()?.textContent ?? "no skin"}`);
+
+    // The nested game file appears while that tab is mounted, as New game would write it.
+    const nested = writeMainFile({ ...source.value, projectPath: "Game/Example/Inner", gameTitle: "Inner" });
+    ok(nested.ok);
+    root.put("Main/nested.gam", nested.value);
+
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Inner/Misc/inner.tkrskin")), ["nested.png", "window.png"], "the picker names the nested game's folder at once, without reopening the project");
+
+    // Another tab and back: the host refreshes the mounted skin, whose preview must now draw the nested game's 2 × 1 picture.
+    await key(row(element, "Main"), "ArrowRight");
+    await key(row(element, "example.gam"), "Enter");
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("2 × 1 pixels"), `the refresh draws the nested game's picture: ${skin()?.textContent ?? "no skin"}`);
+  } finally {
+    bench.dispose();
+  }
+});

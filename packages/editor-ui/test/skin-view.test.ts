@@ -301,3 +301,87 @@ test("choosing the picture already named is a successful no-edit that adopts the
     root.remove();
   }
 });
+
+test("a late refresh answer cannot overwrite the folders a newer pick confirmed (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/First", "Game/Third", "Game/Stale"].flatMap((folder) => ["window.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  let releaseRefresh!: (value: { projectFolder: string }) => void;
+  let refreshAsked: (() => void) | null = null;
+  const slowRefresh = new Promise<{ projectFolder: string }>((resolve) => { releaseRefresh = resolve; });
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/First" } },
+    navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/Third" } }) },
+    // The first refresh is still reading when the picker is confirmed; its answer names older folders.
+    resolveLayout: () => { refreshAsked?.(); refreshAsked = null; return slowRefresh; },
+  });
+  try {
+    await settleUntil(() => refreshAsked === null && reads.length >= 1);
+    reads.length = 0;
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    await settleUntil(() => reads.includes("Game/Third/Bitmap/window.png"));
+    // The refresh finally answers with the folders it read before the pick. It must not win.
+    releaseRefresh({ projectFolder: "Game/Stale" });
+    for (let turn = 0; turn < 20; turn += 1) {
+      await act(async () => { await new Promise<void>((resolve) => { setImmediate(resolve); }); });
+    }
+    equal(reads.some((read) => read.startsWith("Game/Stale/")), false, `the stale answer never names the folders: ${reads.join(", ")}`);
+    equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png");
+    ok(reads.filter((read) => read.endsWith("/window.png")).every((read) => read.startsWith("Game/Third/")), reads.join(", "));
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("the unchanged check asks the document at completion, not the render that opened the picker (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["window.png", "window-old.png", "button.png"].map((name) => [`Bitmap/${name}`, BMP_1X1]));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  let answer!: (outcome: { chosen: true; reference: string }) => void;
+  const picked = new Promise<{ chosen: true; reference: string }>((resolve) => { answer = resolve; });
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: host,
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "" } },
+    navigation: { pickAsset: () => picked },
+  });
+  try {
+    // The field names an older picture when the picker opens...
+    let firstId = "";
+    await act(async () => {
+      const first = opened.document.apply({ type: "set-native-skin-image", field: "windowImage", reference: "bitmap/window-old.png" });
+      ok(first.ok);
+      firstId = first.editId;
+    });
+    // The view shows the older picture now, so that is what the picker's render sees.
+    await settleUntil(() => (root.textContent ?? "").includes("bitmap/window-old.png"));
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    // ...and while the picker is open that edit is undone, so the document names the picture the picker will return.
+    ok(opened.document.undo(firstId).ok);
+    answer({ chosen: true, reference: "window.png" });
+    await settleUntil(() => root.querySelectorAll("canvas").length === 2);
+    equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png");
+    equal(opened.document.getSnapshot().edits.length, 0, "the picture the document already names is no edit");
+    const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "");
+    equal(spoken.some((text) => /did not change|invalid/i.test(text)), false, `no refusal is shown: ${spoken.join(" | ")}`);
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
