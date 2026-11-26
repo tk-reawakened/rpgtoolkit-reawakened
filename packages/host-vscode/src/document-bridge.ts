@@ -14,18 +14,18 @@ export interface AssetPickRequest {
 }
 
 /**
- * Picture and sound files that no document kind claims, which a linked visit still hands to VS Code's own viewer. This
+ * Picture and sound files that no document kind claims, which a linked visit still hands to VS Code's own open command (what shows is VS Code's choice; its media preview does not register MIDI). This
  * is the one list: the extension host opens them, and the webview offers Open only for them and for registered kinds.
  */
 const NATIVE_VISIT_EXTENSIONS = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".wav", ".mid", ".midi"] as const;
 
-/** Whether `path` names a picture or sound VS Code opens in its own viewer (decided by its name, as a visit is). */
+/** Whether `path` names a picture or sound handed to VS Code's own open command (decided by its name, as a visit is). */
 export function isNativeVisitPath(path: string): boolean {
   const lower = path.toLowerCase();
   return NATIVE_VISIT_EXTENSIONS.some((extension) => lower.endsWith(extension));
 }
 
-/** Whether a linked visit of `path` can open an editor: a registered document kind, or VS Code's own viewer. */
+/** Whether a linked visit of `path` can open an editor: a registered document kind, or VS Code's own open command. */
 export function canVisitPath(path: string): boolean {
   return kindForPath(path) !== null || isNativeVisitPath(path);
 }

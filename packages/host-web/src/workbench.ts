@@ -390,8 +390,15 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
               const kind = kindForPath(path)?.id;
               const layout = document.kind === "main" ? projectLayout : owner.layout;
               if (!isLinkedEditorKind(kind)) return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              // A battle-data form hands over the project path of the file it checked, the very path `canOpen` judged: open exactly that file, never a reserved-folder rewrite of it.
+              if (document.kind === "special-move" || document.kind === "status-effect" || document.kind === "battle-background") {
+                const checked = await visits.visit(document, path);
+                if (!checked.ok) return "message" in checked.error ? checked.error.message : checked.error.error.message;
+                await show(checked.document);
+                return null;
+              }
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : kind === "special-move" ? "specialMoves" : kind === "status-effect" ? "statusEffects" : "animations";
-              // The battle-data forms hand over the project-relative path of the file they checked; every other caller hands over the stored reference.
+              // Every other caller hands over the stored reference (or a path inside its folder).
               const inFolder = path.toLowerCase().startsWith(referencePath(layout, folder, "").toLowerCase());
               const target = kind === "animation" || (kind === "tile-bitmap" && inFolder) || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);

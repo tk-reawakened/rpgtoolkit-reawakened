@@ -145,8 +145,8 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3" });
 
       // What the webview offers as Open is what a visit really does: the host hands the file to VS Code's own `vscode.open`
-      // (`script.opened`; this fake only models documents the extension provides, so whether VS Code's built-in viewer then
-      // shows a picture or a sound is VS Code's behaviour and is not asserted), and refuses a file it would not hand over.
+      // (`script.opened`; this fake only models documents the extension provides, so what VS Code then shows for a picture or a
+      // sound is VS Code's behaviour (its media preview does not register MIDI) and is not asserted), and refuses a file it would not hand over.
       const origin = await host.open("Boards/village.brd");
       for (const path of ["Bitmap/old.png", "Media/tone.WAV", "Boards/caves/mine.brd"]) {
         ok(canVisitPath(path), `${path} is offered`);
