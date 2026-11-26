@@ -1,4 +1,4 @@
-import type { PackageArtifact, PreparedGamePackage, ProjectTree, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import { prepareGameSetup, type PackageArtifact, type PreparedGamePackage, type PreparedGameSetup, type ProjectTree, type TreeOpenResult, type TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -61,9 +61,11 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
   const [mainPath, setMainPath] = useState("");
   const [packageVersion, setPackageVersion] = useState("");
   const [packageBusy, setPackageBusy] = useState(false);
-  const [packageMessage, setPackageMessage] = useState("");
   const [prepared, setPrepared] = useState<PreparedGamePackage | null>(null);
   const [inventoryReviewed, setInventoryReviewed] = useState(false);
+  const [packageMessage, setPackageMessage] = useState("");
+  const [preparedSetup, setPreparedSetup] = useState<PreparedGameSetup | null>(null);
+  const [setupReviewed, setSetupReviewed] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const focusRow = useRef(false);
   const list = useRef<HTMLDivElement>(null);
@@ -115,17 +117,30 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
     }
     setPackageBusy(true);
     setPrepared(null);
-    setInventoryReviewed(false);
+    setPreparedSetup(null);
+    setSetupReviewed(false);
     setPackageMessage("Saving open documents and checking the package…");
     void onPackage(mainPath, packageVersion).then((outcome) => {
       if (!outcome.ok) {
+        setPreparedSetup(null);
         setPackageMessage(outcome.message);
         return;
       }
       setPrepared(outcome.prepared);
-      setPackageMessage("Preflight passed. Review the inventory below, then download the package and its install descriptor.");
+      setPackageMessage("Preflight passed. Review the game inventory before downloading package files or building a setup ZIP.");
     }).catch(() => setPackageMessage("Package export failed before completion. No successful export was reported."))
       .finally(() => setPackageBusy(false));
+  };
+  const buildSetup = (): void => {
+    if (prepared === null || !inventoryReviewed) return;
+    const setup = prepareGameSetup(prepared);
+    if (!setup.ok) {
+      setPackageMessage(`The setup ZIP could not be built: ${setup.message}`);
+      return;
+    }
+    setPreparedSetup(setup.value);
+    setSetupReviewed(false);
+    setPackageMessage("Review the setup ZIP contents and dependencies before downloading.");
   };
   const download = (artifact: PackageArtifact): void => {
     setPackageBusy(true);
@@ -254,8 +269,9 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
               const next = event.currentTarget.value;
               setMainPath(next);
               setPrepared(null);
+              setPreparedSetup(null);
               setInventoryReviewed(false);
-              if (prepared !== null) setPackageMessage("Main file changed. Prepare and review the package again.");
+              setSetupReviewed(false);
             }}
             disabled={packageBusy || mainFiles.length === 0}
           >
@@ -271,8 +287,9 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
             onInput={(event) => {
               setPackageVersion(event.currentTarget.value);
               setPrepared(null);
+              setPreparedSetup(null);
               setInventoryReviewed(false);
-              if (prepared !== null) setPackageMessage("Release version changed. Prepare and review the package again.");
+              setSetupReviewed(false);
             }}
             disabled={packageBusy}
           />
@@ -287,11 +304,10 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
             <div class="tkr-files-package-result">
               <p>{prepared.includedFiles.length} files included; {prepared.excludedFiles.length} excluded.</p>
               <p>Package output: <code>{prepared.package.fileName}</code>; install descriptor: <code>{prepared.descriptor.fileName}</code>.</p>
-              <p>This preflight uses the saved project files from the time it completed, and the downloads carry exactly the bytes reviewed here. The files are offered as ordinary downloads; this page does not write into the project folder, so nothing in the project is replaced.</p>
-              <p>The package and its descriptor are two separate downloads, and the descriptor names the package file. Keep both together under exactly the names shown above. Your browser may rename a download when a file of that name already exists (for example "{prepared.package.fileName} (1)"); if it renames only one of the pair, or either differs from the names above, rename it back (or remove the older copy first) before installing, or the descriptor will not match the package.</p>
-              <p>This page cannot tell whether a folder entry is a link to somewhere else on your computer. Every file that will be packaged is listed in the inventory below; do not use the package if it lists files that do not belong to your game.</p>
+              <p>This preflight uses the saved project files from the time it completed. The setup is an unsigned ZIP, not an installer; it contains no executable or scripts. A browser editor can create and download it, but cannot install or sign it.</p>
+              <p>This page cannot tell whether a folder entry is a link to somewhere else on your computer. Every file that will be packaged is listed in the inventory below; do not use the setup if it lists files that do not belong to your game.</p>
               <details>
-                <summary>Included and excluded file inventory</summary>
+                <summary>Review included and excluded game files</summary>
                 <h4>Included</h4>
                 <ul>{prepared.includedFiles.map((path) => <li key={`in-${path}`}>{path}</li>)}</ul>
                 <h4>Excluded</h4>
@@ -307,12 +323,36 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
                   disabled={packageBusy}
                   onChange={(event) => setInventoryReviewed(event.currentTarget.checked)}
                 />
-                I reviewed the included and excluded files.
+                I reviewed the included and excluded game files.
               </label>
               <div class="tkr-files-package-downloads">
                 <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
                 <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
               </div>
+              {preparedSetup === null ? (
+                <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={buildSetup}>Build setup ZIP for review</button>
+              ) : (
+                <>
+                  <p>Setup file: <code>{preparedSetup.artifact.fileName}</code>. The ZIP contains:</p>
+                  <ul>
+                    <li>{preparedSetup.package.fileName} — the reviewed game package</li>
+                    <li>{preparedSetup.descriptor.fileName} — its SHA-256 and install descriptor</li>
+                    <li>{preparedSetup.instructions.fileName} — install, play and remove instructions</li>
+                  </ul>
+                  <p>Dependencies: none outside these files. The browser uses its normal download destination; cancelling any download leaves the project and existing artifacts unchanged.</p>
+                  <label for={`${ids}-setup-reviewed`}>
+                    <input
+                      id={`${ids}-setup-reviewed`}
+                      type="checkbox"
+                      checked={setupReviewed}
+                      disabled={packageBusy}
+                      onChange={(event) => setSetupReviewed(event.currentTarget.checked)}
+                    />
+                    I reviewed the setup ZIP contents and dependencies.
+                  </label>
+                  <button type="button" disabled={packageBusy || !setupReviewed} onClick={() => download(preparedSetup.artifact)}>Download {preparedSetup.artifact.fileName}</button>
+                </>
+              )}
             </div>
           )}
         </div>

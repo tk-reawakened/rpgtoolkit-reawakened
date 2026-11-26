@@ -52,10 +52,36 @@ function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
   const list = document.createElement("div");
   list.id = "library";
   list.style.cssText = "padding: 0 12px 12px; display: flex; flex-wrap: wrap; gap: 8px;";
+  const install = document.createElement("button");
+  install.type = "button";
+  install.textContent = "Install setup ZIP…";
+  install.addEventListener("click", () => {
+    install.disabled = true;
+    stage.status.textContent = "Choose a reviewed setup ZIP to install. No installer code will run.";
+    void host.installSetup().then(async (result) => {
+      if (result.cancelled) {
+        install.disabled = false;
+        stage.status.textContent = "Installation cancelled; nothing changed.";
+        return;
+      }
+      if (!result.ok) {
+        install.disabled = false;
+        stage.status.textContent = result.message ?? "Setup installation failed.";
+        return;
+      }
+      stage.status.textContent = result.message ?? "Game installed. Saves are preserved.";
+      list.remove();
+      offerLibrary(host, await host.launchInfo(), stage);
+    }).catch((error: unknown) => {
+      stage.status.textContent = `Setup installation failed: ${error instanceof Error ? error.message : String(error)}`;
+      install.disabled = false;
+    });
+  });
+  list.append(install);
   for (const row of info.rows) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = `${row.title} (${row.version})`;
+    button.textContent = `Play ${row.title} (${row.version})`;
     button.addEventListener("click", () => {
       list.remove();
       stage.status.textContent = `opening ${row.title}…`;
@@ -69,9 +95,29 @@ function offerLibrary(host: DesktopHost, info: LaunchInfo, stage: Stage): void {
       });
     });
     list.append(button);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = `Remove ${row.title}`;
+    remove.addEventListener("click", () => {
+      if (!window.confirm(`Remove ${row.title} from this library? The package copy will be removed; saved games will be kept.`)) return;
+      remove.disabled = true;
+      void host.removeGame(row.gameId).then(async (result) => {
+        if (result.ok) {
+          list.remove();
+          offerLibrary(host, await host.launchInfo(), stage);
+          stage.status.textContent = `${row.title} removed. Saved games were kept.`;
+        } else {
+          stage.status.textContent = result.message ?? "Could not remove the game.";
+          remove.disabled = false;
+        }
+      }).catch((error: unknown) => {
+        stage.status.textContent = `Could not remove ${row.title}: ${error instanceof Error ? error.message : String(error)}`;
+        remove.disabled = false;
+      });
+    });
+    list.append(remove);
   }
-  if (info.rows.length === 0) list.remove();
-  else stage.viewport.after(list);
+  stage.viewport.after(list);
 }
 
 /** Boot the live session for one resolved game: the bytes arrive already chosen, whatever rule chose them. */

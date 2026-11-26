@@ -1,15 +1,18 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { deriveGameId, derivePackageIdentity, utf8Encode, writeDistributionPackage, writeZipArchive } from "@tk-reawakened/core";
 import {
   emptyLibrary,
+  installSetupBytes,
   libraryRows,
   parseLibrary,
   readLibraryFile,
   registerPackage,
+  removeInstalledGame,
   sha256Of,
   verifyEntry,
   writeLibraryFile,
@@ -159,4 +162,96 @@ test("the fallback listing carries no hashes or settings", () => {
   deepEqual(libraryRows({ schema: 1, defaultGameId: null, entries: [entry()] }), [
     { gameId: "demo", title: "Demo", version: "1", lastPlayedAt: null },
   ]);
+});
+
+test("a reviewed setup installs only its verified package and removes it without touching saves", () => {
+  const userData = mkdtempSync(join(tmpdir(), "tkr-setup-recipient-"));
+  try {
+    const mainBytes = utf8Encode("authored game");
+    const gameFiles = [{ path: "Main/demo.gam", bytes: mainBytes }];
+    const game = writeDistributionPackage({
+      files: gameFiles,
+      manifest: { schema: 1, main: "Main/demo.gam", index: ["Main/demo.gam"] },
+    });
+    equal(game.ok, true);
+    if (!game.ok) return;
+    const gameId = deriveGameId(mainBytes, derivePackageIdentity(gameFiles));
+    const descriptor = utf8Encode(JSON.stringify({
+      schema: 1, file: "Demo.tpk", sha256: sha256Of(game.value), size: game.value.length,
+      gameId, title: "Demo", version: "1.0",
+    }));
+    const setup = writeZipArchive([
+      { path: "Demo.tpk", bytes: game.value },
+      { path: "Demo.tpk.json", bytes: descriptor },
+      { path: "README.txt", bytes: utf8Encode("Install from the player.") },
+    ]);
+    equal(setup.ok, true);
+    if (!setup.ok) return;
+    const save = join(userData, "saves", gameId, "slot.sav");
+    mkdirSync(join(userData, "saves", gameId), { recursive: true });
+    writeFileSync(save, new Uint8Array([9, 8, 7]));
+    const installed = installSetupBytes({ bytes: setup.value, userData, now: NOW });
+    equal(installed.ok, true);
+    if (!installed.ok) return;
+    equal(installed.gameId, gameId);
+    const packagePath = join(userData, "games", `${gameId}.tpk`);
+    const descriptorPath = `${packagePath}.json`;
+    deepEqual(new Uint8Array(readFileSync(packagePath)), game.value);
+    deepEqual(JSON.parse(readFileSync(descriptorPath, "utf8")), {
+      schema: 1, file: `${gameId}.tpk`, sha256: sha256Of(game.value), size: game.value.length,
+      gameId, title: "Demo", version: "1.0",
+    });
+    const entry = installed.registry.entries[0]!;
+    equal(verifyEntry(entry, new Uint8Array(readFileSync(packagePath))).ok, true);
+    const secondInstall = installSetupBytes({ bytes: setup.value, userData, now: NOW });
+    equal(secondInstall.ok, true, "install is idempotent");
+    const removed = removeInstalledGame({ userData, gameId });
+    equal(removed.ok, true);
+    if (!removed.ok) return;
+    deepEqual(removed.registry.entries, []);
+    equal(existsSync(packagePath), false);
+    equal(existsSync(descriptorPath), false);
+    deepEqual(new Uint8Array(readFileSync(save)), new Uint8Array([9, 8, 7]));
+    const secondRemove = removeInstalledGame({ userData, gameId });
+    equal(secondRemove.ok, true, "remove is idempotent");
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test("setup install rejects extra paths and tampered descriptors before writing", () => {
+  const userData = mkdtempSync(join(tmpdir(), "tkr-setup-reject-"));
+  try {
+    const packageBytes = writeDistributionPackage({
+      files: [{ path: "Main/demo.gam", bytes: utf8Encode("game") }],
+      manifest: { schema: 1, main: "Main/demo.gam", index: ["Main/demo.gam"] },
+    });
+    equal(packageBytes.ok, true);
+    if (!packageBytes.ok) return;
+    const descriptor = utf8Encode(JSON.stringify({
+      schema: 1, file: "Demo.tpk", sha256: sha256Of(packageBytes.value), size: packageBytes.value.length,
+      gameId: "demo", title: "Demo", version: "1",
+    }));
+    const extra = writeZipArchive([
+      { path: "Demo.tpk", bytes: packageBytes.value },
+      { path: "Demo.tpk.json", bytes: descriptor },
+      { path: "README.txt", bytes: utf8Encode("help") },
+      { path: "nested/escape.bin", bytes: utf8Encode("not extracted") },
+    ]);
+    equal(extra.ok, true);
+    if (!extra.ok) return;
+    equal(installSetupBytes({ bytes: extra.value, userData, now: NOW }).ok, false);
+    const mismatch = writeZipArchive([
+      { path: "Demo.tpk", bytes: packageBytes.value },
+      { path: "Demo.tpk.json", bytes: utf8Encode(JSON.stringify({ schema: 1, file: "Demo.tpk", sha256: "0".repeat(64), size: packageBytes.value.length, gameId: "demo", title: "Demo", version: "1" })) },
+      { path: "README.txt", bytes: utf8Encode("help") },
+    ]);
+    equal(mismatch.ok, true);
+    if (!mismatch.ok) return;
+    equal(installSetupBytes({ bytes: mismatch.value, userData, now: NOW }).ok, false);
+    equal(existsSync(join(userData, "library.json")), false);
+    equal(existsSync(join(userData, "games")), false);
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
 });

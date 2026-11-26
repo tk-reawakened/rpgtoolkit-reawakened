@@ -20,7 +20,7 @@
  * the exception and its inventory check are recorded once for both applications in ADR 0013.
  */
 
-import { app, BrowserWindow, ipcMain, protocol, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen } from "electron";
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
@@ -28,7 +28,7 @@ import { pathToFileURL } from "node:url";
 
 import type { LaunchInfo } from "@tk-reawakened/runner-web";
 
-import { libraryRows, readLibraryFile, verifyEntry } from "./library.ts";
+import { installSetupBytes, libraryRows, readLibraryFile, removeInstalledGame, verifyEntry } from "./library.ts";
 import { argumentValue, deepLinkFromArgv, deepLinkPath, resolveLaunchTarget, type LaunchResolution } from "./launch.ts";
 import { quitPlayer, quitWhenLastWindowCloses } from "./lifecycle.ts";
 import { trackPlayerFullscreen } from "./fullscreen.ts";
@@ -196,6 +196,35 @@ function blobRoot(area: "saves" | "files"): string {
 }
 
 function registerIpc(): void {
+  // Setup ZIP installation is data-only: validate in memory, then copy the one verified TPK into the library.
+  ipcMain.handle("desktop:setup.install", async (): Promise<{ readonly ok: boolean; readonly cancelled?: boolean; readonly message?: string }> => {
+    const selected = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [{ name: "RPG Toolkit setup ZIP", extensions: ["zip"] }],
+    });
+    if (selected.canceled || selected.filePaths[0] === undefined) return { ok: true, cancelled: true };
+    const path = selected.filePaths[0];
+    try {
+      const size = statSync(path).size;
+      if (!Number.isSafeInteger(size) || size < 0 || size > 256 * 1024 * 1024) {
+        return { ok: false, message: "Setup ZIP exceeds the 256 MiB input limit; nothing was installed." };
+      }
+      const installed = installSetupBytes({
+        bytes: new Uint8Array(readFileSync(path)),
+        userData: app.getPath("userData"),
+        now: new Date().toISOString(),
+      });
+      return installed.ok
+        ? { ok: true, message: `Installed ${installed.registry.entries.find((entry) => entry.gameId === installed.gameId)?.title ?? installed.gameId}. Saves are preserved.` }
+        : { ok: false, message: installed.error };
+    } catch (error) {
+      return { ok: false, message: `Could not install setup ZIP: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  });
+  ipcMain.handle("desktop:library.remove", (_event, gameId: string) => {
+    const removed = removeInstalledGame({ userData: app.getPath("userData"), gameId });
+    return removed.ok ? { ok: true } : { ok: false, message: removed.error };
+  });
   // The bytes for the game this launch opens; `gameId` picks a library entry the page offered. A resolution that refuses
   // a package (a hash or size mismatch, a missing file) rejects, so the page shows the reason instead of a blank canvas.
   ipcMain.handle("desktop:launch", (_event, gameId: string | null): OpenedGame | null => openGame(gameId ?? null));

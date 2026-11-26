@@ -1,11 +1,13 @@
 import { expect, test, _electron as electron } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { electronBinary } from "../../desktop/electron-binary.mjs";
+import { deriveGameId, derivePackageIdentity, writeDistributionPackage, writeZipArchive } from "@tk-reawakened/core";
+import { installSetupBytes } from "../../../packages/runner-desktop/src/library.ts";
 
 /**
  * Entry 9.10's two acceptance limbs that need a real host:
@@ -34,6 +36,7 @@ declare global {
     __frame?: Frame | null;
     __parity?: ParityFrame;
     __live?: LiveState;
+    desktop?: { openPackage(gameId: string): Promise<{ name: string; bytes: Uint8Array; descriptor: unknown } | null> };
   }
 }
 
@@ -168,6 +171,88 @@ test("a cold start with nothing configured lists the installed games and opens t
     expect(live.tick).toBeGreaterThan(30);
   } finally {
     await player.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+test("a clean setup recipient installs, opens, and removes a game without deleting saves", async () => {
+  test.setTimeout(180_000);
+  const sourceRoot = join(root, "docs/spec/examples/game");
+  const files: { path: string; bytes: Uint8Array }[] = [];
+  const collect = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      const sourcePath = absolute.slice(sourceRoot.length + 1).split(sep).join("/");
+      const path = sourcePath.startsWith("Game/Example/") ? sourcePath.slice("Game/Example/".length) : sourcePath;
+      if (entry.isDirectory()) {
+        if (path !== "Saved" && !path.startsWith("Saved/") && path !== ".tkr-history" && !path.startsWith(".tkr-history/")) collect(absolute);
+      } else if (entry.isFile()) files.push({ path, bytes: new Uint8Array(readFileSync(absolute)) });
+    }
+  };
+  collect(sourceRoot);
+  files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const game = writeDistributionPackage({
+    files,
+    manifest: { schema: 1, main: "Main/example.gam", index: files.map(({ path }) => path) },
+  });
+  expect(game.ok).toBe(true);
+  if (!game.ok) throw new Error(game.error.message);
+  const mainBytes = files.find((file) => file.path === "Main/example.gam")?.bytes;
+  if (mainBytes === undefined) throw new Error("the recipient fixture has no example main program");
+  const gameId = deriveGameId(mainBytes, derivePackageIdentity(files));
+  const descriptor = new TextEncoder().encode(JSON.stringify({
+    schema: 1,
+    file: "Recipient-Proof.tpk",
+    sha256: createHash("sha256").update(game.value).digest("hex"),
+    size: game.value.length,
+    gameId,
+    title: "Recipient Proof",
+    version: "1.0",
+  }));
+  const setup = writeZipArchive([
+    { path: "Recipient-Proof.tpk", bytes: game.value },
+    { path: "Recipient-Proof.tpk.json", bytes: descriptor },
+    { path: "README.txt", bytes: new TextEncoder().encode("Install this reviewed setup in the player.") },
+  ]);
+  expect(setup.ok).toBe(true);
+  if (!setup.ok) throw new Error(setup.error.message);
+
+  const dataDir = mkdtempSync(join(tmpdir(), "tkr-setup-recipient-"));
+  const savePath = join(dataDir, "saves", gameId, "slot.sav");
+  const saveBytes = Buffer.from([9, 8, 7]);
+  mkdirSync(dirname(savePath), { recursive: true });
+  writeFileSync(savePath, saveBytes);
+  let player: { close(): Promise<void> } | undefined;
+  try {
+    const installed = installSetupBytes({ bytes: setup.value, userData: dataDir, now: "2026-11-10T00:00:00.000Z" });
+    expect(installed.ok).toBe(true);
+    if (!installed.ok) throw new Error(installed.error);
+    const installedPackage = join(dataDir, "games", `${gameId}.tpk`);
+    expect(readFileSync(installedPackage)).toEqual(Buffer.from(game.value));
+    expect(readFileSync(savePath)).toEqual(saveBytes);
+
+    player = await launchPlayer("packages/runner-desktop/app/player.html", dataDir, null);
+    let window = await player.firstWindow();
+    await expect(window.getByRole("button", { name: "Play Recipient Proof (1.0)" })).toBeVisible();
+    const opened = await window.evaluate(async (id) => {
+      const result = await window.desktop?.openPackage(id);
+      return result === null || result === undefined ? null : { name: result.name, size: result.bytes.byteLength, descriptor: result.descriptor };
+    }, gameId);
+    expect(opened?.name).toBe(`${gameId}.tpk`);
+    expect(opened?.size).toBe(game.value.length);
+    expect(opened?.descriptor).toMatchObject({ gameId, file: `${gameId}.tpk`, sha256: createHash("sha256").update(game.value).digest("hex") });
+
+    await player.close();
+    player = await launchPlayer("packages/runner-desktop/app/player.html", dataDir, null);
+    window = await player.firstWindow();
+    await expect(window.getByRole("button", { name: "Remove Recipient Proof" })).toBeVisible({ timeout: 60_000 });
+    window.on("dialog", (dialog) => dialog.accept());
+    await window.getByRole("button", { name: "Remove Recipient Proof" }).click();
+    await expect(window.locator("#live-status")).toContainText("Saved games were kept.", { timeout: 60_000 });
+    expect(existsSync(installedPackage)).toBe(false);
+    expect(JSON.parse(readFileSync(join(dataDir, "library.json"), "utf8")).entries).toEqual([]);
+    expect(readFileSync(savePath)).toEqual(saveBytes);
+  } finally {
+    await player?.close();
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
