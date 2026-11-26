@@ -325,7 +325,7 @@ All of it waits on editor-foundation (#1357) for `editor-model`, `editor-ui` and
 2. **Wall caps without roles.** Is the "Generate wall caps" heuristic wanted at all, or roles only?
 3. **Default open-loop form.** Is an open polyline for a room's outer wall acceptable, or should the outer region be emitted as closed polygons around the solid area (more vectors, same behaviour)?
 4. **Iso tall props.** Which option in §11, and when?
-5. **Autotile variant order.** Still the spine's open question; needed only for legacy-ordered export.
+5. **Autotile variant order.** Resolved 2026-11-26: the 52-slot table in [autotiling.md](../../../../docs/spec/editor/autotiling.md); needed only for legacy import and export.
 
 ## Sources
 

@@ -1514,25 +1514,29 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   expect(run?.player).toEqual({ x: 48, y: 63 });
   expect(run?.stateHash).toMatch(/^[a-f0-9]{16}$/);
   const assertAuthoredTilePixels = async (): Promise<void> => {
-    const colors = await page.evaluate(() => {
-      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
-      const screen = frame?.contentDocument?.querySelector<HTMLCanvasElement>("#screen");
-      const gl = screen?.getContext("webgl2");
-      if (!screen || !gl) return null;
-      const width = gl.drawingBufferWidth;
-      const height = gl.drawingBufferHeight;
-      const pixels = new Uint8Array(width * height * 4);
-      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      let orange = 0;
-      let olive = 0;
-      for (let index = 0; index < pixels.length; index += 4) {
-        if (pixels[index] === 255 && pixels[index + 1] === 128 && pixels[index + 2] === 0) orange += 1;
-        if (pixels[index] === 56 && pixels[index + 1] === 64 && pixels[index + 2] === 32) olive += 1;
-      }
-      return { orange, olive };
-    });
-    expect(colors?.orange, "the authored palette-42 tile pixels must be rendered").toBeGreaterThan(10_000);
-    expect(colors?.olive, "the authored palette-213 tile pixels must be rendered").toBeGreaterThan(10_000);
+    // The runner draws on its own frames, so a single read can land on a partly drawn buffer (#3504).
+    // Re-read until both colours pass, within a bounded, backed-off window; the threshold is unchanged.
+    await expect(async () => {
+      const colors = await page.evaluate(() => {
+        const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+        const screen = frame?.contentDocument?.querySelector<HTMLCanvasElement>("#screen");
+        const gl = screen?.getContext("webgl2");
+        if (!screen || !gl) return null;
+        const width = gl.drawingBufferWidth;
+        const height = gl.drawingBufferHeight;
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let orange = 0;
+        let olive = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index] === 255 && pixels[index + 1] === 128 && pixels[index + 2] === 0) orange += 1;
+          if (pixels[index] === 56 && pixels[index + 1] === 64 && pixels[index + 2] === 32) olive += 1;
+        }
+        return { orange, olive };
+      });
+      expect(colors?.orange, "the authored palette-42 tile pixels must be rendered").toBeGreaterThan(10_000);
+      expect(colors?.olive, "the authored palette-213 tile pixels must be rendered").toBeGreaterThan(10_000);
+    }).toPass({ timeout: 15_000, intervals: [100, 250, 500, 1_000] });
   };
   await assertAuthoredTilePixels();
   await page.getByRole("tab", { name: scriptPath }).click();
