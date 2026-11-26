@@ -41,12 +41,14 @@ test("custom editor change notifications reach each registered view type without
   for (const subscription of subscriptions) subscription.dispose();
   equal(sourceListeners.length, 0);
 });
-void test("coalesced edit keys are namespaced by the owning webview", () => {
+void test("coalesced edit keys are namespaced only when string-valued", () => {
   const edit = { type: "edit", command: { type: "edit-field" }, requestId: "edit-1", coalesce: "fight background:music:1" } as const;
   const firstRealm = scopeEditorHostRequest(edit, "webview:1");
   const secondRealm = scopeEditorHostRequest(edit, "webview:2");
   if (firstRealm.type !== "edit" || secondRealm.type !== "edit") throw new Error("edit request lost its discriminant");
   equal(firstRealm.coalesce, "webview:1:fight background:music:1");
   equal(secondRealm.coalesce, "webview:2:fight background:music:1");
+  const invalidEdit = { ...edit, coalesce: Symbol("invalid") } as unknown as typeof edit;
+  equal(scopeEditorHostRequest(invalidEdit, "webview:1"), invalidEdit);
   equal(scopeEditorHostRequest({ type: "ready" }, "webview:1").type, "ready");
 });

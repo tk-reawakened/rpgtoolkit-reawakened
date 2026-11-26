@@ -192,7 +192,9 @@ test("a fight background resolves assets, auditions real media, routes palette a
   await expect(openImage).toBeEnabled();
   await openImage.click();
   await expect(page.locator('[data-tkr-editor="Tile bitmap"]')).toBeVisible();
-  await expect(page.getByRole("tab", { name: /forest\.tbm/ }).first()).toBeVisible();
+  const bitmapTab = page.getByRole("tab", { name: imagePath, exact: true });
+  await expect(bitmapTab).toBeVisible();
+  await expect(bitmapTab).toHaveAttribute("aria-selected", "true");
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
   for (const [label, key] of BKG_FIELDS) await retype(page, `${label} file`, BKG_VALUES[key]);
   await expect(editor.getByRole("button", { name: "Play battle music" })).toBeVisible();

@@ -169,7 +169,7 @@ export interface BridgedDocument {
 }
 
 export function scopeEditorHostRequest(request: EditorHostRequest, scope: string): EditorHostRequest {
-  return request.type === "edit" && request.coalesce !== undefined
+  return request.type === "edit" && typeof request.coalesce === "string"
     ? { ...request, coalesce: `${scope}:${request.coalesce}` }
     : request;
 }
