@@ -87,3 +87,19 @@ void test("rejects unchanged and malformed edits without changing the source", (
   equal(bad.problems[0]!.kind, "edit");
   equal(readSkin(SOURCE).ok, true);
 });
+
+void test("refuses to rewrite a shared anchored reference that an alias would also change", () => {
+  const shared = SOURCE.replace("windowImage: bitmap/old-window.png", "windowImage: &shared bitmap/old-window.png")
+    .replace("buttonImage: 'bitmap/old-button.bmp' # existing button", "buttonImage: *shared");
+  const read = readSkin(shared);
+  ok(read.ok);
+  equal(read.skin.buttonImage, "bitmap/old-window.png");
+  const edit = setSkinImage(shared, "windowImage", "bitmap/new-window.png");
+  ok(!edit.ok);
+  equal(edit.problems[0]!.kind, "edit");
+  match(edit.problems[0]!.message, /anchored as &shared/);
+  // The button's own anchored reference is refused from the other side, too: an alias is never rewritten.
+  const aliased = setSkinImage(shared.replace(/windowImage: &shared [^\n]*/, "windowImage: &shared bitmap/old-window.png"), "buttonImage", "bitmap/new-button.png");
+  ok(!aliased.ok);
+  match(aliased.problems[0]!.message, /cannot be safely replaced in place/);
+});

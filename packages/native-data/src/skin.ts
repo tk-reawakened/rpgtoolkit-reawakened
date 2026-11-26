@@ -130,6 +130,10 @@ export function setSkinImage(text: string, field: SkinImageField, reference: str
   if (value === null || value === undefined || !isScalar(value) || value.type === "BLOCK_FOLDED" || value.type === "BLOCK_LITERAL") {
     return { ok: false, problems: [problem(field, "the image reference cannot be safely replaced in place", "edit")] };
   }
+  // An anchored value may be named by an alias elsewhere: rewriting this one scalar would silently change the other role.
+  if (value.anchor !== undefined) {
+    return { ok: false, problems: [problem(field, `the image reference is anchored as &${value.anchor} and may be shared by an alias; edit the source text instead`, "edit")] };
+  }
   const [start, end] = rangeOf(value);
   if (text.slice(start, end).includes("\n")) return { ok: false, problems: [problem(field, "the image reference spans multiple lines and cannot be safely replaced", "edit")] };
   const edited = applySplices(text, [{ start, end, text: scalarText(reference, value) }]);
