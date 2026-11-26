@@ -144,20 +144,21 @@ test("the linked status effect opens in its own editor, saves there, and the way
   } finally { bench.dispose(); }
 });
 
-test("Open hands over the exact file the form checked: a WAV named .prg in Media opens at that path, not a rewritten Prg path (#3589)", async () => {
+test("Open hands over the exact openable program file path checked from Media, not a rewritten Prg path (#3589)", async () => {
   const { root, web, element, bench } = await open();
   const BKG = "Game/Example/Bkrounds/forest.bkg";
-  const TONE = "Game/Example/Media/tone.prg";
+  const PROGRAM = "Game/Example/Media/tone.prg";
   try {
     root.put(BKG, example("Bkrounds/forest.bkg"));
-    root.put(TONE, new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]));
+    root.put(PROGRAM, new TextEncoder().encode('message("hello")\n'));
     await bench.openPath(BKG);
     await until(() => editor(element)?.getAttribute("data-tkr-editor") === "Fight background", "the fight background editor is in the slot");
     await type(field(element, "Battle music file"), "tone.prg");
     await until(() => !button(element, "Open battle music").disabled, "the checked file enables Open");
     await click(button(element, "Open battle music"));
     await until(() => web.workspace.documents().length === 2, "the checked file opened as its own document");
-    deepEqual(web.workspace.documents().map((document) => document.identity.path).sort(), [BKG, TONE], "the exact checked path opened");
+    deepEqual(web.workspace.documents().map((document) => document.identity.path).sort(), [BKG, PROGRAM], "the exact checked path opened");
+    deepEqual(root.read(PROGRAM), new TextEncoder().encode('message("hello")\n'), "the program bytes were not rewritten");
     equal(element.textContent?.includes("Game/Prg/"), false, "no reserved-folder rewrite was tried");
   } finally { bench.dispose(); }
 });
