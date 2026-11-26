@@ -5,6 +5,8 @@ import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } 
 import type { ProjectLayout } from "@tk-reawakened/editor-model";
 declare function acquireVsCodeApi(): VscodeApi;
 async function layoutForDocument(remote: RemoteDocument): Promise<ProjectLayout> {
+  // Standalone native-text providers do not handle browser-list requests; these views do not need a project layout.
+  if (remote.kind === "native-clip" || remote.kind === "native-tile" || remote.kind === "native-asset-pack") return { projectFolder: "" };
   const fs = {
     list: (path: string) => remote.browserList(path),
     readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
