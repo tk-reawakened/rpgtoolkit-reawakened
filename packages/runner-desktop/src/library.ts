@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-import { deriveGameId, derivePackageIdentity, loadPackage, locateZipDirectory, PACKAGE_LIMITS, readDistributionManifest, readZip, readZipDirectory, utf8Decode, utf8Encode } from "@tk-reawakened/core";
+import { deriveGameId, derivePackageIdentity, loadPackage, locateZipDirectory, readDistributionManifest, readZip, readZipDirectory, utf8Decode, utf8Encode, zipTailRange } from "@tk-reawakened/core";
 import type { LibraryRow } from "./launch.ts";
 
 export const LIBRARY_SCHEMA = 1;
@@ -191,8 +191,8 @@ export function installSetupBytes(options: {
   readonly userData: string;
   readonly now: string;
 }): { readonly ok: true; readonly registry: LibraryRegistry; readonly gameId: string } | { readonly ok: false; readonly error: string } {
-  const tailBytes = Math.min(options.bytes.length, PACKAGE_LIMITS.eocdSearchBytes);
-  const located = locateZipDirectory(options.bytes.subarray(options.bytes.length - tailBytes), options.bytes.length, "setup ZIP");
+  const tail = zipTailRange(options.bytes.length);
+  const located = locateZipDirectory(options.bytes.subarray(tail.start, tail.end), options.bytes.length, "setup ZIP");
   if (!located.ok) return { ok: false, error: `Setup ZIP was refused: ${located.error.message}` };
   const directory = readZipDirectory(options.bytes.subarray(located.value.cdOffset), located.value, options.bytes.length, "setup ZIP");
   if (!directory.ok) return { ok: false, error: `Setup ZIP was refused: ${directory.error.message}` };

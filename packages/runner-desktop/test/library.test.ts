@@ -441,3 +441,44 @@ test("setup install refuses extra paths, directory entries, and each tampered de
     rmSync(userData, { recursive: true, force: true });
   }
 });
+
+test("a setup ZIP larger than the ZIP tail window still installs", () => {
+  const userData = mkdtempSync(join(tmpdir(), "tkr-setup-large-"));
+  try {
+    // A deterministic high-entropy payload: neither the package nor the setup ZIP can compress it away.
+    const payload = new Uint8Array(70 * 1024);
+    let state = 0x2545f491;
+    for (let index = 0; index < payload.length; index += 1) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      payload[index] = state & 0xff;
+    }
+    const mainBytes = utf8Encode("large game");
+    const gameFiles = [{ path: "Main/demo.gam", bytes: mainBytes }, { path: "Bitmap/noise.tbm", bytes: payload }];
+    const game = writeDistributionPackage({
+      files: gameFiles,
+      manifest: { schema: 1, main: "Main/demo.gam", index: gameFiles.map(({ path }) => path) },
+    });
+    if (!game.ok) throw new Error(game.error.message);
+    const gameId = deriveGameId(mainBytes, derivePackageIdentity(gameFiles));
+    const descriptor = utf8Encode(JSON.stringify({
+      schema: 1, file: "Large.tpk", sha256: sha256Of(game.value), size: game.value.length,
+      gameId, title: "Large", version: "1.0",
+    }));
+    const setup = writeZipArchive([
+      { path: "Large.tpk", bytes: game.value },
+      { path: "Large.tpk.json", bytes: descriptor },
+      { path: "README.txt", bytes: utf8Encode("Install from the player.") },
+    ]);
+    if (!setup.ok) throw new Error(setup.error.message);
+    // Larger than the end-of-central-directory search window plus its ZIP64 margin: the locator must get the whole tail.
+    equal(setup.value.length > 65_577, true, "the fixture must exceed the ZIP tail window");
+    const installed = installSetupBytes({ bytes: setup.value, userData, now: NOW });
+    equal(installed.ok, true, installed.ok ? "" : installed.error);
+    equal(installed.ok ? installed.gameId : "", gameId);
+    deepEqual(new Uint8Array(readFileSync(join(userData, "games", `${gameId}.tpk`))), game.value);
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
+});

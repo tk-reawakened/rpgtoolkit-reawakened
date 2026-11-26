@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { createDocumentWorkspace, prepareGamePackage, type PreparedGamePackage } from "@tk-reawakened/editor-model";
 import type { PackageDestinationKind } from "./package-save.ts";
+import { dirtyPackagingDocuments } from "./packaging-inputs.ts";
 import { createVscodeServices } from "./services.ts";
 
 /** How a host answers "what is already at this output path". */
@@ -28,6 +29,8 @@ export async function ensureExportParent(projectRoot: vscode.Uri, uri: vscode.Ur
 export function siblingUri(uri: vscode.Uri, name: string): vscode.Uri {
   return uri.with({ path: `${uri.path.slice(0, uri.path.lastIndexOf("/") + 1)}${name}` });
 }
+
+export { dirtyPackagingDocuments } from "./packaging-inputs.ts";
 
 /** The last path segment, as the host sees it. */
 export function fileNameOf(uri: vscode.Uri): string {
@@ -75,14 +78,25 @@ export async function preflightGamePackage(
     validateInput: (value) => value.trim().length === 0 ? "Enter a release version." : value.length > 128 ? "Use 128 characters or fewer." : undefined,
   });
   if (releaseVersion === undefined) return undefined;
-  if (!await vscode.workspace.saveAll(true)) {
-    void vscode.window.showErrorMessage("Save open files before packaging the game.");
-    return undefined;
-  }
 
   const services = createVscodeServices(folder.uri, context, () => 0);
   const workspace = createDocumentWorkspace({ projectId: folder.uri.toString(), services });
   try {
+    // Packaging reads saved files; it must never save for the author. A save would commit edits the author cancelled
+    // packaging to keep unsaved, so refuse and name what has to be saved first. Native text editors are tracked by VS
+    // Code rather than by the editor model, so both are consulted.
+    const unsavedPaths = new Set(dirtyPackagingDocuments(workspace.documents()));
+    for (const textDocument of vscode.workspace.textDocuments) {
+      if (!textDocument.isDirty || textDocument.isUntitled) continue;
+      const owner = vscode.workspace.getWorkspaceFolder(textDocument.uri);
+      if (owner === undefined || owner.uri.toString() !== folder.uri.toString()) continue;
+      unsavedPaths.add(vscode.workspace.asRelativePath(textDocument.uri, false));
+    }
+    const unsaved = [...unsavedPaths];
+    if (unsaved.length > 0) {
+      void vscode.window.showErrorMessage(`Save these open documents before packaging: ${unsaved.join(", ")}. Packaging does not save them for you.`);
+      return undefined;
+    }
     const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
     if (!prepared.ok) {
       void vscode.window.showErrorMessage(prepared.message);

@@ -104,15 +104,17 @@ test("a setup write stages beside the destination, then renames the finished fil
 
 test("a failed setup write or rename keeps the previous ZIP and removes only its staging file", async () => {
   const writeFailure = new Map<string, string>([["out/game.setup.zip", "previous setup"]]);
+  const removedAfterWrite: string[] = [];
   const writePort: SetupWritePort<string> = {
     write: async (staging) => { writeFailure.set(staging, "partial"); throw new Error("disk full"); },
     rename: async () => { throw new Error("the rename must not run after a failed write"); },
-    remove: async (staging) => { writeFailure.delete(staging); },
+    remove: async (staging) => { removedAfterWrite.push(staging); writeFailure.delete(staging); },
     stagingName: () => "game.setup.zip.partial-fixed",
     sibling: (destination, name) => `${destination.slice(0, destination.lastIndexOf("/") + 1)}${name}`,
   };
   await rejects(() => replaceSetupFile(writePort, "out/game.setup.zip", new TextEncoder().encode("new setup")), /disk full/);
   equal(writeFailure.get("out/game.setup.zip"), "previous setup", "the destination is untouched by a failed write");
+  deepEqual(removedAfterWrite, ["out/game.setup.zip.partial-fixed"], "a partial archive written by this save is removed");
 
   const renameFailure = new Map<string, string>([["out/game.setup.zip", "previous setup"]]);
   const removed: string[] = [];

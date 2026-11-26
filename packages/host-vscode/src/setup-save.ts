@@ -36,11 +36,12 @@ export async function replaceSetupFile<Destination>(
   bytes: Uint8Array,
 ): Promise<void> {
   const staging = port.sibling(destination, port.stagingName(destination));
-  await port.write(staging, bytes);
   try {
+    await port.write(staging, bytes);
     await port.rename(staging, destination);
   } catch (error) {
-    try { await port.remove(staging); } catch { /* Only the staging file this save created. */ }
+    // The staging name belongs to this save, whether the write failed part-way or the rename was refused.
+    try { await port.remove(staging); } catch { /* Removing a staging file that never appeared is not a second failure. */ }
     throw error;
   }
 }
