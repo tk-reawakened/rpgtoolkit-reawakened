@@ -396,15 +396,30 @@ export async function runVscodeBoardUpgradeProof(
     throw new Error("The fetched village board must be a tile-coordinate vector board");
   }
 
+  await openNativeQuickOpenFile(page, expect, legacyCopyPath);
+  await expect(page.getByRole("tab", { name: /red\.upgraded\.brd/ })).toBeVisible();
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
-  // The browser may restore earlier custom-editor tabs after navigation; close them before reopening a single board preview.
-  const restoredBoardTabs = page.getByRole("tab", { name: /\.brd/ });
+  const restoredBoardTabs = page.locator('[role="tab"][data-resource-name$=".brd"]');
+  await expect(restoredBoardTabs.first()).toBeVisible();
   while (await restoredBoardTabs.count() > 0) {
     const restoredBoardTab = restoredBoardTabs.first();
-    await restoredBoardTab.getByRole("button", { name: /^Close/ }).click();
-    await expect(restoredBoardTab).toHaveCount(0);
+    const resourceName = await restoredBoardTab.getAttribute("data-resource-name");
+    if (resourceName === null) throw new Error("Restored board tab has no logical data-resource-name identity");
+    await restoredBoardTab.click();
+    await expect(restoredBoardTab).toHaveAttribute("aria-selected", "true");
+    const restoredBoardTabCount = await restoredBoardTabs.count();
+    // The tab intercepts clicks on its close affordance in the VS Code web host (#3491).
+    await closeActiveEditor(page, expect);
+    await expect.poll(async () =>
+      page.getByRole("tab").evaluateAll((tabs, expectedResourceName) =>
+        tabs.some((tab) => tab.getAttribute("data-resource-name") === expectedResourceName),
+        resourceName,
+      ),
+    ).toBe(false);
+    await expect(restoredBoardTabs).toHaveCount(restoredBoardTabCount - 1);
   }
+  await expect(restoredBoardTabs).toHaveCount(0);
   await openNativeQuickOpenFile(page, expect, sourcePath);
   let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
