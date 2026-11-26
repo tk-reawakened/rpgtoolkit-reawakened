@@ -15,14 +15,18 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
+    "onCustomEditor:tkr.battleData",
     "onCustomEditor:tkr.font",
     "onCustomEditor:tkr.nativeClip",
     "onCustomEditor:tkr.nativeScene",
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
-    "onCommand:tkr.importBoardAsScene",
+    "onCommand:tkr.upgradeBoardStackedToRotated",
+    "onCommand:tkr.upgradeBoardTileToPixel",
+    "onCommand:tkr.upgradePreVectorBoard",
     "onCommand:tkr.packageGame",
     "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
@@ -78,6 +82,10 @@
         "title": "RPG Toolkit: Test Program"
       },
       {
+        "command": "tkr.visualEvents.show",
+        "title": "RPG Toolkit: Show Visual events"
+      },
+      {
         "command": "tkr.runSavedTests",
         "title": "RPG Toolkit: Run saved tests"
       },
@@ -88,6 +96,18 @@
       {
         "command": "tkr.importBoardAsScene",
         "title": "RPG Toolkit: Import board as scene…"
+      },
+      {
+        "command": "tkr.upgradeBoardStackedToRotated",
+        "title": "RPG Toolkit: Convert board from iso-stacked to iso-rotated…"
+      },
+      {
+        "command": "tkr.upgradeBoardTileToPixel",
+        "title": "RPG Toolkit: Convert board from tile to pixel coordinates…"
+      },
+      {
+        "command": "tkr.upgradePreVectorBoard",
+        "title": "RPG Toolkit: Upgrade pre-vector board…"
       },
       {
         "command": "tkr.newProject",
@@ -245,6 +265,19 @@
         "selector": [
           {
             "filenamePattern": "*.anm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.battleData",
+        "displayName": "RPG Toolkit Special Move and Status Effect Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.spc"
+          },
+          {
+            "filenamePattern": "*.ste"
           }
         ],
         "priority": "default"

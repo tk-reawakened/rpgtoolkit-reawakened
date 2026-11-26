@@ -1,5 +1,5 @@
 import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
-import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyOptions, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleFailureKind, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
@@ -75,7 +75,7 @@ export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly Ch
 type HistoryDirection = "undo" | "redo";
 type WorkbenchHistoryResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean; readonly saveLocks?: readonly number[] }
   /** A source visit asked for a one-based tile: every live view of this document selects it without changing the document. */
   | { readonly type: "source-target"; readonly tile: number }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
@@ -99,11 +99,13 @@ export type BridgeMessage =
   | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
   | { readonly type: "save-image-result"; readonly requestId: string; readonly result: PlatformResult<boolean> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
-  | { readonly type: "settle"; readonly requestId: string };
+  | { readonly type: "settle"; readonly requestId: string; readonly reason?: SettleReason; readonly saveLock?: number }
+  /** The save the host locked this view for is over: text entry is allowed again. */
+  | { readonly type: "unlock"; readonly saveLock: number };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
-  | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
+  | { readonly type: "edit"; readonly command: unknown; readonly requestId: string; readonly coalesce?: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "workbench-history"; readonly requestId: string; readonly direction: HistoryDirection }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
@@ -122,20 +124,24 @@ export type EditorHostRequest =
   | { readonly type: "animation-action"; readonly requestId: string; readonly action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore"; readonly id?: string; readonly command?: AnimationCommand; readonly bitmaps?: readonly AnimationBitmap[] }
   /** Import this saved board as a native scene. The document's own identity is the only source; a webview sends no path. */
   | { readonly type: "import-as-scene"; readonly requestId: string }
+  | { readonly type: "run-board-upgrade"; readonly requestId: string; readonly operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector" }
   | { readonly type: "save-image"; readonly requestId: string; readonly fileName: string; readonly bytes: Uint8Array }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
-  | { readonly type: "settled"; readonly requestId: string };
+  | { readonly type: "settled"; readonly requestId: string; readonly ok?: boolean; readonly message?: string; readonly kind?: SettleFailureKind };
 
 export type VscodeApi = { postMessage(message: EditorHostRequest): void; getState(): unknown; setState(state: unknown): void };
 
 /** What the bridge needs from the extension host's side of one custom document. */
 export interface BridgedDocument {
+  activeSaveLocks?(): readonly number[];
   readonly model: AnyDocument;
   readonly capabilities: readonly Capability[];
   readonly browserSession: BrowserSession;
   browserList(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
   browserRead(path: string): Promise<PlatformResult<Uint8Array>>;
   didEdit(editId: string): void;
+  /** An accepted keystroke continued the latest edit (ADR 0022 D16.2): no new undo entry, but the content changed. */
+  didAmend?(): void;
   saveThroughWorkbench(): Promise<SaveResult>;
   runHistory?(direction: HistoryDirection): Promise<WorkbenchHistoryResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
@@ -155,10 +161,11 @@ export interface BridgedDocument {
   animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
   /** Run the reviewed import of this saved board and open the created scene; only a live board document implements it. */
   importAsScene?(): Promise<PlatformResult<void>>;
+  runBoardUpgrade?(operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): Promise<void>;
   saveImage?(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
-  viewSettled?(requestId: string): void;
+  viewSettled?(requestId: string, settled?: boolean, message?: string, kind?: SettleFailureKind): void;
 }
 
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
@@ -170,6 +177,7 @@ export async function handleEditorHostRequest(
   if (request.type === "ready") {
     const initialBoardPath = await document.initialBoardPath();
     const sourceTile = document.sourceTarget();
+    const saveLocks = document.activeSaveLocks?.();
     await postMessage({
       type: "initialize",
       kind: document.model.kind,
@@ -179,6 +187,7 @@ export async function handleEditorHostRequest(
       boardPreferences: document.boardPreferences(),
       ...(initialBoardPath === undefined ? {} : { initialBoardPath }),
       ...(sourceTile === undefined ? {} : { sourceTile }),
+      ...(saveLocks === undefined || saveLocks.length === 0 ? {} : { saveLocks }),
     });
   } else if (request.type === "set-initial-board") {
     await postMessage({ type: "initial-board-result", requestId: request.requestId, outcome: await document.setInitialBoard(request.path) });
@@ -191,9 +200,12 @@ export async function handleEditorHostRequest(
   } else if (request.type === "edit") {
     // A command is data from a webview: it is applied only if it has the shape of this document's kind (never trust a webview).
     const result: ApplyResult = kindById(document.model.kind)?.isCommand(request.command) === true
-      ? document.model.apply(request.command as never)
+      ? document.model.apply(request.command as never, typeof request.coalesce === "string" ? { coalesce: request.coalesce } : undefined)
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
-    if (result.ok) document.didEdit(result.editId);
+    // An amended edit continues the gesture whose edit VS Code already holds: its undo callback takes back the whole
+    // gesture, and the tab is already unsaved, so no second entry is added (#3385).
+    if (result.ok && result.amended !== true) document.didEdit(result.editId);
+    else if (result.ok) document.didAmend?.();
     // Font snapshots publish through the subscription, independently of acknowledgements. A late reply must not
     // replace a newer snapshot (for example, one produced by native Undo while a reply was in flight).
     if (document.model.kind === "font") await postMessage({ type: "font-edit-result", requestId: request.requestId, result });
@@ -212,7 +224,7 @@ export async function handleEditorHostRequest(
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "settled") {
-    document.viewSettled?.(request.requestId);
+    document.viewSettled?.(request.requestId, request.ok !== false, request.message, request.kind === "held" ? "held" : "incomplete");
   } else if (request.type === "read-project") {
     const result = document.readProject === undefined
       ? platformError("unavailable", "This host cannot read project assets for the animation editor.")
@@ -221,6 +233,8 @@ export async function handleEditorHostRequest(
   } else if (request.type === "animation-action") {
     const result = document.animationAction === undefined ? platformError("unavailable", "Animation recovery is unavailable.") : await document.animationAction(request.action, request.id, request.command, request.bitmaps);
     await postMessage({ type: "animation-action-result", requestId: request.requestId, result });
+  } else if (request.type === "run-board-upgrade") {
+    await document.runBoardUpgrade?.(request.operation);
   } else if (request.type === "import-as-scene") {
     // The board is this document's own identity; a webview cannot name another file, and an error is shown, not swallowed.
     const result = document.importAsScene === undefined
@@ -438,6 +452,8 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
   if (value.type === "workbench-history") return "direction" in value && (value.direction === "undo" || value.direction === "redo");
   if (value.type === "import-as-scene") return true;
+  if (value.type === "run-board-upgrade") return "operation" in value
+    && (value.operation === "stacked-to-rotated" || value.operation === "tile-to-pixel" || value.operation === "pre-vector");
   if (value.type === "save-image") return "fileName" in value && typeof value.fileName === "string" && value.fileName !== ""
     && !/[\\/]/.test(value.fileName) && "bytes" in value && value.bytes instanceof Uint8Array;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
@@ -461,6 +477,7 @@ export class RemoteDocument {
   readonly identity: BridgedSnapshot["identity"];
   readonly browserSession: BrowserSession;
   private readonly listeners = new Set<() => void>();
+  private readonly saveLocks = new Set<number>();
   private readonly pendingEditResults = new Map<string, (result: ApplyResult) => void>();
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
@@ -483,6 +500,7 @@ export class RemoteDocument {
    * preview leaves it out, so its board view offers no import button.
    */
   readonly importAsScene?: () => Promise<PlatformResult<void>>;
+  readonly runUpgradeCommand?: (operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector") => void;
   readonly undo?: () => Promise<WorkbenchHistoryResult>;
   readonly redo?: () => Promise<WorkbenchHistoryResult>;
   /**
@@ -498,7 +516,9 @@ export class RemoteDocument {
   private preferences: EditorPreferences;
   private readonly preferenceListeners = new Set<() => void>();
 
-  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string, live = true) {
+  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string, live = true, saveLocks: readonly number[] = []) {
+    for (const saveLock of saveLocks) this.saveLocks.add(saveLock);
+    if (this.saveLocks.size > 0) this.pendingEdits.lock(true);
     this.preferences = preferences;
     this.boardPreferences = {
       get: () => this.preferences,
@@ -514,6 +534,9 @@ export class RemoteDocument {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
     if (live) this.importAsScene = () => this.requestImportAsScene();
+    if (live && kind === "board") this.runUpgradeCommand = (operation) => {
+      this.vscode.postMessage({ type: "run-board-upgrade", requestId: `upgrade-${++this.nextRequest}`, operation });
+    };
     if (live && kind === "font") {
       this.undo = () => this.requestHistory("undo");
       this.redo = () => this.requestHistory("redo");
@@ -523,11 +546,11 @@ export class RemoteDocument {
   getSnapshot(): BridgedSnapshot { return this.snapshot; }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
 
-  apply(command: unknown): Promise<ApplyResult> {
+  apply(command: unknown, options?: ApplyOptions): Promise<ApplyResult> {
     const requestId = `edit-${++this.nextRequest}`;
     return new Promise((resolve) => {
       this.pendingEditResults.set(requestId, resolve);
-      this.vscode.postMessage({ type: "edit", command, requestId });
+      this.vscode.postMessage({ type: "edit", command, requestId, ...(options?.coalesce === undefined ? {} : { coalesce: options.coalesce }) });
     });
   }
   readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>> {
@@ -667,9 +690,25 @@ export class RemoteDocument {
   }
 
   receive(message: BridgeMessage): void {
+    if (message.type === "unlock") {
+      if (this.saveLocks.delete(message.saveLock) && this.saveLocks.size === 0) this.pendingEdits.lock(false);
+      return;
+    }
     if (message.type === "settle") {
       const requestId = message.requestId;
-      void this.pendingEdits.settle().then(() => this.vscode.postMessage({ type: "settled", requestId }));
+      // A save locks text entry first, so nothing can be typed between what the settlement answers and what is written;
+      // the host unlocks when the save is over.
+      if (message.saveLock !== undefined) {
+        this.saveLocks.add(message.saveLock);
+        this.pendingEdits.lock(true);
+      }
+      // The hand-off answer stays `{ requestId }` when nothing refuses, so #2613's contract is unchanged; a refusal adds
+      // its sentence for the provider to surface instead of saving around the field.
+      void this.pendingEdits.settle(message.reason).then((outcome) => this.vscode.postMessage({
+        type: "settled",
+        requestId,
+        ...(outcome.ok ? {} : { ok: false, kind: outcome.kind, message: outcome.message }),
+      }));
       return;
     }
     if (message.type === "board-preferences") {

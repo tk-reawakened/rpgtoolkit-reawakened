@@ -4,6 +4,9 @@ type Expect = typeof playwrightExpect;
 
 /** Open and pin the exact workspace URI through the probe's native vscode.open command, without requiring a file-search provider. */
 export async function openNativeQuickOpenFile(page: Page, expect: Expect, path: string): Promise<void> {
+  await page.bringToFront();
+  await page.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(100);
   await page.keyboard.press("ControlOrMeta+Shift+P");
   const widget = page.locator(".quick-input-widget");
   const input = widget.locator("input:visible");
@@ -11,7 +14,7 @@ export async function openNativeQuickOpenFile(page: Page, expect: Expect, path: 
   await input.fill(">Test: Open Proof Project File");
   const command = page.getByRole("option", { name: /^Test: Open Proof Project File(?:,|$)/ });
   await expect(command).toHaveCount(1);
-  await command.click();
+  await input.press("Enter");
   await expect(widget).toContainText("Workspace-relative proof file path");
   await input.fill(path);
   await input.press("Enter");

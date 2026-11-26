@@ -5,7 +5,7 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createNativeClipTextEditorProvider } from "./native-clip-text-editor.ts";
 import { createNativeTerrainTextEditorProvider } from "./native-terrain-text-editor.ts";
 import { createNativeGeometryTextEditorProvider } from "./native-geometry-text-editor.ts";
-import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
+import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, owningProjectLayout, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeServices } from "./services.ts";
@@ -16,14 +16,15 @@ import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { registerScriptWorkflowCommands } from "./script-commands.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { registerImportBoardAsScene } from "./import-board-scene.ts";
-import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
+import { registerBoardUpgradeCommands } from "./board-upgrade-commands.ts";
+import { boardPreviewRootForLayout, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
-const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation", "tkr.font"] as const;
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation", "tkr.font", "tkr.battleData"] as const;
 
 /** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
 function activeCustomEditorUri(): vscode.Uri | undefined {
@@ -116,6 +117,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       await vscode.commands.executeCommand(direction);
       return true;
     },
+    runBoardUpgrade: async (uri, operation) => {
+      const id = operation === "stacked-to-rotated" ? "tkr.upgradeBoardStackedToRotated"
+        : operation === "tile-to-pixel" ? "tkr.upgradeBoardTileToPixel" : "tkr.upgradePreVectorBoard";
+      await vscode.commands.executeCommand(id, uri);
+    },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
     hasDirtyTextDocument,
@@ -171,6 +177,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       } finally { nativeRestoreGroups.delete(key); }
     },
     saveEditor: async (uri) => await vscode.workspace.save(uri),
+    autoSaveMode: (uri) => {
+      const mode = vscode.workspace.getConfiguration("files", uri).get<string>("autoSave");
+      return mode === "afterDelay" || mode === "onFocusChange" || mode === "onWindowChange" ? mode : "off";
+    },
     autoSaveDelayMs: (uri) => {
       const files = vscode.workspace.getConfiguration("files", uri);
       return files.get<string>("autoSave") === "afterDelay" ? files.get<number>("autoSaveDelay", 1000) : null;
@@ -201,6 +211,12 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     changes.fire(event);
   });
   registerImportBoardAsScene(context, core, hasDirtyTextDocument);
+  registerBoardUpgradeCommands(context, core, hasDirtyTextDocument, {
+    vscode,
+    activeEditorUri: () => vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri(),
+    fileSystem: createVscodeFileSystem,
+    dialogs: createVscodeDialogs,
+  });
   context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
     const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     if (uri === undefined) {
@@ -321,7 +337,8 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
         const browserSession = createBrowserSession();
         const readOnlyFs = createVscodeFileSystem(folder.uri);
         const projectId = preview.document.identity.projectId;
-        const previewRoot = boardPreviewRootForPath(path);
+        const previewLayout = await owningProjectLayout(readOnlyFs, projectId, path);
+        const previewRoot = boardPreviewRootForLayout(previewLayout);
         const readOnlyPreview = {
           model: preview.document,
           path,
@@ -429,7 +446,14 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
     const workspace = workspaceFor(folder.uri);
-    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createWizardHistory(workspace.checkpoints) });
+    const outcome = await runNewBoard({
+      fs: services.fs,
+      layout: { projectFolder: "" },
+      settings: services.settings,
+      ui,
+      projectId: folder.uri.toString(),
+      history: createWizardHistory(workspace.checkpoints),
+    });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
       return;

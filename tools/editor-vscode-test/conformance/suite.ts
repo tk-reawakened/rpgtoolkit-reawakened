@@ -113,8 +113,12 @@ export interface CharacterProofTab {
   workbenchDirty(): boolean;
   /** Hold the acknowledgement of every edit the view sends from now on; the edits themselves reach the extension host. */
   holdEditAcknowledgements(): { release(): void };
+  /** Hold host snapshots while leaving the settlement and unlock messages live. */
+  holdSnapshots?(): { release(): void };
   /** The host's own save, not the view's button: VS Code's Ctrl+S or autosave calling the provider's `saveCustomDocument`, or the browser workspace's Save All. Resolves with whether it saved. */
   saveFromWorkbench(): Promise<boolean>;
+  /** Save All as the workbench runs it: VS Code calls the provider only for a document it shows as unsaved, and skips a clean one; the browser's Save All settles every document. */
+  saveAllFromWorkbench(): Promise<boolean>;
   /** VS Code's hot-exit backup of the document, as the provider makes it; the browser host keeps none, so it gives the model's bytes. */
   backupBytes(): Promise<Uint8Array>;
   /** Close the tab, answering the host's Save / Don't Save / Cancel question; true when the tab closed. */
@@ -126,8 +130,12 @@ export interface CharacterProofHost {
   open(path: string): Promise<CharacterProofTab>;
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
+  holdNextWrite?(): HeldWrite;
   /** VS Code hosts started with `controlSettleTimers`: end every wait the provider has started on a webview, as the bound running out would. */
   expireSettleTimers?(): void;
+  /** VS Code hosts: the `files.autoSave` setting the provider reads, and the clock it measures the delay on (`null` is the real clock). */
+  configureAutoSave?(mode: "off" | "afterDelay" | "onFocusChange" | "onWindowChange", delayMs?: number): void;
+  setClock?(ms: number | null): void;
 }
 
 export interface ConformanceCase {

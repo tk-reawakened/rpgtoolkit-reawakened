@@ -23,6 +23,7 @@ export {
   type ShadeAssignment,
 } from "./board-document.ts";
 export { importSavedBoardAsScene } from "./board-scene-import.ts";
+export { createBoardCoordinateUpgradeCommand, planBoardCoordinateUpgrade, upgradeBoardCopy, type BoardCoordinateUpgrade, type BoardUpgradeCopyOptions, type BoardUpgradeOperation, type BoardUpgradePlan, type BoardUpgradePlanResult } from "./board-upgrade.ts";
 export {
   createTilesetArtDocument,
   openTilesetArtDocument,
@@ -84,7 +85,7 @@ export {
   type NewBoardSettings,
   type NewBoardStorage,
 } from "./board-creation.ts";
-export { boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
+export { boardPreviewRootForLayout, boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
 export {
   ZOOM_STEPS,
   DEFAULT_ZOOM_INDEX,
@@ -244,6 +245,40 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
 export { asNativeGeometryDocument } from "./kinds.ts";
+export { asSpecialMoveDocument, asStatusEffectDocument } from "./kinds.ts";
+export {
+  createSpecialMoveDocument,
+  openSpecialMoveDocument,
+  SPECIAL_MOVE_AMOUNT_FIELDS,
+  SPECIAL_MOVE_TEXT_FIELDS,
+  specialMoveCodec,
+  type SpecialMoveAmountField,
+  type SpecialMoveCommand,
+  type SpecialMoveDocument,
+  type SpecialMoveDocumentFields,
+  type SpecialMoveDocumentSnapshot,
+  type SpecialMoveOpenResult,
+  type SpecialMoveTextField,
+  type SpecialMoveUseContext,
+} from "./special-move-document.ts";
+export {
+  createStatusEffectDocument,
+  openStatusEffectDocument,
+  STATUS_EFFECT_FLAG_FIELDS,
+  STATUS_EFFECT_NUMBER_FIELDS,
+  STATUS_EFFECT_TEXT_FIELDS,
+  statusEffectCodec,
+  type StatusEffectCommand,
+  type StatusEffectDocument,
+  type StatusEffectDocumentFields,
+  type StatusEffectDocumentSnapshot,
+  type StatusEffectFlagField,
+  type StatusEffectNumberField,
+  type StatusEffectOpenResult,
+  type StatusEffectTextField,
+} from "./status-effect-document.ts";
+export { withHeldText, type HeldFields, type HeldModel, type HeldText, type HoldFieldTextCommand } from "./held-text.ts";
+export { describeLinkedStatusEffect, linkedFileCandidates, linkReferenceProblem, type LinkedStatusEffect, type LinkLookup } from "./battle-data-links.ts";
 export { asFontDocument } from "./kinds.ts";
 export {
   createFontDocument,
@@ -313,6 +348,17 @@ export {
   type ProgramOpenResult,
   type TextEdit,
 } from "./program-document.ts";
+export {
+  projectVisualProgram,
+  addShowMessage,
+  editShowMessage,
+  deleteShowMessage,
+  type ShowMessageCard,
+  type OpaqueProgramRegion,
+  type VisualProgramRegion,
+  type VisualProgramProjection,
+  type VisualEventEditResult,
+} from "./visual-events.ts";
 export {
   commandInsertion,
   commandReference,
@@ -430,6 +476,7 @@ export {
   markRecoveredDocumentDirty,
   openMainDocument,
   type ApplyResult,
+  type ApplyOptions,
   type ApplySettingsCommand,
   type ConflictChoice,
   type ConflictResult,
@@ -453,7 +500,7 @@ export {
   type SaveResult,
   type SetGameTitleCommand,
 } from "./main-document.ts";
-export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits } from "./pending-edits.ts";
+export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits, type SettleFailureKind, type SettleOutcome } from "./pending-edits.ts";
 export {
   createDocumentWorkspace,
   resolveDocumentPath,
@@ -483,7 +530,10 @@ export {
   listCandidates,
   projectLayoutForDocumentPath,
   projectLayoutOfMain,
+  projectLayoutOfMainFromBytes,
+  projectLayoutOwnerForDocumentPath,
   referencePath,
+  resolveReservedFolderPath,
   reservedFolder,
   unusableName,
   type AssetCandidate,
@@ -491,6 +541,7 @@ export {
   type LinkOutcome,
   type ListFailure,
   type ProjectLayout,
+  type ProjectLayoutOwner,
 } from "./reserved-folders.ts";
 export {
   createProjectTree,
@@ -557,6 +608,7 @@ export {
   type VscodeConfiguration,
 } from "./preferences.ts";
 export * from "./checkpoint-groups.ts";
+export type { SettleReason } from "./pending-edits.ts";
 export * from "./animation-authoring.ts";
 
 export type { AnimationFrame } from "./animation-document.ts";
@@ -579,3 +631,5 @@ export {
 export * from "./board-lights.ts";
 export * from "./board-shade-tools.ts";
 export * from "./board-clipboard.ts";
+export { foldPath } from "@tk-reawakened/core";
+export type { AssetRoot } from "@tk-reawakened/core";

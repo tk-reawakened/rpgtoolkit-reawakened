@@ -3,6 +3,7 @@ import { CheckpointView } from "./checkpoint-view.tsx";
 import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
   createPendingEdits,
+  type ApplyOptions,
   type ApplyResult,
   type BoardCommand,
   type BoardDocumentSnapshot,
@@ -58,6 +59,8 @@ import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx"
 import { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument } from "./program-view.tsx";
 import type { TextSurfaceFactory } from "./text-surface.ts";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
+import { SpecialMoveView, type SpecialMoveViewDocument } from "./special-move-view.tsx";
+import { StatusEffectView, type StatusEffectViewDocument } from "./status-effect-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -66,7 +69,8 @@ export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCom
   readonly identity: MainDocument["identity"];
   getSnapshot(): Snapshot;
   subscribe(listener: () => void): () => void;
-  apply(command: Command): ApplyResult | Promise<ApplyResult>;
+  /** `options.coalesce` continues a typing gesture as one undoable edit (#3385); an adapter that cannot ignores it. */
+  apply(command: Command, options?: ApplyOptions): ApplyResult | Promise<ApplyResult>;
   save(): Promise<SaveResult>;
   /** Settle a change made on disk by another program (ADR 0022 D3.5). */
   resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;
@@ -87,6 +91,8 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
   redo?(): HistoryResult | Promise<HistoryResult>;
   /** Run the host's reviewed import of this saved board, then open the new scene. Not provided to history views. */
   importAsScene?(): Promise<PlatformResult<void>>;
+  /** Run the host's registered board-upgrade command from the active board surface. */
+  runUpgradeCommand?(operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): void;
 }
 
 /** The board-editor preferences in force (T-33), read by the board view and told when they change. */
@@ -116,12 +122,12 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument | SpecialMoveViewDocument | StatusEffectViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
-  readonly services: Pick<PlatformServices, "document" | "capabilities" | "imageExport"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"]; readonly clipboard?: PlatformServices["clipboard"] };
+  readonly services: Pick<PlatformServices, "document" | "capabilities" | "imageExport"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> & Partial<Pick<PlatformServices["fs"], "list">>; readonly language?: PlatformServices["language"]; readonly clipboard?: PlatformServices["clipboard"] };
   /** Persistent wizard and recovery operations owned by the authoritative document host. */
   readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
@@ -185,6 +191,12 @@ function isNativeClipView(document: ViewContext["document"]): document is Native
 function isNativeGeometryView(document: ViewContext["document"]): document is NativeGeometryViewDocument {
   return document.kind === "native-tile" || document.kind === "native-asset-pack";
 }
+function isSpecialMoveView(document: ViewContext["document"]): document is SpecialMoveViewDocument {
+  return document.kind === "special-move";
+}
+function isStatusEffectView(document: ViewContext["document"]): document is StatusEffectViewDocument {
+  return document.kind === "status-effect";
+}
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
@@ -192,7 +204,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
   const fs = ctx.services.fs;
-  if ((isSpriteView(document) || isAnimationView(document)) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
+  if ((isSpriteView(document) || isAnimationView(document) || isSpecialMoveView(document) || isStatusEffectView(document)) && fs === undefined) throw new Error("This view requires project-file read access.");
   const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   let disposed = false;
   let reveal: ((line: number, column: number) => void) | null = null;
@@ -292,12 +304,16 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       onEdited,
       ...(browserFs === undefined ? {} : { readFile: async (path: string) => { const result = await browserFs.read(path); return result.ok ? result.value : null; } }),
     });
+  } else if (isSpecialMoveView(document)) {
+    view = createElement(SpecialMoveView, { doc: document, fs: fs!, capabilities, pendingEdits, onEdited, ...ctx.navigation });
+  } else if (isStatusEffectView(document)) {
+    view = createElement(StatusEffectView, { doc: document, fs: fs!, capabilities, pendingEdits, onEdited, ...ctx.navigation });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack" };
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack", "special-move": "Special move", "status-effect": "Status effect" };
   let assetRevision = 0;
   const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
     createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);

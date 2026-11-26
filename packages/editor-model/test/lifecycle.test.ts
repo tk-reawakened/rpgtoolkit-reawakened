@@ -3,7 +3,7 @@
 import { deepEqual, equal, notEqual, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, createDocumentWorkspace, createEditTracker, createMainDocument, createPendingEdits, openMainDocument } from "../src/index.ts";
+import { createDocumentIdentity, createDocumentWorkspace, createEditTracker, createMainDocument, createPendingEdits, openMainDocument, type PendingEditWork } from "../src/index.ts";
 import { resolveDocumentPath } from "../src/workspace.ts";
 import { exampleMain, titleOf, withTitle } from "./fixtures.ts";
 
@@ -775,4 +775,212 @@ test("revert waits for a held edit and discards it with the rest (#2613)", HELD,
   ok((await reverting).ok);
   equal(titleOfDocument(doc), titleOf(original));
   equal(doc.getSnapshot().dirty, false, "the held edit did not land after the revert");
+});
+
+/** A view holding text its document does not (a field being typed in): it refuses an explicit save of it, and only that. */
+function draftView(initially: boolean) {
+  const state = { holds: initially, heard: [] as string[] };
+  const work: PendingEditWork = {
+    busy: () => false,
+    idle: async (reason) => { state.heard.push(reason ?? "none"); },
+    holdsDraft: () => state.holds,
+    refusal: (reason) => state.holds && (reason === "explicit" || reason === "guard") ? "A field still holds text this file cannot store." : null,
+  };
+  return { state, work };
+}
+
+async function draftWorkspace() {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  return { host, workspace, doc: opened.document };
+}
+
+test("closing a document that only holds a field's text asks first, so Don't save is an answer and Save is refused with the reason (#3385)", HELD, async () => {
+  const { host, workspace, doc } = await draftWorkspace();
+  const { work } = draftView(true);
+  workspace.pendingEdits(doc).register(work);
+  equal(doc.getSnapshot().dirty, false, "the document itself is clean");
+  const lease = workspace.attachView(doc);
+  host.answerQuestions("save");
+  const refused = await lease.close();
+  ok(!refused.closed);
+  equal(refused.closed === false ? refused.reason : "", "save-failed");
+  equal(host.questions.length, 1, "closing asked about the text");
+  deepEqual(host.bytesOf(PATH), exampleMain(9), "nothing was written");
+  host.answerQuestions("discard");
+  deepEqual(await lease.close(), { closed: true }, "Don't save closes without a save");
+  lease.dispose();
+});
+
+test("reverting a document that only holds a field's text asks first, and Cancel keeps the text (#3385)", HELD, async () => {
+  const { host, workspace, doc } = await draftWorkspace();
+  const { state, work } = draftView(true);
+  workspace.pendingEdits(doc).register(work);
+  host.answerQuestions("cancel");
+  const cancelled = await workspace.revert(doc);
+  ok(!cancelled.ok);
+  equal(host.questions.length, 1, "the author was asked before anything was discarded");
+  ok(!state.heard.includes("revert"), "a cancelled revert never tells the view to drop its text");
+  host.answerQuestions("revert");
+  ok((await workspace.revert(doc)).ok);
+  ok(state.heard.includes("revert"), "a confirmed revert drops it");
+});
+
+test("Save All settles each document just before its own write, so text typed into a later one during an earlier write is not saved around (#3385)", HELD, async () => {
+  const second = "Main/second.gam";
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9), [second]: exampleMain(9) }, capabilities: [] });
+  const typed = draftView(false);
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      // The author types an invalid value into the second document while the first one is being written.
+      if (path === PATH) typed.state.holds = true;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const first = await workspace.open(PATH);
+  const other = await workspace.open(second);
+  ok(first.ok && other.ok);
+  workspace.pendingEdits(other.document).register(typed.work);
+  ok(first.document.apply({ type: "set-game-title", title: "First" }).ok);
+  const results = await workspace.saveAll();
+  deepEqual(results.map((entry) => [entry.document, entry.result.ok]), [[PATH, true], [second, false]], "the second is refused with its reason, not skipped as clean");
+  deepEqual(host.bytesOf(second), exampleMain(9), "and nothing was written for it");
+});
+
+test("Save As keeps the source open when text is typed into a field while the copy is written (#3385)", HELD, async () => {
+  const typed = draftView(false);
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      // The author types into the source's field while the destination is being written: the model's revision is unchanged.
+      if (path === "Main/copy.gam") typed.state.holds = true;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  workspace.pendingEdits(opened.document).register(typed.work);
+  ok(opened.document.apply({ type: "set-game-title", title: "Copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const result = await workspace.saveAs(opened.document);
+  ok(!result.ok, "the copy does not replace a source that holds text the copy lacks");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied", "the copy was written");
+  deepEqual(workspace.documents(), [opened.document], "and the source stays the open document");
+});
+
+test("Save As compares the source's revision after its final look at typed text, so an edit handed over by that look keeps the source open (#3385)", HELD, async () => {
+  const { host, workspace, doc } = await draftWorkspace();
+  // The view had accepted an edit while the copy was written; the final settlement hands it to the document.
+  const work: PendingEditWork = {
+    busy: () => false,
+    idle: async (reason) => { if (reason === "guard") ok(doc.apply({ type: "set-game-title", title: "Handed over late" }).ok); },
+    holdsDraft: () => false,
+  };
+  workspace.pendingEdits(doc).register(work);
+  ok(doc.apply({ type: "set-game-title", title: "Copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const result = await workspace.saveAs(doc);
+  ok(!result.ok, "the copy lacks the late edit, so it does not replace the source");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied");
+  deepEqual(workspace.documents(), [doc]);
+});
+
+test("closing after Save keeps the document open when text was typed into a field while the file was being written (#3385)", HELD, async () => {
+  const typed = draftView(false);
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      if (path === PATH) typed.state.holds = true;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  workspace.pendingEdits(opened.document).register(typed.work);
+  const lease = workspace.attachView(opened.document);
+  ok(opened.document.apply({ type: "set-game-title", title: "Saved on close" }).ok);
+  host.answerQuestions("save");
+  deepEqual(await lease.close(), { closed: false, reason: "cancelled" }, "the text typed during the write is not dropped by the close");
+  equal(titleOf(host.bytesOf(PATH)!), "Saved on close", "the edit itself was saved");
+  deepEqual(workspace.documents(), [opened.document]);
+  lease.dispose();
+});
+
+test("a settlement still busy after every round is an incomplete hand-off, and a view's held text is a different kind (#3385)", HELD, async () => {
+  const pending = createPendingEdits();
+  const stuck: PendingEditWork = { busy: () => true, idle: async () => undefined };
+  const off = pending.register(stuck);
+  const incomplete = await pending.settle("guard");
+  ok(!incomplete.ok);
+  equal(incomplete.kind, "incomplete");
+  off();
+  const held = draftView(true);
+  pending.register(held.work);
+  const refused = await pending.settle("guard");
+  ok(!refused.ok);
+  equal(refused.kind, "held");
+});
+
+test("Save As to the same path settles again after the lookup, so text typed while the destination was chosen refuses the copy (#3385)", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  // The field is clean at the settlement that starts Save As; the author types into it while the destination is chosen, so
+  // only a second look right before the write can see the text.
+  let settlements = 0;
+  workspace.pendingEdits(opened.document).register({
+    busy: () => false,
+    idle: async () => undefined,
+    holdsDraft: () => true,
+    refusal: (reason) => {
+      if (reason !== "explicit") return null;
+      settlements += 1;
+      return settlements > 1 ? "a field still holds text this file cannot store" : null;
+    },
+  });
+  ok(opened.document.apply({ type: "set-game-title", title: "Edited" }).ok);
+  host.answerSavePaths(PATH);
+  const result = await workspace.saveAs(opened.document);
+  ok(!result.ok, "the same-path save is refused with the reason instead of being written around");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "nothing was written");
+  equal(opened.document.getSnapshot().dirty, true);
+});
+
+test("Save As refuses a draft entered during replace confirmation before touching an existing copy", HELD, async () => {
+  const target = "Main/copy.gam";
+  const original = withTitle(exampleMain(9), "Existing destination");
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9), [target]: original } });
+  const typed = draftView(false);
+  const workspace = createDocumentWorkspace({
+    projectId: identity.projectId,
+    services: { ...host, dialogs: { ...host.dialogs, ask: async (question) => {
+      const answer = await host.dialogs.ask(question);
+      if (answer === "replace") typed.state.holds = true;
+      return answer;
+    } } },
+  });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  workspace.pendingEdits(doc).register(typed.work);
+  ok(doc.apply({ type: "set-game-title", title: "Edited" }).ok);
+  host.answerSavePaths(target);
+  host.answerQuestions("replace");
+  const result = await workspace.saveAs(doc);
+  ok(!result.ok && result.reason === "failed");
+  equal(host.questions.length, 1);
+  deepEqual(host.bytesOf(target), original, "the confirmed destination still has its original bytes");
+  deepEqual(workspace.documents(), [doc]);
 });

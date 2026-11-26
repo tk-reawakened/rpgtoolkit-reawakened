@@ -155,7 +155,7 @@ test("disposing a webview while its accepted edits are unsettled does not count 
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
   const detach = document.attachWebview(() => new Promise<boolean>(() => {}));
 
-  const settling = document.settleViews();
+  const settling = document.settleViews("autosave");
   detach();
 
   match(await settling ?? "", /could not confirm that it handed over its accepted edits/);
@@ -253,4 +253,77 @@ test("the refusal names a root workspace folder by its path, not by an empty nam
   deepEqual(files, before, "nothing was written");
   deepEqual(projects, [ALPHA.key, ALPHA.key], "no project workspace was made for the root folder");
   equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
+});
+
+test("Save As, save, backup and revert each tell the view why it is being settled, so Save As is never an autosave (#3385)", async () => {
+  const { provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const heard: string[] = [];
+  const detach = document.attachWebview((requestId, reason) => {
+    heard.push(reason ?? "none");
+    queueMicrotask(() => document.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" });
+  // This port writes no backup; the settlement the provider asks for comes first, which is what is observed.
+  await provider.backupCustomDocument(document, { path: "/backup" }).catch(() => undefined);
+  await provider.revertCustomDocument(document);
+  await document.save();
+  deepEqual(heard, ["explicit", "guard", "autosave", "query", "revert", "explicit"], "Save As and a save with autosave off are the author's, and Save As looks again before VS Code replaces the source; a backup is neither");
+  detach();
+});
+
+test("Save As fails, with the copy written, when a field holds text typed during the write, so VS Code keeps the source open (#3385)", async () => {
+  const { files, provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const detach = document.attachWebview((requestId, reason) => {
+    // The view holds text only once the write has begun: it refuses the late `guard` settlement, not the first explicit one.
+    queueMicrotask(() => reason === "guard" ? document.viewSettled(requestId, false, "a field still holds text that is not part of the document yet", "held") : document.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" }), /copy\.gam was written, but .* still holds text typed during Save As and remains open/);
+  equal(files.has("/alpha/copy.gam"), true, "the copy itself was written");
+  detach();
+});
+
+test("Save As compares the source's revision after its final look, and tells held text from an unconfirmed hand-off (#3385)", async () => {
+  const { provider } = workspace();
+  const late = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  // The view had accepted an edit while the copy was written; the final settlement hands it to the model.
+  const detachLate = late.attachWebview((requestId, reason) => {
+    if (reason === "guard") ok(late.model.apply({ type: "set-game-title", title: "Handed over late" }).ok);
+    queueMicrotask(() => late.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(late, { path: "/alpha/late.gam" }), /late\.gam was written, but .* changed during Save As and remains open with its work/);
+  detachLate();
+
+  const unconfirmed = await provider.openCustomDocument({ path: `/beta/${GAME}` }, undefined);
+  const detachUnconfirmed = unconfirmed.attachWebview((requestId, reason) => {
+    queueMicrotask(() => reason === "guard" ? unconfirmed.viewSettled(requestId, false, "the editor is still handing over its accepted edits", "incomplete") : unconfirmed.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(unconfirmed, { path: "/beta/copy.gam" }), /could not hand over its latest edits and remains open/);
+  detachUnconfirmed();
+});
+
+test("a refused native save releases the same lock it sent with settlement (#3385)", async () => {
+  const { files, openEdited } = workspace();
+  const path = `/alpha/${GAME}`;
+  const document = await openEdited(path, "Unsaved");
+  const original = files.get(path)?.slice();
+  const notices: Array<readonly [string, number | undefined]> = [];
+  const detach = document.attachWebview((requestId, reason, saveLock) => {
+    equal(reason, "explicit");
+    notices.push(["settle", saveLock]);
+    queueMicrotask(() => document.viewSettled(requestId, false, "a field still holds text this file cannot store", "held"));
+    return Promise.resolve(true);
+  }, (message) => { if (message.type === "unlock") notices.push(["unlock", message.saveLock]); });
+  const save = await document.save();
+  equal(save.ok, false, "the refused save reports failure");
+  const lock = notices[0]?.[1];
+  ok(lock !== undefined);
+  deepEqual(notices, [["settle", lock], ["unlock", lock]]);
+  deepEqual(files.get(path), original, "refusal leaves the file alone");
+  detach();
 });

@@ -72,8 +72,8 @@ interface Shown {
   readonly main: string;
 }
 let shown: Shown | null = null;
-let mirrorView: DocumentView | null = null;
-let mirroredDocument: AnyDocument | null = null;
+const mirrors = new Map<AnyDocument, { readonly view: DocumentView; readonly element: HTMLElement }>();
+const pendingMirrors = new Set<AnyDocument>();
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
 let tutorialView: ViewHandle | null = null;
@@ -124,6 +124,7 @@ const tutorialCommands = firstBoardHelpCommands(openFirstBoardHelp);
 const welcomeHelpCommands = createCommandRegistry(tutorialCommands);
 tutorialGuideButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.firstBoard"); });
 dailyTipButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.dailyTip"); });
+let mirrorGeneration = 0;
 
 
 let projectWithChoices: WebProject | null = null;
@@ -662,21 +663,57 @@ function updateActions(current: Shown): void {
 }
 
 function syncMirror(): void {
-  const active = activeDocument(shown);
-  const project = shown?.project ?? null;
+  const current = shown;
+  const active = activeDocument(current);
+  const project = current?.project ?? null;
   const visible = active !== null && project !== null && mirrorRequested;
   mirrorElement.hidden = !visible;
   mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
-  if (visible && mirrorView !== null && mirroredDocument === active && mirroredProject === project) return;
-  mirrorView?.dispose();
-  mirrorView = null;
-  mirroredDocument = null;
-  mirroredProject = null;
-  mirrorElement.replaceChildren();
-  if (visible && shown !== null && active !== null && project !== null) {
-    mirrorView = mountDocumentView(project, active, mirrorElement, shown.projectLayout, undefined, undefined, shown.main);
-    mirroredDocument = active;
-    mirroredProject = project;
+  // Drafts belong to the mounted form, not its shared document. Keep battle forms mounted when their second view is
+  // hidden or another tab is selected; detach their container so hidden controls are neither focusable nor discoverable.
+  const documents = mirrors.size === 0 || mirroredProject !== project ? undefined : project?.workspace.documents();
+  for (const [document, mirror] of mirrors) {
+    const draftForm = document.kind === "special-move" || document.kind === "status-effect";
+    if (documents?.includes(document) !== true ||
+        (!draftForm && (!visible || document !== active))) {
+      mirror.view.dispose();
+      mirror.element.remove();
+      mirrors.delete(document);
+    }
+  }
+  mirroredProject = project;
+  if (!visible || current === null || active === null || project === null) {
+    mirrorGeneration += 1;
+    mirrorElement.replaceChildren();
+    return;
+  }
+  const mirror = mirrors.get(active);
+  if (mirror === undefined) {
+    if (pendingMirrors.has(active)) return;
+    const element = mirrorElement.ownerDocument.createElement("div");
+    mirrorElement.replaceChildren(element);
+    pendingMirrors.add(active);
+    const generation = ++mirrorGeneration;
+    void current.workbench.ownerForDocumentPath(active.identity.path).then((owner) => {
+      pendingMirrors.delete(active);
+      if (generation !== mirrorGeneration || shown !== current || !mirrorRequested ||
+          activeDocument(current) !== active || mirrors.has(active)) {
+        element.remove();
+        if (shown === current && mirrorRequested && activeDocument(current) === active && !mirrors.has(active)) syncMirror();
+        return;
+      }
+      const view = mountDocumentView(project, active, element, owner.layout, undefined, undefined, owner.mainPath,
+        undefined, undefined, current.workbench.auditionForDocument(active));
+      mirrors.set(active, { view, element });
+      syncMirror();
+    }).catch((error: unknown) => {
+      pendingMirrors.delete(active);
+      element.remove();
+      if (shown === current) showFailure(error);
+    });
+  } else if (mirror.element.parentElement !== mirrorElement) {
+    mirrorElement.replaceChildren(mirror.element);
+    mirror.view.refreshAssets?.();
   }
 }
 
@@ -749,7 +786,8 @@ onActive("#save-as", async (current, active) => {
     ? { closed: true }
     : await current.workbench.tabs.close(sourceTab);
   if (shown !== current) return null;
-  current.workbench.tabs.open(saved.document);
+  const openProblem = await current.workbench.openDocument(saved.document);
+  if (openProblem !== null) return openProblem;
   const sourceNotice = sourceClosed.closed ? "" : ` The source ${active.identity.path} remains open.`;
   return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${active.identity.path}).${sourceNotice}`;
 });
@@ -789,7 +827,8 @@ document.querySelector<HTMLButtonElement>("#close")!.addEventListener("click", (
 
 // Leaving the page closes the document too: the browser asks first while there is unsaved work (D3.6).
 window.addEventListener("beforeunload", (event) => {
-  if (shown?.project.workspace.documents().some((document) => document.getSnapshot().dirty)) event.preventDefault();
+  // Text a field holds and its document does not is unsaved work too, even when the document itself is clean.
+  if (shown?.project.workspace.documents().some((document) => document.getSnapshot().dirty || shown?.project.workspace.pendingEdits(document).holdsDraft())) event.preventDefault();
 });
 
 function showFailure(error: unknown): void {

@@ -44,8 +44,29 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: 
     },
     async write(path, bytes) {
       const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
-      try { const target = await file(parts, true); const writable = await target.createWritable({ keepExistingData: false }); const buffer = new ArrayBuffer(bytes.byteLength); new Uint8Array(buffer).set(bytes); await writable.write(buffer); await writable.close(); return platformOk(undefined); }
-      catch (error) { return fail(error, path); }
+      let target: FileSystemFileHandle | undefined;
+      let existed = false;
+      try {
+        target = await file(parts);
+        existed = true;
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "NotFoundError")) return fail(error, path);
+      }
+      let writable: FileSystemWritableFileStream | undefined;
+      try {
+        target ??= await file(parts, true);
+        writable = await target.createWritable({ keepExistingData: false });
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        await writable.write(buffer);
+        await writable.close();
+        return platformOk(undefined);
+      } catch (error) {
+        try { await writable?.abort(); } catch { /* Keep the original write error. */ }
+        const failure = fail(error, path);
+        if (existed || failure.ok) return failure;
+        return platformError(failure.error.code, `${failure.error.message}. A destination may remain; this browser API cannot prove that this write created it, and removing it could delete another writer's file.`);
+      }
     },
     async createFolder(path) {
       const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);

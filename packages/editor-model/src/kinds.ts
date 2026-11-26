@@ -12,6 +12,8 @@ import { createFontDocument, fontCodec, openFontDocument, type FontCommand, type
 import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type NativeClipCommand, type NativeClipDocument } from "./native-clip-document.ts";
 import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec, type TerrainSceneCommand, type TerrainSceneDocument } from "./terrain-scene-document.ts";
 import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryDocument, type NativeGeometryCommand, type NativeGeometryDocument } from "./native-geometry-document.ts";
+import { createSpecialMoveDocument, openSpecialMoveDocument, specialMoveCodec, type SpecialMoveCommand, type SpecialMoveDocument } from "./special-move-document.ts";
+import { createStatusEffectDocument, openStatusEffectDocument, statusEffectCodec, type StatusEffectCommand, type StatusEffectDocument } from "./status-effect-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -22,7 +24,7 @@ import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryD
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand | SpecialMoveCommand | StatusEffectCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -143,6 +145,36 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
       return read.ok ? animationCodec.summary(read.value) : null;
     },
     isCommand: animationCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
+    id: "special-move",
+    label: "Special move",
+    description: "A battle move: its damage, costs, program, status effect, animation, description and where it can be used.",
+    extensions: [".spc"],
+    storage: "legacy-binary",
+    open: openSpecialMoveDocument,
+    create: createSpecialMoveDocument,
+    summarise: (bytes, path) => {
+      const read = specialMoveCodec.read(bytes, path);
+      return read.ok ? specialMoveCodec.summary(read.value) : null;
+    },
+    isCommand: specialMoveCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
+    id: "status-effect",
+    label: "Status effect",
+    description: "A condition a fighter carries: its rounds, speed changes, per-round HP and SMP change and program.",
+    extensions: [".ste"],
+    storage: "legacy-binary",
+    open: openStatusEffectDocument,
+    create: createStatusEffectDocument,
+    summarise: (bytes, path) => {
+      const read = statusEffectCodec.read(bytes, path);
+      return read.ok ? statusEffectCodec.summary(read.value) : null;
+    },
+    isCommand: statusEffectCodec.isCommand,
     recoveryMarker: () => null,
   },
   {
@@ -295,4 +327,16 @@ export function asNativeGeometryDocument(document: AnyDocument): NativeGeometryD
 export function asProgramDocument(document: AnyDocument): ProgramDocument {
   if (document.kind !== "program") throw new Error(`${document.identity.path} is a ${document.kind} document, not a program.`);
   return document as unknown as ProgramDocument;
+}
+
+/** The document as a special move document (see `asMainDocument`). */
+export function asSpecialMoveDocument(document: AnyDocument): SpecialMoveDocument {
+  if (document.kind !== "special-move") throw new Error(`${document.identity.path} is a ${document.kind} document, not a special move.`);
+  return document as unknown as SpecialMoveDocument;
+}
+
+/** The document as a status effect document (see `asMainDocument`). */
+export function asStatusEffectDocument(document: AnyDocument): StatusEffectDocument {
+  if (document.kind !== "status-effect") throw new Error(`${document.identity.path} is a ${document.kind} document, not a status effect.`);
+  return document as unknown as StatusEffectDocument;
 }

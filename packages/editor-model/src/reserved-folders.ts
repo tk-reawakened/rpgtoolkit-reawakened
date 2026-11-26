@@ -13,6 +13,43 @@ export interface ProjectLayout {
   readonly projectFolder: string;
 }
 
+/** A main game file and the asset layout it declares. */
+export interface ProjectLayoutOwner {
+  readonly mainPath: string | null;
+  readonly layout: ProjectLayout;
+}
+
+/** Resolve a document to its declared game's longest owning project folder. */
+export function projectLayoutOwnerForDocumentPath(path: string, owners: readonly ProjectLayoutOwner[]): ProjectLayoutOwner | null {
+  const foldedPath = foldPath(path).replace(/\/+$/g, "");
+  const exactMain = owners.find((owner) => owner.mainPath !== null && foldPath(owner.mainPath) === foldedPath);
+  if (exactMain !== undefined) return exactMain;
+
+  let longest = -1;
+  let owner: ProjectLayoutOwner | null = null;
+  let ambiguous = false;
+  for (const candidate of owners) {
+    const folder = foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "");
+    if (folder === "" || (foldedPath !== folder && !foldedPath.startsWith(`${folder}/`))) continue;
+    if (folder.length > longest) {
+      longest = folder.length;
+      owner = candidate;
+      ambiguous = false;
+    } else if (folder.length === longest && owner?.mainPath !== candidate.mainPath) {
+      ambiguous = true;
+    }
+  }
+  if (owner !== null) return ambiguous ? null : owner;
+
+  const rootOwners = owners.filter((candidate) => foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "") === "");
+  const rootFolder = foldedPath.split("/")[0] ?? "";
+  if (RESERVED_FOLDER_NAMES.has(rootFolder)) {
+    if (rootOwners.length === 1) return rootOwners[0]!;
+    return rootOwners.length === 0 ? { mainPath: null, layout: { projectFolder: "" } } : null;
+  }
+  return rootOwners.length === 1 ? rootOwners[0]! : null;
+}
+
 const RESERVED_FOLDER_NAMES = new Set(Object.values(ASSET_FOLDERS).map(asciiLower));
 
 /**
@@ -22,10 +59,33 @@ const RESERVED_FOLDER_NAMES = new Set(Object.values(ASSET_FOLDERS).map(asciiLowe
 export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProject" | "list">, projectId: string, mainPath: string): Promise<ProjectLayout> {
   const bytes = await fs.readProject(projectId, mainPath);
   if (!bytes.ok) return { projectFolder: "" };
-  const main = readMainFile(new BinaryReader(bytes.value, mainPath));
+  return projectLayoutOfMainFromBytes(fs, bytes.value, mainPath);
+}
+
+/** Resolve a main file's asset layout from the exact bytes already read by the caller. */
+export async function projectLayoutOfMainFromBytes(
+  fs: Pick<FileSystemService, "list">,
+  bytes: Uint8Array,
+  mainPath: string,
+  retainMissingDeclaredFolder = false,
+): Promise<ProjectLayout> {
+  const main = readMainFile(new BinaryReader(bytes, mainPath));
   const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
   if (candidate === "") return { projectFolder: "" };
-  return { projectFolder: (await fs.list(candidate)).ok ? candidate : "" };
+  const resolved = await resolveReservedFolderPath(fs, candidate);
+  if (resolved.failure !== null) {
+    if (retainMissingDeclaredFolder) throw new Error(`Could not resolve declared game folder ${candidate}: ${resolved.failure.error.message}`);
+    return { projectFolder: "" };
+  }
+  const listed = await fs.list(resolved.path);
+  if (!listed.ok) {
+    if (listed.error.code === "not-found") {
+      return { projectFolder: retainMissingDeclaredFolder ? resolved.path : "" };
+    }
+    if (retainMissingDeclaredFolder) throw new Error(`Could not list declared game folder ${resolved.path}: ${listed.error.message}`);
+    return { projectFolder: "" };
+  }
+  return { projectFolder: resolved.path };
 }
 /**
  * The layout of a document under `Game/<project>/<reserved folder>`, or the root layout otherwise.
@@ -34,9 +94,12 @@ export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProje
 export function projectLayoutForDocumentPath(path: string): ProjectLayout {
   const parts = toSlashes(path).split("/");
   const game = parts.findIndex((part) => asciiLower(part) === "game");
-  const folder = parts[game + 2];
-  if (game < 0 || folder === undefined || !RESERVED_FOLDER_NAMES.has(asciiLower(folder))) return { projectFolder: "" };
-  return { projectFolder: parts.slice(0, game + 2).join("/") };
+  if (game < 0) return { projectFolder: "" };
+  let folder = -1;
+  for (let index = game + 2; index < parts.length; index += 1) {
+    if (RESERVED_FOLDER_NAMES.has(asciiLower(parts[index] ?? ""))) folder = index;
+  }
+  return folder < 0 ? { projectFolder: "" } : { projectFolder: parts.slice(0, folder).join("/") };
 }
 
 /** The project-relative path of the folder `kind` lives in, with `/` separators. */
@@ -97,8 +160,10 @@ export async function listCandidates(
 ): Promise<{ readonly candidates: readonly AssetCandidate[]; readonly failures: readonly ListFailure[] }> {
   const candidates: AssetCandidate[] = [];
   const failures: ListFailure[] = [];
-  const root = reservedFolder(layout, kind);
-  const pending = [root];
+  const requestedRoot = reservedFolder(layout, kind);
+  const root = await resolveReservedFolderPath(fs, requestedRoot);
+  if (root.failure !== null) failures.push(root.failure);
+  const pending = root.failure === null ? [root.path] : [];
   while (pending.length > 0) {
     const folder = pending.pop()!;
     const listed = await fs.list(folder);
@@ -122,6 +187,42 @@ export async function listCandidates(
   }
   candidates.sort((a, b) => (a.reference < b.reference ? -1 : a.reference > b.reference ? 1 : 0));
   return { candidates, failures };
+}
+export async function resolveReservedFolderPath(
+  fs: Pick<FileSystemService, "list">,
+  path: string,
+): Promise<{ readonly path: string; readonly failure: ListFailure | null }> {
+  const resolved: string[] = [];
+  const segments = path.split("/");
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]!;
+    const parent = resolved.join("/");
+    const listed = await fs.list(parent);
+    if (!listed.ok) {
+      if (listed.error.code === "not-found") return { path: [...resolved, ...segments.slice(index)].join("/"), failure: null };
+      return { path, failure: { path: parent || ".", error: listed.error } };
+    }
+    let match: (typeof listed.value)[number] | undefined;
+    for (const entry of listed.value) {
+      if (asciiLower(entry.name) !== asciiLower(segment)) continue;
+      if (match !== undefined) {
+        return {
+          path,
+          failure: {
+            path: parent || ".",
+            error: { code: "invalid-request", message: `${parent || "."} has multiple entries matching ${segment} without regard to case.` },
+          },
+        };
+      }
+      match = entry;
+    }
+    if (match === undefined) return { path: [...resolved, ...segments.slice(index)].join("/"), failure: null };
+    if (match.kind !== "directory") {
+      return { path, failure: { path: `${parent ? `${parent}/` : ""}${match.name}`, error: { code: "not-a-directory", message: "A reserved asset folder path segment is not a directory." } } };
+    }
+    resolved.push(match.name);
+  }
+  return { path: resolved.join("/"), failure: null };
 }
 
 /** Why a file name cannot be copied into a folder as it is. `null` when it can. */

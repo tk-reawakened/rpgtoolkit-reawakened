@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { platformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { copyIntoReservedFolder, createAssetPicker, linkFor, listCandidates, referencePath, reservedFolder, unusableName } from "../src/index.ts";
-import { projectLayoutForDocumentPath } from "../src/reserved-folders.ts";
+import { projectLayoutForDocumentPath, projectLayoutOwnerForDocumentPath } from "../src/reserved-folders.ts";
 const ROOT = { projectFolder: "" };
 const bytes = (...values: number[]): Uint8Array => new Uint8Array(values);
 
@@ -17,6 +17,31 @@ test("a document selects its owning game's exact-case layout", () => {
   deepEqual(projectLayoutForDocumentPath("Game/Example/Item/nested/chest.itm"), { projectFolder: "Game/Example" });
   deepEqual(projectLayoutForDocumentPath("Game/Example/Misc/chest.anm"), { projectFolder: "Game/Example" });
   deepEqual(projectLayoutForDocumentPath("samples/Game/MyGame/Bitmap/art.tbm"), { projectFolder: "samples/Game/MyGame" });
+});
+test("a game layout supports multiple nested project path components", () => {
+  deepEqual(projectLayoutForDocumentPath("Game/a/b/Boards/nested/Map.brd"), { projectFolder: "Game/a/b" });
+  deepEqual(projectLayoutForDocumentPath("Game/A/Tiles/B/Boards/map.brd"), { projectFolder: "Game/A/Tiles/B" });
+  deepEqual(projectLayoutForDocumentPath("Game/Quest/Boards/Region/Boards/map.brd"), { projectFolder: "Game/Quest/Boards/Region" });
+});
+
+test("declared main layouts own nested board folders, not the last reserved folder in a path", () => {
+  const owners = [
+    { mainPath: "Main/quest.gam", layout: { projectFolder: "Game/Quest" } },
+    { mainPath: "Main/other.gam", layout: { projectFolder: "Game/Other" } },
+  ];
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/Quest/Boards/Region/Boards/Map.brd", owners), owners[0]);
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/Other/Boards/Map.brd", owners), owners[1]);
+  deepEqual(projectLayoutOwnerForDocumentPath("Boards/Old.brd", owners), { mainPath: null, layout: ROOT });
+  const rootOwner = { mainPath: "Main/Quest.gam", layout: ROOT };
+  deepEqual(projectLayoutOwnerForDocumentPath("Boards/Map.brd", [rootOwner]), rootOwner);
+  const nestedOwner = { mainPath: "Main/nested.gam", layout: { projectFolder: "Game/A/B" } };
+  const duplicateParentOwners = [
+    { mainPath: "Main/a.gam", layout: { projectFolder: "Game/A" } },
+    { mainPath: "Main/other-a.gam", layout: { projectFolder: "Game/A" } },
+    nestedOwner,
+  ];
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/A/B/Boards/Map.brd", duplicateParentOwners), nestedOwner);
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/A/B/Boards/Map.brd", duplicateParentOwners.reverse()), nestedOwner);
 });
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {
@@ -53,6 +78,32 @@ test("candidates are the folder's files and sub-folders' files that the field ac
   deepEqual((await listCandidates(host.fs, ROOT, "fonts", [])).candidates, []);
   deepEqual((await listCandidates(host.fs, ROOT, "fonts", [])).failures, []);
 });
+test("legacy board candidates resolve a case-variant reserved folder on case-sensitive hosts", async () => {
+  const fs = {
+    list: async (path: string) => {
+      if (path === "") return { ok: true as const, value: [{ name: "boards", kind: "directory" as const }] };
+      if (path === "boards") return { ok: true as const, value: [{ name: "Village.brd", kind: "file" as const }] };
+      return platformError("not-found", "missing");
+    },
+  };
+  const listed = await listCandidates(fs, ROOT, "boards", [".brd"]);
+  deepEqual(listed.candidates.map((candidate) => candidate.path), ["boards/Village.brd"]);
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["Village.brd"]);
+  deepEqual(listed.failures, []);
+});
+
+test("legacy board candidate lookup refuses ambiguous case-variant reserved folders", async () => {
+  const fs = {
+    list: async (path: string) =>
+      path === ""
+        ? { ok: true as const, value: [{ name: "Boards", kind: "directory" as const }, { name: "boards", kind: "directory" as const }] }
+        : platformError("not-found", "missing"),
+  };
+  const listed = await listCandidates(fs, ROOT, "boards", [".brd"]);
+  deepEqual(listed.candidates, []);
+  ok(listed.failures[0]?.error.message.includes("multiple entries matching Boards"));
+});
+
 
 test("a folder the host cannot read is reported, not hidden as an empty list", async () => {
   const host = createMemoryPlatformServices({ files: { "Bitmap/a.png": bytes(1), "Bitmap/locked/b.png": bytes(2) } });

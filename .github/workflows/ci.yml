@@ -655,6 +655,9 @@ jobs:
           if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
           $SUDO apt-get update -qq
           $SUDO apt-get install -y -qq --no-install-recommends xvfb
+      - name: Fetch pinned original board fixture for the VS Code upgrade proof
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && matrix.lane == 'editor-vscode'
+        run: pnpm fixtures:fetch
       - name: VS Code web editor acceptance proof
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'editor-vscode' || matrix.lane == 'editor-vscode-creator')
         run: |
@@ -673,14 +676,25 @@ jobs:
             set -- setpriv --bounding-set=-dac_override,-dac_read_search
           fi
           proof() {
+            local proof_workspace="${TKR_VSCODE_PROOF_WORKSPACE:-$workspace}"
             "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
               --extension extensions/editor \
-              --workspace "$workspace" \
+              --workspace "$proof_workspace" \
               --game Main/example.gam
           }
           proof "$@"
+          if [ "${{ matrix.lane }}" = "editor-vscode" ]; then
+            board_upgrade_workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-board-upgrade.XXXXXX")"
+            cp -R docs/spec/examples/game/Game "$board_upgrade_workspace/Game"
+            mkdir -p "$board_upgrade_workspace/Main" "$board_upgrade_workspace/.vscode"
+            cp docs/spec/examples/game/Main/example.gam "$board_upgrade_workspace/Main/example.gam"
+            printf '{\n  "files.autoSave": "off"\n}\n' > "$board_upgrade_workspace/.vscode/settings.json"
+            TKR_VSCODE_PROOF_WORKSPACE="$board_upgrade_workspace" TKR_VSCODE_BOARD_UPGRADE_PROOF=1 proof "$@"
+          fi
           if [ "$TKR_VSCODE_CREATOR_TESTS_PROOF" != 1 ]; then
             TKR_VSCODE_NATIVE_SCENE_PROOF=1 proof "$@"
+            TKR_VSCODE_BATTLE_DATA_PROOF=1 proof "$@"
+            TKR_VSCODE_VISUAL_EVENTS_PROOF=1 proof "$@"
           fi
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
@@ -699,7 +713,7 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
       - run: pnpm fixtures:fetch
-        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'closing')
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'closing' || matrix.lane == 'editor-web')
       - run: xvfb-run -a pnpm browser:test
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'editor-web')
         env:

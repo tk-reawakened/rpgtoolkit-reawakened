@@ -31,7 +31,7 @@ function nameOf(element: HTMLElement): string {
 export function connectEditorCommands(scope: HTMLElement, registry: CommandRegistry): () => void {
   let active: HTMLElement | null = null;
   let unregister = (): void => {};
-  let previous: { element: HTMLElement; label: string; disabled: boolean; shortcut: string | null }[] = [];
+  let previous: { element: HTMLElement; label: string; disabled: boolean; shortcut: string | null; commandId: string | null }[] = [];
   let sequence = 0;
   let initialized = false;
   const ids = new WeakMap<HTMLElement, number>();
@@ -48,11 +48,12 @@ export function connectEditorCommands(scope: HTMLElement, registry: CommandRegis
       .filter((element) => element.closest(SURFACE) === root
         && element.closest('[role=grid], [role=listbox], [role=tree], [data-editor-commands="exclude"]') === null
         && (element.hasAttribute("data-editor-save") || available(element)))
-      .map((element) => ({ element, label: nameOf(element), disabled: disabled(element), shortcut: element.getAttribute("aria-keyshortcuts") }))
+      .map((element) => ({ element, label: nameOf(element), disabled: disabled(element), shortcut: element.getAttribute("aria-keyshortcuts"), commandId: element.getAttribute("data-editor-command-id") }))
       .filter((entry) => entry.label !== "");
     if (initialized && next.length === previous.length && next.every((entry, i) => {
       const old = previous[i]!;
-      return entry.element === old.element && entry.label === old.label && entry.disabled === old.disabled && entry.shortcut === old.shortcut;
+      return entry.element === old.element && entry.label === old.label && entry.disabled === old.disabled
+        && entry.shortcut === old.shortcut && entry.commandId === old.commandId;
     })) return;
     initialized = true;
     previous = next;
@@ -63,7 +64,7 @@ export function connectEditorCommands(scope: HTMLElement, registry: CommandRegis
       const save = element.hasAttribute("data-editor-save");
       const field = element instanceof HTMLSelectElement || (element instanceof HTMLInputElement && element.type === "color");
       return {
-        id: save ? "file.save" : `editor.action.${ids.get(element)}`,
+        id: save ? "file.save" : entry.commandId ?? `editor.action.${ids.get(element)}`,
         category: save ? "File" : "Edit",
         label: save ? "Save Active Document" : `${title}: ${field ? "Change " : ""}${entry.label}${field ? "…" : ""}`,
         disabled: entry.disabled,
@@ -91,7 +92,7 @@ export function connectEditorCommands(scope: HTMLElement, registry: CommandRegis
   scope.addEventListener("pointerdown", onFocus);
   const observer = new MutationObserver(refresh);
   observer.observe(scope, { subtree: true, childList: true, characterData: true, attributes: true,
-    attributeFilter: ["disabled", "hidden", "inert", "aria-disabled", "aria-hidden", "aria-label", "aria-labelledby", "aria-keyshortcuts", "class", "style", "data-tkr-editor"] });
+    attributeFilter: ["disabled", "hidden", "inert", "aria-disabled", "aria-hidden", "aria-label", "aria-labelledby", "aria-keyshortcuts", "class", "style", "data-tkr-editor", "data-editor-command-id"] });
   refresh();
   return () => {
     disposed = true;

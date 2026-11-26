@@ -664,6 +664,13 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
             .finally(() => setImportPending(false));
         }}>Import as Scene…</button>
       )}
+      {doc.runUpgradeCommand === undefined ? null : (
+        <div role="toolbar" aria-label="Board coordinate and format upgrades">
+          <button type="button" onClick={() => doc.runUpgradeCommand?.("stacked-to-rotated")}>Convert stacked coordinates…</button>
+          <button type="button" onClick={() => doc.runUpgradeCommand?.("tile-to-pixel")}>Convert tile coordinates…</button>
+          <button type="button" onClick={() => doc.runUpgradeCommand?.("pre-vector")}>Upgrade pre-vector board…</button>
+        </div>
+      )}
       <button type="button" class="tkr-board-export" onClick={() => {
         exportGeneration.current += 1;
         setExportMessage(null);

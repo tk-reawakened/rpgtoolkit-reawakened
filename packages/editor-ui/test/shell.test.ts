@@ -14,7 +14,9 @@ import {
   createProjectTree,
   createTabs,
   type AnyDocument,
+  type Launcher,
 } from "@tk-reawakened/editor-model";
+import type { Launch } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { exampleBoard, exampleMain } from "./fixtures.ts";
 
@@ -64,10 +66,18 @@ interface Setup {
   readonly packageCalls: string[];
   readonly downloadCalls: string[];
 }
+interface ShellOverrides {
+  readonly launcher?: Launcher;
+  readonly projectLayoutForPath?: (path: string | null) => { readonly projectFolder: string };
+  readonly projectLayout?: { readonly projectFolder: string };
+  readonly main?: string;
+  readonly mainForPath?: (path: string | null) => string | null;
+}
 
 async function setup(
   capabilities: readonly ("folderWrite" | "fileWatch" | "openExternal")[] = ["folderWrite", "openExternal"],
   files: Readonly<Record<string, Uint8Array>> = FILES,
+  overrides: ShellOverrides = {},
 ): Promise<Setup> {
   document.body.replaceChildren();
   const host = createMemoryPlatformServices({ files, capabilities });
@@ -92,7 +102,11 @@ async function setup(
       layout,
       tabs,
       tree,
-      projectLayout: { projectFolder: "" },
+      projectLayout: overrides.projectLayout ?? { projectFolder: "" },
+      ...(overrides.main === undefined ? {} : { main: overrides.main }),
+      ...(overrides.projectLayoutForPath === undefined ? {} : { projectLayoutForPath: overrides.projectLayoutForPath }),
+      ...(overrides.mainForPath === undefined ? {} : { mainForPath: overrides.mainForPath }),
+      ...(overrides.launcher === undefined ? {} : { launcher: overrides.launcher }),
       fs: host.fs,
       onOpened: (result) => {
         if (result.via === "document") {
@@ -649,4 +663,59 @@ test("shared Save settles program text once per shortcut, including distraction-
     equal(saves, 2); equal(targetSaves, 0);
     equal(new TextDecoder().decode(s.host.bytesOf(path)!), 'x = 3\n');
   } finally { await act(() => handle?.dispose()); }
+});
+test("Run uses the active document's declared game owner, not the originally selected project's layout", async () => {
+  const path = "Game/B/Boards/Map.brd";
+  const launches: Launch[] = [];
+  const launcher: Launcher = {
+    current: () => null,
+    unavailable: () => null,
+    launch: async (launch) => {
+      launches.push(launch);
+      return { ok: false, reason: "refused", message: "captured by test" };
+    },
+    dispose: () => {},
+  };
+  const shell = await setup(["folderWrite"], { ...FILES, [path]: exampleBoard(), "Main/B.gam": exampleMain(9) }, {
+    launcher,
+    projectLayoutForPath: (active) => ({ projectFolder: active?.startsWith("Game/B/") ? "Game/B" : "Game/A" }),
+    mainForPath: (active) => active?.startsWith("Game/B/") ? "Main/B.gam" : "Main/A.gam",
+  });
+  const opened = await shell.tree.open(path);
+  ok(opened.ok && opened.via === "document");
+  shell.tabs.open(opened.document);
+  await settle();
+  const runButton = shell.el.querySelector<HTMLButtonElement>(".tkr-run-start");
+  ok(runButton);
+  await act(() => { runButton.click(); });
+  await settle();
+  deepEqual(launches[0], { kind: "game", main: "Main/B.gam", projectFolder: "Game/B" });
+});
+test("Run pairs the selected game's main with its layout when the active board has no declared owner", async () => {
+  const launches: Launch[] = [];
+  const launcher: Launcher = {
+    current: () => null,
+    unavailable: () => null,
+    launch: async (launch) => {
+      launches.push(launch);
+      return { ok: false, reason: "refused", message: "captured by test" };
+    },
+    dispose: () => {},
+  };
+  const shell = await setup(["folderWrite"], { ...FILES, "Main/A.gam": exampleMain(9) }, {
+    launcher,
+    main: "Main/A.gam",
+    projectLayout: { projectFolder: "Game/A" },
+    projectLayoutForPath: () => ({ projectFolder: "" }),
+    mainForPath: () => null,
+  });
+  const opened = await shell.tree.open("Boards/village.brd");
+  ok(opened.ok && opened.via === "document");
+  shell.tabs.open(opened.document);
+  await settle();
+  const runButton = shell.el.querySelector<HTMLButtonElement>(".tkr-run-start");
+  ok(runButton);
+  await act(() => { runButton.click(); });
+  await settle();
+  deepEqual(launches[0], { kind: "game", main: "Main/A.gam", projectFolder: "Game/A" });
 });

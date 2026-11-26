@@ -22,7 +22,7 @@ import {
   foldPath,
 } from "@tk-reawakened/core";
 import { boardExtent } from "./board-geometry.ts";
-import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
+import { projectLayoutForDocumentPath, type ProjectLayout } from "./reserved-folders.ts";
 import { previewBoardSprites } from "./board-sprite-preview.ts";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
@@ -108,12 +108,16 @@ const MAX_EXPORT_PIXELS = 16_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
 
-/** The asset root beside a canonical Game/<project>/Boards file, or the package root for loose boards (AD-5). */
-export function boardPreviewRootForPath(path: string): AssetRoot {
-  const projectFolder = projectLayoutForDocumentPath(path).projectFolder;
-  const folded = foldPath(projectFolder);
+/** The asset root for a board when its declared owning layout is known. */
+export function boardPreviewRootForLayout(layout: ProjectLayout): AssetRoot {
+  const folded = foldPath(layout.projectFolder);
   if (!folded.startsWith("game/")) return PACKAGE_ROOT;
   return { kind: "game", projectPath: folded.slice("game/".length) };
+}
+
+/** The asset root beside a canonical Game/<project>/Boards file, or the package root for loose boards (AD-5). */
+export function boardPreviewRootForPath(path: string): AssetRoot {
+  return boardPreviewRootForLayout(projectLayoutForDocumentPath(path));
 }
 
 /** A copy of the board with the content hidden by the request taken out of the picture only. */

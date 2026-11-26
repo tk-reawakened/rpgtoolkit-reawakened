@@ -126,7 +126,11 @@ export interface Rejection {
 }
 
 export type ApplyResult =
-  | { readonly ok: true; readonly editId: string }
+  /**
+   * `amended`: the command replaced the latest edit's command instead of adding one (`ApplyOptions.coalesce`). The edit
+   * keeps its id, so a host that already holds that id in its undo stack adds nothing (#3385).
+   */
+  | { readonly ok: true; readonly editId: string; readonly amended?: true }
   | { readonly ok: false; readonly rejection: Rejection };
 
 export type HistoryResult =
@@ -144,7 +148,7 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
   /** Call `listener` after every change to the snapshot; the returned function removes it. */
   subscribe(listener: () => void): () => void;
   /** Apply an edit command and return either its edit identity or a rejection. */
-  apply(command: Command): ApplyResult;
+  apply(command: Command, options?: ApplyOptions): ApplyResult;
   /** Return the current model encoded as a fresh byte array, including edits not yet written to storage. */
   serialize(): Uint8Array;
   /** Undo the latest applied edit. With `editId`, only that edit, and only while it is still the latest (AD-19). */
@@ -189,6 +193,19 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
    * history and its dirty state (D1.3). The caller checks the destination for collisions first.
    */
   saveAs(storage: DocumentStorage, target: DocumentIdentity): Promise<SaveResult>;
+}
+
+/**
+ * How a command joins history. A form field's typing is one gesture: each keystroke is applied at once, so the document is
+ * unsaved (and every host's Save All and close prompt see it) from the first character, while Undo takes back the whole
+ * gesture, as a text editor's typing does (#3385).
+ */
+export interface ApplyOptions {
+  /**
+   * The gesture this command belongs to. When the latest edit carries the same key, is the top of history (nothing to
+   * redo) and has not been saved, the command replaces that edit's command and keeps its id.
+   */
+  readonly coalesce?: string;
 }
 
 /** What a save may carry besides its reason. */
@@ -244,6 +261,12 @@ export interface DocumentCodec<Model, Command, Fields extends object = Record<ne
   summary(model: Model): string | null;
   /** The snapshot fields this kind adds to the shared ones. */
   fields(model: Model): Fields;
+  /**
+   * Why `model` must not be written yet, or `null`. A model may hold work the file cannot store (text typed into a field
+   * that is not a value yet): it is part of the document and its history, so the document stays unsaved, but a save or
+   * Save As refuses with this sentence and writes nothing (#3385). Backups still encode the stored values.
+   */
+  unsaved?(model: Model): string | null;
 }
 
 export type OpenResult<Document> =
@@ -316,6 +339,11 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
   #applied = 0;
   /** How many commands were in force when the file was last written, or `null` when that state can no longer be reached. */
   #savedAt: number | null = 0;
+  /**
+   * How many edits were in force at the last save attempt, refused or not. A gesture is never continued past one: the
+   * next keystroke is a new edit, so a host that schedules autosave and backups from edit events sees it (#3385).
+   */
+  #sealedAt: number | null = null;
   /** A recovered revision needs a successful write, not another writer's coincidentally equal bytes. */
   #recoveryRequiresWrite = false;
   /** Changes to the model or history, including edits that are subsequently undone. */
@@ -379,14 +407,19 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     };
   }
 
-  apply(command: Command): ApplyResult {
+  apply(command: Command, options: ApplyOptions = {}): ApplyResult {
     if (this.#readOnly !== null) {
       return { ok: false, rejection: { reason: "read-only", message: this.#readOnly.message } };
     }
+    const amended = this.#amend(command, options.coalesce);
+    if (amended !== null) return amended;
     const next = this.#codec.apply(this.#model, command);
     const refusal = this.#codec.refuse(next, command, this.#model);
     if (refusal !== null) return { ok: false, rejection: refusal };
-    const record: EditRecord<Command> = { editId: `edit-${this.#nextId}`, label: this.#codec.label(command), command };
+    const record: StackRecord<Command, Model> = {
+      editId: `edit-${this.#nextId}`, label: this.#codec.label(command), command,
+      ...(options.coalesce === undefined ? {} : { coalesce: options.coalesce }),
+    };
     this.#nextId += 1;
     // A new command discards what could have been redone; a saved state inside the discarded part can never be reached again.
     this.#stack = [...this.#stack.slice(0, this.#applied), record];
@@ -396,6 +429,31 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     this.#model = next;
     this.#publish();
     return { ok: true, editId: record.editId };
+  }
+
+  /**
+   * Continue the latest edit when `coalesce` continues its gesture; `null` when the command must be a new edit.
+   * Only the top of history is amended, never a saved state and never under a redo branch, so no host's undo stack and
+   * no save point can disagree with the model.
+   */
+  #amend(command: Command, coalesce: string | undefined): ApplyResult | null {
+    if (coalesce === undefined || this.#applied !== this.#stack.length) return null;
+    const top = this.#stack[this.#applied - 1];
+    if (top === undefined || top.coalesce !== coalesce || top.restored !== undefined || this.#savedAt === this.#applied || this.#sealedAt === this.#applied) return null;
+    const current = this.#model;
+    const next = this.#codec.apply(current, command);
+    if (next === current) return { ok: true, editId: top.editId, amended: true };
+    // Typing back to the value before the gesture leaves the gesture's edit in place with nothing in it, as a text editor's
+    // typing does.
+    const refusal = this.#codec.refuse(next, command, current);
+    if (refusal !== null) return { ok: false, rejection: refusal };
+    // The record keeps the model the whole gesture produced, not only its latest command: a gesture may set a value and
+    // then hold text (#3385), and replaying the latest command alone would drop what came before it in the gesture.
+    this.#stack = [...this.#stack.slice(0, this.#applied - 1), { ...top, label: this.#codec.label(command), command, gesture: next }];
+    this.#generation += 1;
+    this.#model = next;
+    this.#publish();
+    return { ok: true, editId: top.editId, amended: true };
   }
 
   restoreVersion(bytes: Uint8Array, label = "Restore a saved version"): ApplyResult {
@@ -451,7 +509,12 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     // The revision this save writes is fixed now, when it is asked for: the commands in force, identified by the last
     // one's id, and the bytes they make. Edits made after this call are not part of it and stay dirty (ADR 0022 D3.3).
     const revision = this.#applied;
+    this.#sealedAt = revision;
     const head = this.#stack[revision - 1]?.editId ?? null;
+    const unsaved = this.#codec.unsaved?.(this.#model) ?? null;
+    if (unsaved !== null) {
+      return Promise.resolve(this.#failNow({ document: path, kind: "format", code: null, message: `Nothing was saved to ${path}: ${unsaved}` }));
+    }
     const encoded = this.#codec.write(this.#model);
     if (!encoded.ok) {
       return Promise.resolve(
@@ -547,6 +610,9 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
       // A read-only document has no edits: a copy of the file is the file, never a conversion (D2.1).
       bytes = this.#opened.slice();
     } else {
+      this.#sealedAt = this.#applied;
+      const unsaved = this.#codec.unsaved?.(this.#model) ?? null;
+      if (unsaved !== null) return { ok: false, failure: { document: destination, kind: "format", code: null, message: `Nothing was saved to ${destination}: ${unsaved}` } };
       const encoded = this.#codec.write(this.#model);
       if (!encoded.ok) {
         return { ok: false, failure: { document: destination, kind: "format", code: null, message: `Could not save ${destination}: ${encoded.error.message}` } };
@@ -805,10 +871,14 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
   }
 
   #replay(): Model {
+    return this.#replayTo(this.#applied);
+  }
+
+  #replayTo(count: number): Model {
     let model = this.#base;
-    for (let index = 0; index < this.#applied; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       const record = this.#stack[index];
-      if (record !== undefined) model = record.restored !== undefined ? record.restored : this.#codec.apply(model, record.command as Command);
+      if (record !== undefined) model = record.restored ?? record.gesture ?? this.#codec.apply(model, record.command as Command);
     }
     return model;
   }
@@ -842,7 +912,12 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
 }
 
 /** A stack entry: a command to replay, or (for a restored version) the model it produced, which no command can express. */
-type StackRecord<Command, Model> = EditRecord<Command> & { readonly restored?: Model };
+type StackRecord<Command, Model> = EditRecord<Command> & {
+  readonly restored?: Model;
+  readonly coalesce?: string;
+  /** The model an amended gesture produced (#3385); it replaces replaying `command` alone. */
+  readonly gesture?: Model;
+};
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return firstDifference(a, b) === null;

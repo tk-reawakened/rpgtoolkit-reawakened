@@ -144,6 +144,48 @@ test("the proof filesystem can pause a workspace write before it reaches disk", 
     await rm(root, { recursive: true, force: true });
   }
 });
+test("a proof observation never reads a file while the filesystem is writing it in place (#3484)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-observe-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.gam"), "before");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const turn = () => new Promise((resolveTurn) => setImmediate(resolveTurn));
+    const write = (data) => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "writeFile", path: "/game.gam", create: false, overwrite: true, data: Buffer.from(data).toString("base64") }),
+    });
+    const requested = (count) => bridge.writeOperationEvents().filter((event) => event.kind === "write-request").length >= count;
+
+    // A write that arrives during an observation waits for it; the observation sees the whole earlier file.
+    let pending;
+    const first = await bridge.observe(async () => {
+      pending = write("after");
+      while (!requested(1)) await turn();
+      for (let index = 0; index < 50; index += 1) await turn();
+      return readFile(join(root, "game.gam"), "utf8");
+    });
+    assert.equal(first, "before");
+    assert.equal((await pending).status, 200);
+    assert.equal(await bridge.observe(() => readFile(join(root, "game.gam"), "utf8")), "after");
+
+    // A paused write has not taken the lock, so observing during the pause neither waits nor sees it.
+    const reached = bridge.pauseWrite("/game.gam");
+    const paused = write("later");
+    await reached;
+    assert.equal(await bridge.observe(() => readFile(join(root, "game.gam"), "utf8")), "after");
+    bridge.resumeWrite();
+    assert.equal((await paused).status, 200);
+    assert.equal(await bridge.observe(() => readFile(join(root, "game.gam"), "utf8")), "later");
+  } finally {
+    if (bridge) { bridge.resumeWrite(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the proof filesystem can pause a matching workspace read before it reaches the caller", async () => {
   const root = await mkdtemp(join(tmpdir(), "tkr-proof-read-gate-test-"));
   const origin = "http://localhost:34567";

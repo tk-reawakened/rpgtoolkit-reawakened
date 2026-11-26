@@ -8,6 +8,8 @@ type FakeNode = FakeDirectory | FakeFile;
 class FakeDirectory {
   readonly kind = "directory";
   readonly children = new Map<string, FakeNode>();
+  denyNewFileWrites = false;
+  beforeFileCreate?: (name: string) => void | Promise<void>;
   async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FakeDirectory> {
     const existing = this.children.get(name);
     if (existing instanceof FakeDirectory) return existing;
@@ -18,17 +20,22 @@ class FakeDirectory {
     return child;
   }
   async getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle> {
-    const existing = this.children.get(name);
+    let existing = this.children.get(name);
+    if (!existing && options?.create) {
+      await this.beforeFileCreate?.(name);
+      existing = this.children.get(name);
+    }
     if (existing instanceof FakeDirectory) throw new DOMException("Is a directory", "TypeMismatchError");
     if (!existing && !options?.create) throw new DOMException("Not found", "NotFoundError");
+    const denyNewFileWrite = !existing && this.denyNewFileWrites;
     const file = existing ?? { bytes: new Uint8Array() };
     this.children.set(name, file);
     return {
       getFile: async () => ({ size: file.bytes.length, lastModified: 1, arrayBuffer: async () => file.bytes.slice().buffer } as File),
       createWritable: async () => {
-        if (file.denyWrite) throw new DOMException("Permission denied", "NotAllowedError");
+        if (file.denyWrite || denyNewFileWrite) throw new DOMException("Permission denied", "NotAllowedError");
         let staged = new Uint8Array();
-        return { write: async (bytes: ArrayBuffer) => { staged = new Uint8Array(bytes.slice(0)); }, close: async () => { file.bytes = staged; } } as FileSystemWritableFileStream;
+        return { write: async (bytes: ArrayBuffer) => { staged = new Uint8Array(bytes.slice(0)); }, close: async () => { file.bytes = staged; }, abort: async () => undefined } as FileSystemWritableFileStream;
       },
     } as FileSystemFileHandle;
   }
@@ -91,6 +98,32 @@ test("web filesystem reports a refused durable write and preserves the prior byt
   ok(!result.ok);
   equal(result.error.code, "permission-denied");
   deepEqual([...file.bytes], [1, 2, 3]);
+});
+test("web filesystem keeps a refused new destination because it cannot prove ownership", async () => {
+  const { root, fs } = fixture();
+  const boards = await root.getDirectoryHandle("Boards", { create: true });
+  boards.denyNewFileWrites = true;
+  const result = await fs.write("Boards/failed.brd", new Uint8Array([9, 9]));
+  ok(!result.ok);
+  equal(result.error.code, "permission-denied");
+  ok(result.error.message.includes("cannot prove that this write created it"));
+  const file = boards.children.get("failed.brd");
+  ok(file !== undefined && !(file instanceof FakeDirectory));
+  deepEqual([...file.bytes], []);
+});
+
+test("web filesystem never deletes a file another writer creates before the failed destination handle returns", async () => {
+  const { root, fs } = fixture();
+  root.beforeFileCreate = (name) => {
+    if (name === "raced.brd") root.children.set(name, { bytes: new Uint8Array([4, 5, 6]), denyWrite: true });
+  };
+  const result = await fs.write("raced.brd", new Uint8Array([9, 9]));
+  ok(!result.ok);
+  equal(result.error.code, "permission-denied");
+  ok(result.error.message.includes("another writer's file"));
+  const file = root.children.get("raced.brd");
+  ok(file !== undefined && !(file instanceof FakeDirectory));
+  deepEqual([...file.bytes], [4, 5, 6]);
 });
 
 test("web createFolder makes an empty folder and its parents, accepts an existing folder, and refuses a file in the way", async () => {

@@ -343,10 +343,15 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     }
     // A document-level close cannot invalidate a model still owned by views.
     if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
-    // Complete every submitted request before deciding whether this document is dirty and what to ask about.
-    await pendingEditsOf(document).settle();
+    // Complete every submitted request before deciding whether this document is dirty and what to ask about. This only
+    // hands accepted edits over (`query`): a field the file cannot store must not stop the question, because Don't save
+    // is a valid answer to it. A settlement that could not complete closes nothing.
+    const settled = await pendingEditsOf(document).settle("query");
+    if (!settled.ok) return { closed: false, reason: "save-failed", failure: { document: document.identity.path, kind: "format", code: null, message: settled.message } };
     const snapshot = document.getSnapshot();
-    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
+    // Text a field holds and the document does not is unsaved work too: closing asks about it, so "Don't save" is always
+    // an answer and a field the file cannot store never makes the close fail before the question.
+    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null || pendingEditsOf(document).holdsDraft())) {
       const path = document.identity.path;
       const answer = await dialogs.ask({
         message: `Save the changes to ${path} before closing it?`,
@@ -360,12 +365,15 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       });
       if (answer === "cancel") return { closed: false, reason: "cancelled" };
       if (answer === "save") {
-        // An edit accepted while the question was open is saved with the rest.
-        await pendingEditsOf(document).settle();
+        // An edit accepted while the question was open is saved with the rest. Closing with Save is explicit: a field the
+        // file cannot store keeps the document open with its reason instead of being closed over.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return { closed: false, reason: "save-failed", failure: { document: path, kind: "format", code: null, message: settled.message } };
         const saved = await document.save();
         if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
         const current = document.getSnapshot();
-        if (current.dirty || current.conflict !== null) return { closed: false, reason: "cancelled" };
+        // Text typed into a field while the save was writing is neither saved nor asked about: closing now would drop it.
+        if (current.dirty || current.conflict !== null || pendingEditsOf(document).holdsDraft()) return { closed: false, reason: "cancelled" };
       }
     }
     // Another view may have opened while a dialog or save was pending.
@@ -640,10 +648,18 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     async saveAll(reason: HistoryReason = "manual") {
       const results: SaveAllEntry[] = [];
-      // Every view's accepted requests must complete before any dirty flag is read.
-      await Promise.all([...documents.values()].map((document) => pendingEditsOf(document).settle()));
+      // Save All is explicit: each view applies the field being typed in, and one that cannot be stored refuses that
+      // document's save with its reason instead of being written around. Each document settles immediately before its own
+      // write, not all up front: a field typed into a later document while an earlier one writes is settled too, so no
+      // document is saved around text the author entered after Save All began. Every view's accepted requests complete
+      // before that document's dirty flag is read.
       for (const document of [...documents.values()]) {
-        await pendingEditsOf(document).settle();
+        if (documents.get(document.identity.key) !== document) continue;
+        const outcome = await pendingEditsOf(document).settle("explicit");
+        if (!outcome.ok) {
+          results.push({ document: document.identity.path, result: { ok: false, failure: { document: document.identity.path, kind: "format", code: null, message: outcome.message } } });
+          continue;
+        }
         if (!document.getSnapshot().dirty) continue;
         results.push({ document: document.identity.path, result: await document.save(reason) });
       }
@@ -674,11 +690,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     release,
     async revert(document) {
-      await pendingEditsOf(document).settle();
+      // Ask about the version in force without touching the author's field text; the revert reason is sent only once the
+      // user confirmed and the document was actually reverted, so a Cancel keeps the drafts.
+      await pendingEditsOf(document).settle("query");
       const snapshot = document.getSnapshot();
       // The edit in force when the user answers: an edit accepted while the question was open is not silently dropped.
       let head = snapshot.edits.at(-1)?.editId ?? null;
-      if (snapshot.dirty || snapshot.conflict !== null) {
+      if (snapshot.dirty || snapshot.conflict !== null || pendingEditsOf(document).holdsDraft()) {
         const answer = await dialogs.ask({
           message: `Revert ${document.identity.path} to the version on disk?`,
           detail: "Your unsaved changes are discarded.",
@@ -692,10 +710,14 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         head = document.getSnapshot().edits.at(-1)?.editId ?? null;
       }
       const reverted = await document.revert(head);
-      return reverted.ok ? reverted : { ok: false, reason: "failed", failure: reverted.failure };
+      if (!reverted.ok) return { ok: false, reason: "failed", failure: reverted.failure };
+      await pendingEditsOf(document).settle("revert");
+      return reverted;
     },
     async saveAs(document) {
-      await pendingEditsOf(document).settle();
+      // A field the file cannot store refuses the copy too: nothing is written from a document whose settlement failed.
+      const settled = await pendingEditsOf(document).settle("explicit");
+      if (!settled.ok) return { ok: false, reason: "failed", failure: { document: document.identity.path, message: settled.message } };
       const source = document.identity.path;
       const requested = await dialogs.pickSavePath({ document: source, suggested: source });
       if (requested === null) return { ok: false, reason: "cancelled" };
@@ -708,6 +730,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       if (!resolved.ok) return failed(target, resolved.kind === "case-conflict" ? resolved.message : `Could not check ${target}: ${resolved.error.message}`);
       const identity = createDocumentIdentity(projectId, resolved.path);
       if (identity.key === document.identity.key) {
+        // The destination lookup and any question above took time: the author may have typed since the settlement at the
+        // top, so settle again immediately before this save, with nothing awaited in between.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return failed(source, settled.message);
         const saved = await document.save();
         return saved.ok ? { ok: true, document } : failed(source, saved.failure.message);
       }
@@ -734,6 +760,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
           });
           if (answer === "cancel") return { ok: false, reason: "cancelled" };
         }
+        // A destination lookup or replace confirmation can leave time for new field edits. Validate them before
+        // taking the copied revision or touching the destination, not just when deciding whether to close the source.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return failed(resolved.path, settled.message);
         const copied = document.getSnapshot();
         const written = await document.saveAs(documentStorage, identity);
         if (!written.ok) return failed(resolved.path, written.failure.message);
@@ -742,7 +772,12 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         if (!reopened.ok) {
           return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
         }
-        // A source edit made during the write or the read is not in the copy: keep the source open with its work.
+        // Text typed into a field during the write is in neither the copy nor the model's revision: replacing the source
+        // would drop it, so it stays open with that text. This look comes last of the asynchronous steps, and the revision
+        // is compared after it, because settling can hand over an edit the view had accepted while the copy was written.
+        const late = await pendingEditsOf(document).settle("guard");
+        if (!late.ok) return failed(resolved.path, `${resolved.path} was written, but ${source} ${late.kind === "held" ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
+        // A source edit made during the write, the read or the settlement is not in the copy: keep the source open with its work.
         if (!sameRevision(document.getSnapshot(), copied)) {
           return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
         }

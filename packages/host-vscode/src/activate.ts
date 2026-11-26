@@ -4,6 +4,7 @@ import { registerProgramCommands } from "./program-commands.ts";
 import { registerFontCommands } from "./font-commands.ts";
 import { registerCreatorTests } from "./creator-tests.ts";
 import { registerFirstBoardTutorial } from "./first-board-tutorial.ts";
+import { registerVisualEvents } from "./visual-events.ts";
 
 export function activate(context: ExtensionContext): void {
   const generation = registerGameSettings(context);
@@ -11,6 +12,7 @@ export function activate(context: ExtensionContext): void {
   registerFontCommands(context, generation);
   registerCreatorTests(context, generation);
   registerFirstBoardTutorial(context);
+  registerVisualEvents(context);
   registerNewProject(context);
 }
 
