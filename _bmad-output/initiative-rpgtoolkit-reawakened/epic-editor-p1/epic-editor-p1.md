@@ -28,7 +28,7 @@ The supplied tools cover the complete artwork workflow without making them manda
 ## Done when
 
 1. Each retained P1 tool opens, edits and saves its legacy format and the result loads in the runner and re-opens unchanged. Move/status/background behavior uses authored enemies and the real battle provider; full T-56 authoring is accepted in 29.8/29.6.
-2. The auto-tiler picks tiles from the 8-neighbour rules and matches the variant order of community sample sets.
+2. The auto-tiler picks tiles by the 8-neighbour rules and the tile table in [autotiling.md](../../../docs/spec/editor/autotiling.md), and imports original `AUTOTILES_` sets.
 3. Export image writes the current view or the whole board without editor overlays.
 4. The coordinate and legacy-board upgrades of T-30 and T-31 run in the editor with correct object movement.
 5. A reusable kit can be drawn across cells, edited in board/scene context, animated and assembled from recipes; saving and reopening retains layers, frames, recipe parameters, stable references and originals separately from generated game assets.
@@ -54,7 +54,7 @@ The expanded artwork requirements below map to CAP-16. Epic 11 continues to own 
 - Audit (2026-10-31): this envelope has no `tickets.toml` breakdown, so it has no `tracker_id` and no GitHub parent issue, contrary to the initiative's mirror rule. Recorded, not fixed: a parent issue needs a real breakdown, and inventing entries to satisfy the rule was rejected. Filed as issue #882; `epic-editor-foundation` is the one to break down first because Epic 22's 22.9 waits on its seams. See `DISCOVERY-envelope-audit.md`.
 
 
-- Open question: the auto-tiler variant ordering must be rebuilt from sample sets under G7; which sample sets? Entries wait on that answer.
+- Resolved (2026-11-26): the auto-tiler variant order is specified in the clean-room behavioural spec [autotiling.md](../../../docs/spec/editor/autotiling.md), with an original example set and board ([#1732](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1732)).
 - Decision: epic set approved by the user, 2026-10-10.
 - Waits on editor-assets-p0 because: the board editor and shared tileset browser.
 - Decision: envelope re-sliced against the architecture spine, 2026-10-10.
@@ -69,7 +69,7 @@ The expanded artwork requirements below map to CAP-16. Epic 11 continues to own 
 - Requirement map to CAP-16: T-36 → 1–3; T-37 → 4; T-38 → 5; T-39 → 6; T-25 → 7–8; T-56 → 29.8 (moved from retired 13.9); T-57/58 → 10; T-63 → 11; T-23/26 lighting and shading → 12; T-28 expanded clipboard → 13 (basic board undo belongs to 12.1); T-32 → 14; T-30/31 → 15; T-42–44/46 editor presentation → 16 (transform providers 10.5/10.7); integrated acceptance → 19; T-65 → 20.
 - External dependencies: 11.1–11.4 supply shared contracts, lifecycle and linked visits; 11.7 supplies text integration; 12.1 board tracer, 12.2 the one contextual browser, 12.3 board properties, 12.11 board object modes and inspector, and 12.4 shared sprite editing; 10.5 and 10.7 are existing language-tool provider entries. Each leaf names the actual provider it needs; parent must declare the cross-epic edges.
 - Art-tool reuse remains an evidence-gated choice, not a selected dependency: entry 2 compares suitable maintained candidates and an in-house route for license/transitives G6, host/keyboard/offline support, document/undo integration and required pixel operations before any new dependency is installed; if no candidate qualifies, implement in-house.
-- Auto-tiler ordering is not established by the generic blob rule: entry 7 must obtain and document rights-cleared community samples and independently verify indexed variants, recording provenance and ambiguous cases before entry 8 may implement a mapping; absence of adequate evidence blocks parity, never invent an order or read GPL source.
+- Auto-tiler ordering is not established by the generic blob rule. Entry 7 settled it with the normative spec [autotiling.md](../../../docs/spec/editor/autotiling.md) and an original example set drawn procedurally, so no community artwork is needed (2026-11-26). Entry 8 implements the spec's table and import rules; entry 27 adds export to `AUTOTILES_` sets and import of other layouts. Never read GPL source.
 - Shared registration and integration is owned by entry 1; art, board and database stories modify their own feature modules, with ordering inside each lane and adapter/registry changes routed through the initial stable registration contract; none creates a second browser. No synchronised multi-cell animation channel, cross-document atomic undo, plugin UI or hot reload is assumed.
 
 - Decision (2026-11-13, owner approved breakdown and publication): product direction is owned editor with permissive reuse and browser-led interaction; 13.2 selects components, not whether to own the product. The source preservation and third-party workflow requirements below reflect the owner's subsequent decisions, not additional scope approved merely by ADR 0031.

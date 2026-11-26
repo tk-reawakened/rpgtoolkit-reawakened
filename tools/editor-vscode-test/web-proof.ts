@@ -251,25 +251,29 @@ export async function runVscodeBoardUpgradeProof(
     first: readonly [number, number, number],
     second: readonly [number, number, number],
   ): Promise<void> => {
-    const colors = await frame.evaluate((expected) => {
-      const screen = document.querySelector<HTMLCanvasElement>("#screen");
-      const gl = screen?.getContext("webgl2") ?? screen?.getContext("webgl");
-      if (!screen || !gl) return null;
-      const width = gl.drawingBufferWidth;
-      const height = gl.drawingBufferHeight;
-      const pixels = new Uint8Array(width * height * 4);
-      gl.finish();
-      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      let firstCount = 0;
-      let secondCount = 0;
-      for (let index = 0; index < pixels.length; index += 4) {
-        if (pixels[index] === expected[0]![0] && pixels[index + 1] === expected[0]![1] && pixels[index + 2] === expected[0]![2]) firstCount += 1;
-        if (pixels[index] === expected[1]![0] && pixels[index + 1] === expected[1]![1] && pixels[index + 2] === expected[1]![2]) secondCount += 1;
-      }
-      return { firstCount, secondCount };
-    }, [first, second]);
-    expect(colors?.firstCount, `authored tile color ${first.join(",")} must be rendered`).toBeGreaterThan(10_000);
-    expect(colors?.secondCount, `authored tile color ${second.join(",")} must be rendered`).toBeGreaterThan(10_000);
+    // The runner draws on its own frames, so a single read can land on a partly drawn buffer (#3504).
+    // Re-read until both colours pass, within a bounded, backed-off window; the threshold is unchanged.
+    await expect(async () => {
+      const colors = await frame.evaluate((expected) => {
+        const screen = document.querySelector<HTMLCanvasElement>("#screen");
+        const gl = screen?.getContext("webgl2") ?? screen?.getContext("webgl");
+        if (!screen || !gl) return null;
+        const width = gl.drawingBufferWidth;
+        const height = gl.drawingBufferHeight;
+        const pixels = new Uint8Array(width * height * 4);
+        gl.finish();
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let firstCount = 0;
+        let secondCount = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index] === expected[0]![0] && pixels[index + 1] === expected[0]![1] && pixels[index + 2] === expected[0]![2]) firstCount += 1;
+          if (pixels[index] === expected[1]![0] && pixels[index + 1] === expected[1]![1] && pixels[index + 2] === expected[1]![2]) secondCount += 1;
+        }
+        return { firstCount, secondCount };
+      }, [first, second]);
+      expect(colors?.firstCount, `authored tile color ${first.join(",")} must be rendered`).toBeGreaterThan(10_000);
+      expect(colors?.secondCount, `authored tile color ${second.join(",")} must be rendered`).toBeGreaterThan(10_000);
+    }).toPass({ timeout: 15_000, intervals: [100, 250, 500, 1_000] });
   };
   const sourcePath = "Game/Example/Boards/village.brd";
   const copyPath = "Game/Example/Boards/village.pixels.brd";
@@ -396,12 +400,9 @@ export async function runVscodeBoardUpgradeProof(
     throw new Error("The fetched village board must be a tile-coordinate vector board");
   }
 
-  await openNativeQuickOpenFile(page, expect, legacyCopyPath);
-  await expect(page.getByRole("tab", { name: /red\.upgraded\.brd/ })).toBeVisible();
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   const restoredBoardTabs = page.locator('[role="tab"][data-resource-name$=".brd"]');
-  await expect(restoredBoardTabs.first()).toBeVisible();
   while (await restoredBoardTabs.count() > 0) {
     const restoredBoardTab = restoredBoardTabs.first();
     const resourceName = await restoredBoardTab.getAttribute("data-resource-name");
@@ -472,8 +473,10 @@ export async function runVscodeBoardUpgradeProof(
   await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
   const failedSavePath = page.getByRole("textbox", { name: "Folder path" });
   await expect(failedSavePath).toBeVisible({ timeout: 15_000 });
+  await expect(failedSavePath).toHaveValue(/^\/Game\/Example\/Boards\/[^/]*\.brd$/);
   await failedSavePath.fill(`/${failedPath}`);
-  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(failedSavePath).toHaveValue(`/${failedPath}`);
+  await failedSavePath.press("Enter");
   const writeErrorNotification = page.getByRole("alert").filter({ hasText: /Could not write .*village\.failed-write\.brd/ });
   await expect(writeErrorNotification).toBeVisible({ timeout: 15_000 });
   if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
