@@ -2,8 +2,9 @@
 type: feature
 title: "Complete structured event authoring"
 ticket: 3
-status: draft
+status: in-progress
 risk: high
+baseline_revision: 5ec33c3728f490f5ef0399e708f7be93918e9d51
 ---
 
 # Complete structured event authoring
