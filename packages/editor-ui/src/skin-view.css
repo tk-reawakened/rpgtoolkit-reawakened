@@ -1,0 +1,20 @@
+.tkr-native-skin-editor {
+  display: grid;
+  gap: 1rem;
+  max-width: 72rem;
+}
+
+.tkr-native-skin-editor fieldset {
+  min-width: 0;
+}
+
+.tkr-skin-preview canvas {
+  display: block;
+  max-height: 24rem;
+  max-width: 100%;
+  image-rendering: pixelated;
+}
+
+.tkr-skin-preview-notice {
+  font-weight: 600;
+}
