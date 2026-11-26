@@ -152,8 +152,8 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
     if (pickAsset === undefined || disabled || picking !== null) return;
     setPicking(field);
     try {
-      // Where ownership stood when the picker opened. Its answer is older than anything a refresh finds meanwhile.
-      const openedAt = layoutTicket.current;
+      // The folders this render shows, for a picker that names none of its own.
+      const openedLayout = activeLayout;
       const outcome: PickOutcome = await pickAsset({
         kind: "bitmaps",
         extensions: IMAGE_EXTENSIONS,
@@ -163,16 +163,24 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
         await resolveOwnership();
         return;
       }
-      if (layoutTicket.current !== openedAt) {
-        // The project's folders changed while the picker was open, so the reference it returned names a file in folders
-        // the project no longer reads: the same relative name may be another picture there, or no picture at all. It is
-        // never written. The newer folders stand and the user chooses again.
-        await resolveOwnership();
-        setMessage("The project's picture folders changed while the picker was open, so the picture you chose belongs to the older folders. Nothing was changed; choose the picture again.");
-        return;
+      // What matters is the folders the picker read, not whether some refresh ran meanwhile: an unrelated refresh leaves
+      // them equal. Ask where the folders are now and compare the sets themselves.
+      const pickerLayout = outcome.layout ?? openedLayout;
+      if (resolveLayout !== undefined) {
+        const fresh = await resolveLayout().catch(() => undefined);
+        if (fresh !== undefined) {
+          layoutTicket.current += 1;
+          adopt(fresh);
+          if (fresh.projectFolder !== pickerLayout.projectFolder) {
+            // The reference names a file in folders the project no longer reads: the same relative name may be another
+            // picture there, or no picture at all. It is never written; the newer folders stand and the user chooses again.
+            setMessage("The project's picture folders changed while the picker was open, so the picture you chose belongs to the older folders. Nothing was changed; choose the picture again.");
+            return;
+          }
+        }
       }
       layoutTicket.current += 1;
-      adopt(outcome.layout);
+      adopt(pickerLayout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
       // Choosing the picture the document already names is a successful no-edit: no command, no refusal, the draft as it
       // is. The document is asked now, not at the render that opened the picker: an edit may have landed meanwhile.
