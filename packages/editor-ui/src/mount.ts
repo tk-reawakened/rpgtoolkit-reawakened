@@ -60,6 +60,7 @@ import type { TextSurfaceFactory } from "./text-surface.ts";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { SpecialMoveView, type SpecialMoveViewDocument } from "./special-move-view.tsx";
 import { StatusEffectView, type StatusEffectViewDocument } from "./status-effect-view.tsx";
+import { BattleBackgroundView, type BattleBackgroundViewDocument } from "./battle-background-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -121,7 +122,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument | SpecialMoveViewDocument | StatusEffectViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument | SpecialMoveViewDocument | StatusEffectViewDocument | BattleBackgroundViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -196,6 +197,9 @@ function isSpecialMoveView(document: ViewContext["document"]): document is Speci
 function isStatusEffectView(document: ViewContext["document"]): document is StatusEffectViewDocument {
   return document.kind === "status-effect";
 }
+function isBattleBackgroundView(document: ViewContext["document"]): document is BattleBackgroundViewDocument {
+  return document.kind === "battle-background";
+}
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
@@ -203,7 +207,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
   const fs = ctx.services.fs;
-  if ((isSpriteView(document) || isAnimationView(document) || isSpecialMoveView(document) || isStatusEffectView(document)) && fs === undefined) throw new Error("This view requires project-file read access.");
+  if ((isSpriteView(document) || isAnimationView(document) || isSpecialMoveView(document) || isStatusEffectView(document) || isBattleBackgroundView(document)) && fs === undefined) throw new Error("This view requires project-file read access.");
   const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   let disposed = false;
   let reveal: ((line: number, column: number) => void) | null = null;
@@ -308,12 +312,20 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     view = createElement(SpecialMoveView, { doc: document, fs: fs!, capabilities, pendingEdits, onEdited, ...ctx.navigation });
   } else if (isStatusEffectView(document)) {
     view = createElement(StatusEffectView, { doc: document, fs: fs!, capabilities, pendingEdits, onEdited, ...ctx.navigation });
+  } else if (isBattleBackgroundView(document)) {
+    const layout = ctx.navigation?.layout ?? ctx.browser?.layout;
+    view = createElement(BattleBackgroundView, {
+      doc: document, fs: fs!, capabilities, pendingEdits, onEdited,
+      ...ctx.navigation,
+      ...(layout === undefined ? {} : { layout }),
+      ...(ctx.audition === undefined ? {} : { audition: ctx.audition }),
+    });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack", "special-move": "Special move", "status-effect": "Status effect" };
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack", "special-move": "Special move", "status-effect": "Status effect", "battle-background": "Fight background" };
   let assetRevision = 0;
   const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
     createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);

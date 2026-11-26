@@ -261,13 +261,16 @@
       },
       {
         "viewType": "tkr.battleData",
-        "displayName": "RPG Toolkit Special Move and Status Effect Editor",
+        "displayName": "RPG Toolkit Battle Data Editor",
         "selector": [
           {
             "filenamePattern": "*.spc"
           },
           {
             "filenamePattern": "*.ste"
+          },
+          {
+            "filenamePattern": "*.bkg"
           }
         ],
         "priority": "default"

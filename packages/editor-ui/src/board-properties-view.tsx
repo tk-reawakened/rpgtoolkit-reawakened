@@ -1,4 +1,4 @@
-import { cellOnBoard, createEditTracker, pixelToCell } from "@tk-reawakened/editor-model";
+import { cellOnBoard, createEditTracker, pixelToCell, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { BoardDocumentSnapshot, PendingEdits, SetBoardFieldsCommand } from "@tk-reawakened/editor-model";
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -7,6 +7,7 @@ import { useDocumentSnapshot } from "./use-document.ts";
 import type { AuditionPanel } from "./board-audition.ts";
 
 export interface BoardPropertiesNavigation {
+  readonly layout?: ProjectLayout;
   open?(path: string): Promise<string | null>;
   returnFromVisit?(): Promise<string | null>;
   setInitialBoard?(path: string): Promise<string | null>;

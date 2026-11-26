@@ -5,6 +5,7 @@ import {
   linkReferenceProblem,
   projectLayoutForDocumentPath,
   reservedFolder,
+  type ProjectLayout,
   type AssetKind,
   type DocumentSnapshot,
   type HeldFields,
@@ -36,6 +37,8 @@ import { useDocumentSnapshot } from "./use-document.ts";
 
 export interface BattleDataNavigation {
   readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
+  /** Owning game layout, when a host knows it independently of this document's path. */
+  readonly layout?: ProjectLayout;
   /** Open the project file at this project-relative path in its own editor, remembering the way back. Resolves with a message when it could not. */
   readonly open?: (path: string) => Promise<string | null>;
 }
@@ -98,6 +101,7 @@ const problem = (error: unknown): string => error instanceof Error ? error.messa
 
 /** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
 const WHOLE_NUMBER = /^[+-]?\d+$/;
+let nextFormScope = 0;
 
 export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command> & HeldFields, Command>(
   { doc, pendingEdits, capabilities, onEdited }: Pick<BattleDataFormProps<Snapshot, Command>, "doc" | "pendingEdits" | "capabilities" | "onEdited">,
@@ -121,7 +125,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command> & H
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
   const gestures = useRef(new Map<string, number>());
-  const coalesceKey = (key: string): string => `${key}#${gestures.current.get(key) ?? 0}`;
+  const formScope = useRef<number | null>(null);
+  if (formScope.current === null) formScope.current = ++nextFormScope;
+  const coalesceKey = (key: string): string => `${formScope.current}:${key}#${gestures.current.get(key) ?? 0}`;
   const endGesture = (key: string): void => { gestures.current.set(key, (gestures.current.get(key) ?? 0) + 1); };
   /** The text each field last sent as a keystroke, so leaving it does not send the same text again as a second edit. */
   const typed = useRef(new Map<string, string>());
@@ -492,29 +498,32 @@ export function useLinkedFile(
   extensions: readonly string[],
   /** Whether the runtime itself appends the extension when the author left it off; false loads the exact reference. */
   lookup: LinkLookup,
+  layout?: ProjectLayout,
 ): LinkedFile {
   const assetRevision = useContext(AssetRefreshContext);
   // A caller writes its extension list inline, so the effect keys on the list's content: a new array of the same
   // extensions must not start the read again on every render.
   const extensionKey = `${extensions.join(",")}|${lookup}`;
-  const [linked, setLinked] = useState<LinkedFile>({ state: "none" });
+  const linkedKey = JSON.stringify([projectId, documentPath, kind, reference, extensionKey, lookup, layout?.projectFolder, assetRevision]);
+  const [entry, setEntry] = useState<{ readonly key: string; readonly value: LinkedFile }>({ key: linkedKey, value: { state: "none" } });
   useEffect(() => {
     let active = true;
+    const publish = (value: LinkedFile): void => setEntry({ key: linkedKey, value });
     const wanted = extensions.join(",") === "" ? [] : extensions.join(",").split(",");
     // Looked up as the game does: a status effect trims its text, a program or animation is exact, so text that only
     // differs by a space is another program. The stored text itself is never changed.
     const named = lookup === "status-effect" ? reference.trim() : reference;
     if (named === "") {
-      setLinked({ state: "none" });
+      publish({ state: "none" });
       return () => { active = false; };
     }
     const refused = linkReferenceProblem(named);
     if (refused !== null) {
-      setLinked({ state: "invalid", message: refused });
+      publish({ state: "invalid", message: refused });
       return () => { active = false; };
     }
-    const folder = reservedFolder(projectLayoutForDocumentPath(documentPath), kind);
-    setLinked({ state: "checking" });
+    const folder = reservedFolder(layout ?? projectLayoutForDocumentPath(documentPath), kind);
+    publish({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
       for (const candidate of linkedFileCandidates(folder, reference, wanted, lookup)) {
@@ -527,7 +536,7 @@ export function useLinkedFile(
             if (!resolved.ok) {
               // Two files differ only in case: the reference names neither, so the form says so instead of previewing
               // whichever spelling happens to read.
-              if (active) setLinked({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
+              if (active) publish({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
               return;
             }
             if (!resolved.exists) {
@@ -536,7 +545,7 @@ export function useLinkedFile(
             }
             path = resolved.path;
           } catch (error) {
-            if (active) setLinked({ state: "invalid", message: problem(error) });
+            if (active) publish({ state: "invalid", message: problem(error) });
             return;
           }
         }
@@ -547,14 +556,14 @@ export function useLinkedFile(
           result = { ok: false, error: { code: "unavailable", message: problem(error) } } as Awaited<ReturnType<typeof fs.readProject>>;
         }
         if (!active) return;
-        if (result.ok) { setLinked({ state: "found", bytes: result.value, path }); return; }
+        if (result.ok) { publish({ state: "found", bytes: result.value, path }); return; }
         missing ??= { path, message: result.error.message };
       }
-      if (active) setLinked({ state: "missing", path: missing!.path, message: missing!.message });
+      if (active) publish({ state: "missing", path: missing!.path, message: missing!.message });
     })();
     return () => { active = false; };
-  }, [fs, projectId, documentPath, kind, reference, extensionKey, lookup, assetRevision]);
-  return linked;
+  }, [fs, projectId, documentPath, kind, reference, extensionKey, lookup, layout, assetRevision, linkedKey]);
+  return entry.key === linkedKey ? entry.value : { state: "checking" };
 }
 
 export function LinkRow<Command>({ form, id, label, value, hint, kind, extensions, navigation, linked, command, children }: {
