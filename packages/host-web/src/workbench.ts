@@ -99,6 +99,8 @@ export interface Workbench {
   readonly visits: Visits;
   /** Open the file the way its route says; a Toolkit document opens in a tab (or comes to the front, if it is open). */
   openPath(path: string): Promise<void>;
+  /** Open an already loaded document after resolving and caching its owning game layout. */
+  openDocument(document: AnyDocument): Promise<string | null>;
   /** Follow a link from `origin` to `path` in a tab, remembering where it came from. */
   visit(origin: AnyDocument, path: string): Promise<VisitResult>;
   /** Go back to where the latest visit started, opening it again if it was closed. */
@@ -990,6 +992,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     layout,
     visits,
     openPath,
+    openDocument: show,
     ownerForDocumentPath: ownerForPath,
     auditionForDocument,
     async visit(origin, path) {

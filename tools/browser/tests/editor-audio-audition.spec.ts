@@ -222,3 +222,82 @@ test("a loose board auditions its root Media folder while a nested game Main is 
   await play.click();
   await expect.poll(async () => (await signal(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
 });
+test("Save As caches the copied board's owner so its split audition uses that game's Media", async ({ page }) => {
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "B" });
+  if (!mainA.ok || !mainB.ok) throw new Error("The proof main files must serialize");
+  const board = buildNewBoard({ name: "owner-audition", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null });
+  if (!board.ok) throw new Error(board.message);
+  const quietTone = wav();
+  quietTone.fill(0, 44);
+  const files = Object.fromEntries(Object.entries({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Game/B/Boards/source.brd": board.bytes,
+    "Game/A/Media/b-tone.wav": quietTone,
+    "Game/B/Media/b-tone.wav": wav(),
+  }).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]));
+  const folder = `Save-As-Audition-${randomUUID()}`;
+  await page.addInitScript(({ files, folder }) => {
+    const NativeWorklet = window.AudioWorkletNode;
+    window.AudioWorkletNode = class extends NativeWorklet {
+      constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
+        super(context, name, options);
+        if (name !== "tkr-pcm-processor") return;
+        const analyser = context.createAnalyser();
+        this.connect(analyser);
+        (window as AudioProofWindow).auditionGraph = { context, analyser };
+      }
+    };
+    let project: Promise<FileSystemDirectoryHandle> | undefined;
+    Object.defineProperty(window, "showDirectoryPicker", { value: () => project ??= (async () => {
+      const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true });
+      for (const [path, encoded] of Object.entries(files)) {
+        const parts = path.split("/");
+        const file = parts.pop()!;
+        let parent = root;
+        for (const part of parts) parent = await parent.getDirectoryHandle(part, { create: true });
+        const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+        const stream = await (await parent.getFileHandle(file, { create: true })).createWritable();
+        await stream.write(bytes);
+        await stream.close();
+      }
+      return root;
+    })() });
+  }, { files, folder });
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.getByRole("button", { name: "Open project folder", exact: true }).click();
+  await expect(page.getByLabel("Game in project")).toHaveValue("Main/A.gam");
+  await page.getByRole("button", { name: "Open selected game", exact: true }).click();
+  const mainFolder = page.getByRole("treeitem", { name: /^Main, folder/ });
+  if (await mainFolder.getAttribute("aria-expanded") !== "true") await mainFolder.dblclick();
+  await page.getByRole("treeitem", { name: /^A\.gam,/ }).dblclick();
+  await expect(page.getByRole("tab", { name: "Main/A.gam", exact: true })).toBeVisible();
+  const gameFolder = page.getByRole("treeitem", { name: /^Game, folder/ });
+  if (await gameFolder.getAttribute("aria-expanded") !== "true") await gameFolder.dblclick();
+  const bFolder = page.getByRole("treeitem", { name: /^B, folder/ });
+  if (await bFolder.getAttribute("aria-expanded") !== "true") await bFolder.dblclick();
+  const boards = page.getByRole("treeitem", { name: /^Boards, folder/ });
+  if (await boards.getAttribute("aria-expanded") !== "true") await boards.dblclick();
+  await page.getByRole("treeitem", { name: /^source\.brd,/ }).dblclick();
+  await expect(page.getByRole("tab", { name: "Game/B/Boards/source.brd", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save Active Document As/i }).click();
+  const saveDialog = page.getByRole("dialog");
+  await saveDialog.getByRole("textbox").fill("Game/B/Boards/copy.brd");
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Game/B/Boards/copy.brd", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Game/B/Boards/source.brd", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+  const mirror = page.locator("#mirror");
+  const properties = mirror.locator(".tkr-board-properties");
+  await expect(properties).toBeVisible();
+  await properties.locator("summary").click();
+  const music = properties.getByRole("textbox", { name: "Background music", exact: true });
+  await music.fill("b-tone.wav");
+  await properties.getByRole("group", { name: "Background music audition" })
+    .getByRole("button", { name: "Play background music", exact: true }).click();
+  await expect.poll(async () => (await signal(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
+});

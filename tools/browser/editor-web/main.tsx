@@ -707,7 +707,8 @@ onActive("#save-as", async (current, active) => {
     ? { closed: true }
     : await current.workbench.tabs.close(sourceTab);
   if (shown !== current) return null;
-  current.workbench.tabs.open(saved.document);
+  const openProblem = await current.workbench.openDocument(saved.document);
+  if (openProblem !== null) return openProblem;
   const sourceNotice = sourceClosed.closed ? "" : ` The source ${active.identity.path} remains open.`;
   return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${active.identity.path}).${sourceNotice}`;
 });

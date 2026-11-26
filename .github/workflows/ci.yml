@@ -676,14 +676,20 @@ jobs:
             set -- setpriv --bounding-set=-dac_override,-dac_read_search
           fi
           proof() {
+            local proof_workspace="${TKR_VSCODE_PROOF_WORKSPACE:-$workspace}"
             "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
               --extension extensions/editor \
-              --workspace "$workspace" \
+              --workspace "$proof_workspace" \
               --game Main/example.gam
           }
           proof "$@"
           if [ "${{ matrix.lane }}" = "editor-vscode" ]; then
-            TKR_VSCODE_BOARD_UPGRADE_PROOF=1 proof "$@"
+            board_upgrade_workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-board-upgrade.XXXXXX")"
+            cp -R docs/spec/examples/game/Game "$board_upgrade_workspace/Game"
+            mkdir -p "$board_upgrade_workspace/Main" "$board_upgrade_workspace/.vscode"
+            cp docs/spec/examples/game/Main/example.gam "$board_upgrade_workspace/Main/example.gam"
+            printf '{\n  "files.autoSave": "off"\n}\n' > "$board_upgrade_workspace/.vscode/settings.json"
+            TKR_VSCODE_PROOF_WORKSPACE="$board_upgrade_workspace" TKR_VSCODE_BOARD_UPGRADE_PROOF=1 proof "$@"
           fi
           if [ "$TKR_VSCODE_CREATOR_TESTS_PROOF" != 1 ]; then
             TKR_VSCODE_NATIVE_SCENE_PROOF=1 proof "$@"
