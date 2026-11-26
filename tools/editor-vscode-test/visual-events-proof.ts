@@ -40,7 +40,8 @@ export async function runVscodeVisualEventsProof(
   await expect(pane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event");
 
   // The opaque block's command must focus the native text editor for this exact URI, not a copy or new document.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await pane.locator("fieldset").filter({ hasText: "native visual event proof // handwritten" })
+    .getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect(sourceTab).toHaveAttribute("aria-selected", "true");
   await expect(text).toContainText("handwritten opaque line");
   await expect(text).toContainText("Native tracer event");
@@ -194,7 +195,8 @@ async function runStructuredAuthoring(
   await expect(lines).toContainText('text(2, 2, "Native canvas")');
 
   // One native undo step per card edit, from the same text document.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await pane.locator("fieldset").filter({ hasText: "native visual event proof // handwritten" })
+    .getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await command("Undo");
   await expect(lines).toContainText('text(5, 13, "Native canvas")');
@@ -229,7 +231,8 @@ async function runStructuredAuthoring(
   const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\nmwin("Native tracer event")\nwait()\nmwincls()';
   await expect.poll(text).toBe(program);
   // Save from the focused text editor itself, as a person does; the palette command would act on the webview.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await pane.locator("fieldset").filter({ hasText: "native visual event proof // handwritten" })
+    .getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await page.keyboard.press("ControlOrMeta+S");
   await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH)), { timeout: 20_000 }).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
