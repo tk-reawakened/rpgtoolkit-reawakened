@@ -25,6 +25,7 @@ import {
   type PendingEdits,
   type TilesetArtCommand,
   type TilesetArtSnapshot,
+  projectLayoutForDocumentPath,
 } from "@tk-reawakened/editor-model";
 import { NativeClipView, type NativeClipViewDocument } from "./native-clip-view.tsx";
 import { BattleBackgroundView, type BattleBackgroundViewDocument } from "./battle-background-view.tsx";
@@ -310,6 +311,8 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       onEdited,
       fs: fs!,
       projectId: document.identity.projectId,
+      // The host names the document's project folders; a standalone mount infers them from the path (ADR 0022 D1.2).
+      layout: ctx.browser?.layout ?? projectLayoutForDocumentPath(document.identity.path),
       ...(ctx.navigation?.pickAsset === undefined ? {} : { pickAsset: ctx.navigation.pickAsset }),
     });
   } else if (isNativeGeometryView(document)) {

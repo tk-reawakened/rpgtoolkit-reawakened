@@ -179,3 +179,18 @@ test("bundle check CLI: exits 1 on a bundle with eval( or new Function, 0 on a c
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// #3527: the help window makes only this repository's HTTPS links clickable, so a changelog's relative link must reach
+// What's New as the same file's absolute URL instead of a label with the destination lost.
+test("What's New turns a changelog's relative link into the repository's absolute URL", async () => {
+  const generated = readFileSync(join(repoRoot, "packages/editor-ui/src/help-content.generated.ts"), "utf8");
+  const whatsNew = /export const WHATS_NEW_MARKDOWN = ("(?:[^"\\]|\\.)*");/.exec(generated);
+  ok(whatsNew, "the generated What's New is present");
+  const markdown = JSON.parse(whatsNew[1]);
+  const destinations = [...markdown.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1]);
+  ok(destinations.length > 0, "the notes carry links");
+  for (const destination of destinations) {
+    ok(destination.startsWith("https://github.com/tk-reawakened/rpgtoolkit-reawakened/"), `What's New link ${destination} is clickable`);
+  }
+  ok(markdown.includes("(https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/docs/spec/formats/native-skin.md)"), "the skin link names its file absolutely");
+});

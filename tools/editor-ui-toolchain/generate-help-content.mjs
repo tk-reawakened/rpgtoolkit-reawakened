@@ -41,6 +41,17 @@ function authoringGuide(markdown) {
   return `# RPGCode program authoring\n\n${content}\n\nThis guide is drawn from the repository's TOOL-10 editor specification. It is a maintained authoring reference, not the legacy HTML manual.`;
 }
 
+const REPOSITORY_BLOB = "https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/";
+
+/**
+ * The help window makes only this repository's HTTPS links clickable, so a relative changelog path would be shown as its
+ * label with the destination lost. Composing What's New rewrites such a destination to the same file's absolute URL, so a
+ * writer keeps using the repository-relative spelling the rest of the changelog uses.
+ */
+function absoluteRepositoryLinks(markdown) {
+  return markdown.replace(/\]\((?!https?:\/\/)([^)\s]+)\)/g, (_match, target) => `](${REPOSITORY_BLOB}${target})`);
+}
+
 function unreleasedNotes(markdown) {
   const lines = markdown.split(/\r?\n/);
   if (lines[0] !== "# Changelog") throw new Error(`Unexpected changelog heading in ${changelogPath}`);
@@ -48,7 +59,7 @@ function unreleasedNotes(markdown) {
   const nextHeading = lines.findIndex((line, index) => index > 2 && /^## /.test(line));
   const notes = lines.slice(3, nextHeading < 0 ? undefined : nextHeading).filter((line) => line.startsWith("- "));
   if (notes.length === 0) throw new Error(`Missing non-empty Unreleased section in ${changelogPath}`);
-  return `# What's New\n\n${notes.slice(0, 12).join("\n\n")}\n\n[Read the full changelog](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md).`;
+  return `# What's New\n\n${absoluteRepositoryLinks(notes.slice(0, 12).join("\n\n"))}\n\n[Read the full changelog](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md).`;
 }
 
 const tooling = readFileSync(toolingPath, "utf8");

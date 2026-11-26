@@ -10,7 +10,7 @@ type Expect = typeof playwrightExpect;
 type Rgba = readonly [number, number, number, number];
 export interface SkinPicture { readonly width: number; readonly height: number; readonly pixels: readonly Rgba[] }
 
-export const SKIN_PROOF_PATH = "Game/Example/Misc/stone.tkrskin";
+export const SKIN_PROOF_PATH = "Game/Example/Skins/stone.tkrskin";
 export const SKIN_PROOF_GAME = "Main/example.gam";
 const BITMAPS = "Game/Example/Bitmap";
 

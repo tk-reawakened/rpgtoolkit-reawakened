@@ -1,4 +1,4 @@
-import { createEditTracker, projectLayoutForDocumentPath, referencePath, resolveDocumentPath, spritePicturePreview, type NativeSkinCommand, type NativeSkinSnapshot, type PendingEdits, type PickOutcome, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { createEditTracker, referencePath, resolveDocumentPath, spritePicturePreview, type NativeSkinCommand, type NativeSkinSnapshot, type PendingEdits, type PickOutcome, type ProjectLayout, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { Capability, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
@@ -15,6 +15,8 @@ export interface NativeSkinViewProps {
   readonly onEdited: (event: DocumentEdited) => void;
   readonly fs: ProjectReader;
   readonly projectId: string;
+  /** The project's asset folders as the host resolved them; the document path is only a fallback for a standalone mount. */
+  readonly layout: ProjectLayout;
   readonly pickAsset?: CharacterAuthoringViewProps["pickAsset"];
 }
 
@@ -24,30 +26,32 @@ const IMAGE_EXTENSIONS = [".bmp", ".gif", ".jpeg", ".jpg", ".png"] as const;
 const problem = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
 function SkinImagePreview({
-  reference, fs, projectId, documentPath, label,
+  reference, fs, projectId, layout, label,
 }: {
   readonly reference: string;
   readonly fs: ProjectReader;
   readonly projectId: string;
-  readonly documentPath: string;
+  readonly layout: ProjectLayout;
   readonly label: string;
 }) {
-  // The picture is kept with the reference it was read for, so a changed reference never labels the previous picture.
-  const [loaded, setLoaded] = useState<{ readonly reference: string; readonly frame: SpritePreviewFrame } | null>(null);
-  const [status, setStatus] = useState<{ readonly reference: string; readonly text: string } | null>(null);
-  const message = status?.reference === reference ? status.text : `Reading ${reference}…`;
-  const frame = loaded?.reference === reference ? loaded.frame : null;
+  // One record holds the picture and the sentence for the reference it was read for, so neither can outlive that
+  // reference: a failed or in-flight read shows its own message and never the previous picture.
+  const [shown, setShown] = useState<{ readonly reference: string; readonly frame: SpritePreviewFrame | null; readonly text: string } | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const assetRevision = useContext(AssetRefreshContext);
   useEffect(() => {
     let active = true;
+    const unavailable = (reason: string): void => {
+      setShown({ reference, frame: null, text: `Preview unavailable for ${reference}: ${reason}` });
+    };
     void (async () => {
-      let path = referencePath(projectLayoutForDocumentPath(documentPath), "bitmaps", reference);
+      // The host names the project's asset folders; the document's own path is only a fallback for a standalone mount.
+      let path = referencePath(layout, "bitmaps", reference);
       // The project stores one spelling of a name: a host that can list folders finds `Stone.PNG` from `stone.png`.
       if (fs.list !== undefined) {
         const resolved = await resolveDocumentPath({ list: (folder: string) => fs.list!(folder) }, path);
         if (!resolved.ok) {
-          if (active) setStatus({ reference, text: `Preview unavailable for ${reference}: ${resolved.kind === "case-conflict" ? resolved.message : resolved.error.message}` });
+          if (active) unavailable(resolved.kind === "case-conflict" ? resolved.message : resolved.error.message);
           return;
         }
         path = resolved.path;
@@ -55,18 +59,19 @@ function SkinImagePreview({
       const result = await fs.readProject(projectId, path);
       if (!active) return;
       const picture = result.ok ? spritePicturePreview(result.value, path) : null;
-      setLoaded(picture === null ? null : { reference, frame: picture });
-      setStatus({
-        reference,
-        text: picture === null
-          ? `Preview unavailable for ${reference}: ${result.ok ? "the image format could not be decoded" : result.error.message}`
-          : `${label}: ${reference} (${picture.width} × ${picture.height} pixels).`,
-      });
+      if (picture === null) {
+        unavailable(result.ok ? "the image format could not be decoded" : result.error.message);
+        return;
+      }
+      setShown({ reference, frame: picture, text: `${label}: ${reference} (${picture.width} × ${picture.height} pixels).` });
     })().catch((error: unknown) => {
-      if (active) setStatus({ reference, text: `Preview unavailable for ${reference}: ${problem(error)}` });
+      if (active) unavailable(problem(error));
     });
     return () => { active = false; };
-  }, [reference, fs, projectId, documentPath, label, assetRevision]);
+  }, [reference, fs, projectId, layout, label, assetRevision]);
+  const current = shown?.reference === reference ? shown : null;
+  const message = current?.text ?? `Reading ${reference}…`;
+  const frame = current?.frame ?? null;
   useEffect(() => {
     const picture = frame;
     const target = canvas.current;
@@ -85,7 +90,7 @@ function SkinImagePreview({
 }
 
 /** Shared native skin authoring surface: independently choose and inspect each role's actual image. */
-export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, projectId, pickAsset }: NativeSkinViewProps) {
+export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, projectId, layout, pickAsset }: NativeSkinViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const submitted = useRef(createEditTracker());
   const queue = useRef(Promise.resolve());
@@ -173,7 +178,7 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
           {picking === field ? "Choosing image…" : `Choose ${label.toLowerCase()} image…`}
         </button>
         {pickAsset === undefined && <p>Asset picker unavailable here; this host cannot choose a project image.</p>}
-        <SkinImagePreview reference={skin[field]} fs={fs} projectId={projectId} documentPath={doc.identity.path} label={label} />
+        <SkinImagePreview reference={skin[field]} fs={fs} projectId={projectId} layout={layout} label={label} />
       </fieldset>;
     })}
     {message !== null && <p role="status">{message}</p>}
