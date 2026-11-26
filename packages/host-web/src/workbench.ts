@@ -218,8 +218,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
     return declaredLayouts;
   };
-  const refreshLayouts = async (): Promise<readonly BrowserProjectLayoutOwner[]> => {
-    const owners = await declaredProjectLayouts(project, main, true);
+  const refreshLayouts = async (requireReadable = false): Promise<readonly BrowserProjectLayoutOwner[]> => {
+    const owners = await declaredProjectLayouts(project, main, requireReadable);
     knownLayouts = owners;
     declaredLayouts = Promise.resolve(owners);
     return owners;
@@ -594,7 +594,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       hasPendingEditsNow: isPending,
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       isDestinationOwnedBySource: async (destination) => {
-        const freshOwners = await refreshLayouts();
+        const freshOwners = await refreshLayouts(true);
         const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
         const destinationOwners = freshOwners.map((candidate) => ({
           ...candidate,
@@ -686,7 +686,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       run: async () => {
         let owners: readonly ProjectLayoutOwner[];
         try {
-          owners = await refreshLayouts();
+          owners = await refreshLayouts(true);
         } catch (error) {
           await tell(`Could not refresh game ownership: ${error instanceof Error ? error.message : String(error)}`);
           return;

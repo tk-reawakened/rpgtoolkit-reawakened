@@ -327,6 +327,32 @@ test("browser Save As replaces its sole source tab, then reopening the source re
   await expect(title).toHaveValue("Example Game");
 });
 
+test("browser Save As opens its copy when an unrelated game cannot be read", async ({ page }) => {
+  await installFolderPicker(page, sampleProjectFiles());
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
+  await page.evaluate(async (bytes) => {
+    await (window as ProofWindow).__tkrWriteTestFile!("Main/Other.gam", bytes);
+  }, validMain);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save Active Document As/i }).click();
+  const dialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
+  await dialog.getByLabel("Save Main/example.gam as").fill("Main/copy.gam");
+  await page.evaluate(() => (window as ProofWindow).__tkrDenyFileRead!("Other.gam"));
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText("Main/copy.gam (saved as a copy of Main/example.gam)");
+  await expect(page.getByRole("tab", { name: "Main/copy.gam", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toHaveCount(0);
+  const bytes = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const main = await root.getDirectoryHandle("Main");
+    return Array.from(new Uint8Array(await (await (await main.getFileHandle("copy.gam")).getFile()).arrayBuffer()));
+  });
+  expect(bytes).toEqual(validMain);
+});
+
 test("browser folder open requires explicit selection when multiple nested games are found", async ({ page }) => {
   await installFolderPicker(page, [
     { path: "Games/First.gam", bytes: validMain },
