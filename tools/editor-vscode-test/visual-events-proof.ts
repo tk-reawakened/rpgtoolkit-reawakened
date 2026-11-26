@@ -63,8 +63,41 @@ export async function runVscodeVisualEventsProof(
   await expect(problems).toHaveCount(0);
   await expect(message).toHaveValue("Native tracer event");
 
+  // A valid edit made in the native text editor must reach the live card, not only a reopened pane.
+  const top = process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home";
+  const bottom = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+  await page.keyboard.press(top);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.insertText(" via text");
+  await expect(text).toContainText('mwin("Native tracer event via text")');
+  await expect(pane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event via text");
+  await expect(pane.getByRole("textbox", { name: "Message" })).toHaveCount(1);
+  await page.keyboard.press(bottom);
+  await page.keyboard.insertText("// tail opaque block\n");
+  await expect(text).toContainText("tail opaque block");
+  await expect(pane.getByText("tail opaque block", { exact: false })).toBeVisible();
+  await expect(problems).toHaveCount(0);
+
+  // Open in editor must place the native selection at the exact start of the chosen opaque block (not merely focus the tab).
+  const openButtons = pane.getByRole("button", { name: "Open in editor", exact: true });
+  await expect(openButtons).toHaveCount(2);
+  const cursorAt = (line: number, column: number) => page.locator(".statusbar-item").filter({ hasText: new RegExp(`Ln ${line},\\s*Col ${column}(?!\\d)`) });
+  await expect(cursorAt(7, 1)).toBeVisible();
+  await openButtons.first().click();
+  await expect(cursorAt(1, 1)).toBeVisible();
+  await expect.poll(() => programEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
+  await openButtons.last().click();
+  await expect(cursorAt(6, 1)).toBeVisible();
+  await expect.poll(() => programEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
+  await expect(text).toContainText('mwin("Native tracer event via text")');
+  await expect(page.getByRole("tab").filter({ hasText: "start.prg" })).toHaveCount(1);
+
   await command("File: Save");
-  const expected = "// native visual event proof\r\n// handwritten opaque line\r\nmwin(\"Native tracer event\")\r\nwait()\r\nmwincls()\r\n";
+  const expected = "// native visual event proof\r\n// handwritten opaque line\r\nmwin(\"Native tracer event via text\")\r\nwait()\r\nmwincls()\r\n// tail opaque block\r\n";
   await expect.poll(() => readBacking(VISUAL_EVENTS_PROOF_PATH)).toEqual(new TextEncoder().encode(expected));
   const visualTab = page.getByRole("tab", { name: /^Visual events/ });
   await visualTab.hover();
@@ -80,10 +113,10 @@ export async function runVscodeVisualEventsProof(
   await expect(reopenedSourceTab).toBeVisible();
   const reopenedProgramEditor = page.locator(".monaco-workbench .monaco-editor:visible").last();
   await expect(reopenedProgramEditor.locator(".view-lines")).toContainText("handwritten opaque line");
-  await expect(reopenedProgramEditor.locator(".view-lines")).toContainText('mwin("Native tracer event")');
+  await expect(reopenedProgramEditor.locator(".view-lines")).toContainText('mwin("Native tracer event via text")');
   await command("RPG Toolkit: Show Visual events");
   const reopenedPane = await paneFrame(page, expect);
-  await expect(reopenedPane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event");
+  await expect(reopenedPane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event via text");
   await expect(reopenedPane.getByText("handwritten opaque line", { exact: false })).toBeVisible();
   await expect.poll(() => readBacking(VISUAL_EVENTS_PROOF_PATH)).toEqual(new TextEncoder().encode(expected));
   await command("Test: Run Example Program");
