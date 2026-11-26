@@ -102,6 +102,103 @@ export async function runVscodeVisualEventsProof(
   await expect.poll(output, { timeout: 30_000 }).not.toContain("Native tracer event");
 }
 
+/** Structured authoring in the native document: every category, pointer/keyboard/numeric placement, ordering, undo and save. */
+async function runStructuredAuthoring(
+  page: Page,
+  expect: Expect,
+  command: (title: string) => Promise<void>,
+  pane: Frame,
+  readBacking: (path: string) => Promise<Uint8Array>,
+): Promise<string> {
+  const sourceEditor = page.locator(".monaco-workbench .monaco-editor:visible").last();
+  const lines = sourceEditor.locator(".view-lines");
+  const card = (name: string) => pane.getByRole("group", { name, exact: true });
+  let cardsBeforeMessage = 0;
+  const add = async (category: string, template: string): Promise<void> => {
+    await pane.getByLabel("Category", { exact: true }).selectOption(category);
+    await pane.getByLabel("Command", { exact: true }).selectOption(template);
+    await pane.getByLabel("Insert", { exact: true }).selectOption({ index: cardsBeforeMessage + 1 });
+    await pane.getByRole("button", { name: "Add command", exact: true }).click();
+    cardsBeforeMessage += 1;
+  };
+  const bodyText = async (): Promise<string> => (await sourceEditor.evaluate((node) => [...node.querySelectorAll<HTMLElement>(".view-lines .view-line")]
+    .sort((left, right) => parseFloat(left.style.top) - parseFloat(right.style.top)).map((line) => line.innerText.replace(/\u00a0/g, " ")).join("\n"))).trimEnd();
+  const text = bodyText;
+
+  await add("Text", "font-size");
+  await add("Text", "text");
+  await card("Draw text").getByRole("textbox", { name: "Text", exact: true }).fill("Native canvas");
+  await card("Draw text").getByRole("button", { name: "Apply Draw text" }).click();
+  await expect(lines).toContainText('text(1, 1, "Native canvas")');
+
+  // Pointer placement over the webview: whole cells, one card edit.
+  const canvas = pane.getByRole("group", { name: /^Layout canvas/ });
+  const item = canvas.getByRole("button", { name: /^Draw text "Native canvas"/ });
+  await item.scrollIntoViewIfNeeded();
+  const surface = (await canvas.boundingBox())!;
+  const start = (await item.boundingBox())!;
+  const cell = (16 / 640) * surface.width;
+  await page.mouse.move(start.x + 2, start.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 2 + cell * 1.5, start.y + 2 + cell, { steps: 4 });
+  await page.mouse.move(start.x + 2 + cell * 3, start.y + 2 + cell * 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(lines).toContainText('text(4, 3, "Native canvas")');
+  await item.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(lines).toContainText('text(5, 3, "Native canvas")');
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(lines).toContainText('text(5, 13, "Native canvas")');
+  await pane.getByLabel("Placed X").fill("0");
+  await pane.getByRole("button", { name: "Apply placement" }).click();
+  await expect(pane.getByRole("alert")).toContainText(/X must be at least 1/);
+  await expect(lines).toContainText('text(5, 13, "Native canvas")');
+  await pane.getByLabel("Placed X").fill("2");
+  await pane.getByLabel("Placed Y").fill("2");
+  await pane.getByRole("button", { name: "Apply placement" }).click();
+  await expect(lines).toContainText('text(2, 2, "Native canvas")');
+
+  // One native undo step per card edit, from the same text document.
+  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
+  await command("Undo");
+  await expect(lines).toContainText('text(5, 13, "Native canvas")');
+  await command("Redo");
+  await expect(lines).toContainText('text(2, 2, "Native canvas")');
+
+  for (const [category, template, legend] of [
+    ["Display", "bitmap", "Draw bitmap"], ["Player", "player-stance", "Play player stance"], ["Fight", "fight", "Start a skill fight"],
+    ["Control", "condition", "If condition"], ["Items", "give-item", "Give item"], ["Variables", "set-variable", "Set variable"],
+    ["Input", "delay", "Delay"], ["Info", "get-gold", "Read gold"],
+  ] as const) {
+    await add(category, template);
+    await expect(card(legend)).toBeVisible();
+    await expect(card(legend).getByLabel("Generated code")).not.toBeEmpty();
+  }
+  // The typed asset input asks the extension host for the project's matching files and stores the folder-relative link.
+  await card("Draw bitmap").getByRole("button", { name: "Choose bitmap file" }).click();
+  const widget = page.locator(".quick-input-widget");
+  await widget.getByRole("option", { name: /window\.png/ }).first().click();
+  await expect(widget).toBeHidden();
+  await card("Draw bitmap").getByRole("button", { name: "Apply Draw bitmap" }).click();
+  await expect(lines).toContainText('bitmap("window.png")');
+  for (const legend of ["Draw bitmap", "Play player stance", "Start a skill fight", "Give item"]) {
+    await card(legend).getByRole("button", { name: `Remove ${legend}` }).click();
+    await expect(card(legend)).toHaveCount(0);
+  }
+  await card("Set variable").getByRole("spinbutton", { name: "Number" }).fill("25");
+  await card("Set variable").getByRole("button", { name: "Apply Set variable" }).click();
+  await card("Delay").getByRole("spinbutton", { name: "Seconds" }).fill("0");
+  await card("Delay").getByRole("button", { name: "Apply Delay" }).click();
+  await pane.getByRole("button", { name: "Move Set variable up" }).click();
+  const program = '// native visual event proof\n// handwritten opaque line\nfontsize(16)\ntext(2, 2, "Native canvas")\ngold = 25\nif (gold > 10) {\n}\ndelay(0)\ngetgp(gold)\nmwin("Native tracer event")\nwait()\nmwincls()';
+  await expect.poll(text).toBe(program);
+  await command("File: Save");
+  await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH))).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
+  await expect(pane.getByRole("group", { name: "Code the builder does not edit", exact: true })).toContainText("handwritten opaque line");
+  return program;
+}
+
 async function paneFrame(page: Page, expect: Expect): Promise<Frame> {
   let result: Frame | undefined;
   await expect.poll(async () => {

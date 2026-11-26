@@ -104,7 +104,7 @@ function MessageCard({ card, readOnly, dispatch, canUp, canDown, source }: {
   return (
     <fieldset>
       <legend>Show message</legend>
-      <form onSubmit={(event) => {
+      <form noValidate onSubmit={(event) => {
         event.preventDefault();
         if (!readOnly && draft !== card.message) dispatch({ type: "message", from: card.from, message: draft });
       }}>
@@ -119,7 +119,122 @@ function MessageCard({ card, readOnly, dispatch, canUp, canDown, source }: {
   );
 }
 
-function OpaqueBlock({ region, onAction }: {
+/** The generated RPGCode is always on show: the card is another view of exactly these lines. */
+function Code({ children }: { readonly children: ComponentChildren }) {
+  return <pre class="tkr-visual-code" aria-label="Generated code"><code>{children}</code></pre>;
+}
+
+function FieldInput({ field, draft, readOnly, onDraft, pickAsset, describedBy }: {
+  readonly field: VisualEventField;
+  readonly draft: string;
+  readonly readOnly: boolean;
+  readonly onDraft: (value: string) => void;
+  readonly pickAsset: VisualAssetPicker | undefined;
+  readonly describedBy: string;
+}) {
+  const [picking, setPicking] = useState(false);
+  const note = hint(field);
+  const input = field.type === "number"
+    ? <input type="number" value={draft} readOnly={readOnly} step={field.integer === true ? 1 : "any"} min={field.minimum} max={field.maximum}
+      aria-describedby={note === "" ? undefined : describedBy} onInput={(event) => onDraft(event.currentTarget.value)} />
+    : <input type="text" value={draft} readOnly={readOnly} spellcheck={false}
+      aria-describedby={note === "" ? undefined : describedBy} onInput={(event) => onDraft(event.currentTarget.value)} />;
+  return (
+    <div class="tkr-visual-field">
+      <label>{field.label} {input}</label>
+      {field.type === "asset" && field.asset !== undefined && pickAsset !== undefined
+        ? <button type="button" aria-label={`Choose ${field.label.toLowerCase()}`} disabled={readOnly || picking}
+          onClick={() => {
+            setPicking(true);
+            void pickAsset({ kind: field.asset!.kind, extensions: field.asset!.extensions, field: field.label.toLowerCase() })
+              .then((outcome) => { if (outcome.chosen) onDraft(outcome.reference); })
+              .finally(() => setPicking(false));
+          }}>Choose…</button> : null}
+      {note === "" ? null : <small id={describedBy}>{note}</small>}
+    </div>
+  );
+}
+
+function EventCardView({ card, template, readOnly, dispatch, canUp, canDown, pickAsset }: {
+  readonly card: VisualEventCard;
+  readonly template: VisualEventTemplate;
+  readonly readOnly: boolean;
+  readonly dispatch: Dispatch;
+  readonly canUp: boolean;
+  readonly canDown: boolean;
+  readonly pickAsset: VisualAssetPicker | undefined;
+}) {
+  const [drafts, setDrafts] = useState(() => card.values.map(String));
+  const signature = JSON.stringify(card.values);
+  const seeded = useRef(signature);
+  useEffect(() => {
+    if (seeded.current === signature) return;
+    seeded.current = signature;
+    setDrafts(card.values.map(String));
+  }, [signature]);
+  const changed = drafts.some((draft, index) => draft !== String(card.values[index]));
+  return (
+    <fieldset>
+      <legend>{template.label}</legend>
+      {template.fields.length === 0 ? null : (
+        <form noValidate onSubmit={(event) => {
+          event.preventDefault();
+          if (!readOnly && changed) dispatch({ type: "edit", from: card.from, values: template.fields.map((field, index) => parseDraft(field, drafts[index]!)) });
+        }}>
+          {template.fields.map((field, index) => (
+            <FieldInput key={index} field={field} draft={drafts[index]!} readOnly={readOnly} pickAsset={pickAsset}
+              describedBy={`tkr-vf-${card.line}-${index}`}
+              onDraft={(value) => setDrafts((previous) => previous.map((item, at) => at === index ? value : item))} />
+          ))}
+          <button type="submit" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.edit}.${card.line}`} disabled={readOnly || !changed}>Apply {template.label}</button>
+        </form>
+      )}
+      <Code>{card.source.trim()}</Code>
+      <CardActions line={card.line} label={template.label} canUp={canUp} canDown={canDown} readOnly={readOnly} from={card.from} dispatch={dispatch} />
+    </fieldset>
+  );
+}
+
+function ConditionCardView({ card, readOnly, dispatch, canUp, canDown }: {
+  readonly card: VisualConditionCard;
+  readonly readOnly: boolean;
+  readonly dispatch: Dispatch;
+  readonly canUp: boolean;
+  readonly canDown: boolean;
+}) {
+  const [draft, setDraft] = useState(card.condition);
+  const seeded = useRef(card.condition);
+  useEffect(() => {
+    if (seeded.current === card.condition) return;
+    seeded.current = card.condition;
+    setDraft(card.condition);
+  }, [card.condition]);
+  return (
+    <fieldset>
+      <legend>If condition</legend>
+      <form noValidate onSubmit={(event) => {
+        event.preventDefault();
+        if (!readOnly && draft !== card.condition) dispatch({ type: "condition", from: card.from, condition: draft });
+      }}>
+        <label>Condition <input type="text" value={draft} readOnly={readOnly} spellcheck={false} aria-describedby={`tkr-vc-${card.line}`}
+          onInput={(event) => setDraft(event.currentTarget.value)} /></label>
+        <small id={`tkr-vc-${card.line}`}>A variable, number or quoted text on each side of ==, !=, &lt;, &gt;, &lt;= or &gt;=.</small>
+        <button type="submit" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.condition}.${card.line}`} disabled={readOnly || draft === card.condition}>Apply condition</button>
+      </form>
+      <Code>{`if (${card.condition}) {`}</Code>
+      {card.body.trim() === "" ? <p>The block is empty.</p> : (
+        <details open>
+          <summary>Code inside the condition</summary>
+          <pre aria-label="Code inside the condition"><code>{card.body}</code></pre>
+          <p class="tkr-visual-note">This code is edited in the code editor; the builder keeps it exactly as written.</p>
+        </details>
+      )}
+      <CardActions line={card.line} label="If condition" canUp={canUp} canDown={canDown} readOnly={readOnly} from={card.from} dispatch={dispatch} />
+    </fieldset>
+  );
+}
+
+function OpaqueBlock({ region, dispatch }: {
   readonly region: OpaqueProgramRegion;
   readonly dispatch: Dispatch;
 }) {
@@ -142,6 +257,231 @@ function OpaqueBlock({ region, onAction }: {
         }}>Open in editor</button>
     </fieldset>
   );
+}
+
+function summary(region: VisualProgramRegion): string {
+  return region.type === "show-message" ? "Show message"
+    : region.type === "condition" ? `If ${region.condition}`
+      : region.type === "event" ? TEMPLATES.get(region.templateId)?.label ?? "Command" : "";
+}
+
+function AddCommand({ regions, readOnly, dispatch }: {
+  readonly regions: readonly VisualProgramRegion[];
+  readonly readOnly: boolean;
+  readonly dispatch: Dispatch;
+}) {
+  const [category, setCategory] = useState<string>(CATEGORIES[0]!);
+  const [templateId, setTemplateId] = useState(VISUAL_EVENT_TEMPLATES[0]!.id);
+  const [where, setWhere] = useState("end");
+  const choices = VISUAL_EVENT_TEMPLATES.filter((template) => template.category === category);
+  const cards = regions.filter((region) => region.type !== "opaque");
+  const at = where === "end" || !cards.some((card) => String(card.from) === where) ? undefined : Number(where);
+  const target = at === undefined ? {} : { at };
+  return (
+    <fieldset class="tkr-visual-add">
+      <legend>Add a command</legend>
+      <label>Category <select aria-label="Category" value={category} disabled={readOnly} onChange={(event) => {
+        const next = event.currentTarget.value;
+        setCategory(next);
+        setTemplateId(VISUAL_EVENT_TEMPLATES.find((template) => template.category === next)!.id);
+      }}>{CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label>Command <select aria-label="Command" value={templateId} disabled={readOnly} onChange={(event) => setTemplateId(event.currentTarget.value)}>
+        {choices.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}</select></label>
+      <label>Insert <select aria-label="Insert" value={at === undefined ? "end" : where} disabled={readOnly} onChange={(event) => setWhere(event.currentTarget.value)}>
+        <option value="end">At the end of the program</option>
+        {cards.map((card) => <option key={card.from} value={String(card.from)}>Before line {card.line}: {summary(card)}</option>)}
+      </select></label>
+      <div class="tkr-visual-actions">
+        <button type="button" data-editor-command-id={VISUAL_EVENT_COMMANDS["add-template"]} disabled={readOnly}
+          onClick={() => dispatch({ type: "add-template", templateId, ...target })}>Add command</button>
+        <button type="button" data-editor-command-id={VISUAL_EVENT_COMMANDS.add} disabled={readOnly}
+          onClick={() => dispatch({ type: "add", message: "Welcome to the village.", ...target })}>Add Show message</button>
+      </div>
+    </fieldset>
+  );
+}
+
+interface Drag {
+  readonly line: number;
+  readonly startX: number;
+  readonly startY: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Screen-layout canvas (T-45, TOOL-12): another editor for the placed commands' own coordinates, never a second document. */
+function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
+  readonly placed: readonly PlacedVisualEvent[];
+  readonly readOnly: boolean;
+  readonly dispatch: Dispatch;
+  readonly resetKey: string;
+}) {
+  const [selectedLine, setSelectedLine] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ readonly line: number; readonly x: number; readonly y: number } | null>(null);
+  const drag = useRef<Drag | null>(null);
+  const canvas = useRef<HTMLDivElement>(null);
+  useEffect(() => { setPreview(null); }, [resetKey]);
+  const active = placed.find((item) => item.line === selectedLine) ?? placed[0]!;
+  const [drafts, setDrafts] = useState<{ readonly line: number; readonly x: string; readonly y: string }>({ line: active.line, x: String(active.x), y: String(active.y) });
+  const shown = drafts.line === active.line ? drafts : { line: active.line, x: String(active.x), y: String(active.y) };
+  useEffect(() => { setDrafts({ line: active.line, x: String(active.x), y: String(active.y) }); }, [active.line, active.x, active.y, resetKey]);
+  const template = TEMPLATES.get(active.templateId)!;
+  const xField = template.fields[template.placement!.xField]!;
+  const yField = template.fields[template.placement!.yField]!;
+  const listId = useMemo(() => `tkr-layout-${Math.random().toString(36).slice(2, 8)}`, []);
+  const select = (line: number): void => setSelectedLine(line);
+  const position = (item: PlacedVisualEvent): { readonly left: number; readonly top: number } => {
+    const live = preview?.line === item.line ? preview : null;
+    const x = live?.x ?? item.x;
+    const y = live?.y ?? item.y;
+    return item.unit === "cells"
+      ? { left: Math.trunc((x - 1) * item.cell), top: Math.trunc((y - 1) * item.cell) }
+      : { left: x, top: y };
+  };
+  const arrow = (event: KeyboardEvent): readonly [number, number] | null => {
+    const step = event.shiftKey ? 10 : 1;
+    return event.key === "ArrowLeft" ? [-step, 0] : event.key === "ArrowRight" ? [step, 0]
+      : event.key === "ArrowUp" ? [0, -step] : event.key === "ArrowDown" ? [0, step] : null;
+  };
+  const choose = (to: number): void => {
+    const target = placed[Math.max(0, Math.min(placed.length - 1, to))]!;
+    select(target.line);
+  };
+  const activeIndex = placed.indexOf(active);
+  return (
+    <section class="tkr-visual-layout" aria-label="Screen layout">
+      <h4>Screen layout</h4>
+      <p class="tkr-visual-note">A preview of a {VISUAL_PREVIEW_SCREEN.width} × {VISUAL_PREVIEW_SCREEN.height} screen. Placing a command edits its own X and Y in the program; nothing else is saved.</p>
+      <div class="tkr-visual-layout-body">
+        <div id={listId} class="tkr-visual-layout-list" role="listbox" aria-label="Placed commands" tabIndex={0}
+          aria-activedescendant={`${listId}-${active.line}`}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowRight") { event.preventDefault(); choose(activeIndex + 1); }
+            else if (event.key === "ArrowUp" || event.key === "ArrowLeft") { event.preventDefault(); choose(activeIndex - 1); }
+            else if (event.key === "Home") { event.preventDefault(); choose(0); }
+            else if (event.key === "End") { event.preventDefault(); choose(placed.length - 1); }
+          }}>
+          {placed.map((item) => (
+            <div key={item.line} id={`${listId}-${item.line}`} role="option" aria-selected={item === active} class="tkr-visual-layout-option"
+              onClick={() => select(item.line)}>
+              {item.label}: {item.text} ({item.x}, {item.y})
+            </div>
+          ))}
+        </div>
+        <div class="tkr-visual-canvas" ref={canvas} role="group" aria-label={`Layout canvas, ${VISUAL_PREVIEW_SCREEN.width} by ${VISUAL_PREVIEW_SCREEN.height} preview`}>
+          {placed.map((item) => {
+            const at = position(item);
+            return (
+              <button key={item.line} type="button" class="tkr-visual-item" data-selected={item === active ? "true" : "false"}
+                data-editor-command-id={`${VISUAL_EVENT_COMMANDS.nudge}.${item.line}`}
+                aria-label={`${item.label} "${item.text}" at ${item.x}, ${item.y}`}
+                aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
+                disabled={readOnly}
+                style={{
+                  left: `${at.left / VISUAL_PREVIEW_SCREEN.width * 100}%`,
+                  top: `${at.top / VISUAL_PREVIEW_SCREEN.height * 100}%`,
+                  fontSize: `${(item.unit === "cells" ? item.cell : 8) / VISUAL_PREVIEW_SCREEN.width * 100}cqw`,
+                }}
+                onFocus={() => select(item.line)}
+                onKeyDown={(event) => {
+                  const delta = arrow(event);
+                  if (delta === null || readOnly) return;
+                  event.preventDefault();
+                  dispatch({ type: "nudge", from: item.from, dx: delta[0], dy: delta[1] });
+                }}
+                onPointerDown={(event) => {
+                  if (readOnly || !event.isPrimary || event.button !== 0) return;
+                  select(item.line);
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  drag.current = { line: item.line, startX: event.clientX, startY: event.clientY, x: item.x, y: item.y };
+                }}
+                onPointerMove={(event) => {
+                  const current = drag.current;
+                  const surface = canvas.current?.getBoundingClientRect();
+                  if (current === null || current.line !== item.line || surface === undefined || surface.width === 0) return;
+                  const scale = VISUAL_PREVIEW_SCREEN.width / surface.width;
+                  const unit = item.cell;
+                  setPreview({
+                    line: item.line,
+                    x: current.x + Math.round((event.clientX - current.startX) * scale / unit),
+                    y: current.y + Math.round((event.clientY - current.startY) * scale / unit),
+                  });
+                }}
+                onPointerUp={(event) => {
+                  const current = drag.current;
+                  drag.current = null;
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                  if (current === null || preview === null || preview.line !== item.line) { setPreview(null); return; }
+                  if (preview.x === item.x && preview.y === item.y) { setPreview(null); return; }
+                  dispatch({ type: "move", from: item.from, x: preview.x, y: preview.y });
+                }}
+                onPointerCancel={() => { drag.current = null; setPreview(null); }}
+              >{item.text}</button>
+            );
+          })}
+        </div>
+      </div>
+      <form noValidate class="tkr-visual-inspector" aria-label="Placement of the selected command" onSubmit={(event) => {
+        event.preventDefault();
+        if (readOnly) return;
+        dispatch({ type: "move", from: active.from, x: Number(shown.x), y: Number(shown.y) });
+      }}>
+        <div class="tkr-visual-field">
+          <label>Placed X <input type="number" step="any" min={xField.minimum} value={shown.x} readOnly={readOnly}
+            aria-describedby={`${listId}-x`} onInput={(event) => setDrafts({ ...shown, x: event.currentTarget.value })} /></label>
+          <small id={`${listId}-x`}>{hint(xField)}</small>
+        </div>
+        <div class="tkr-visual-field">
+          <label>Placed Y <input type="number" step="any" min={yField.minimum} value={shown.y} readOnly={readOnly}
+            aria-describedby={`${listId}-y`} onInput={(event) => setDrafts({ ...shown, y: event.currentTarget.value })} /></label>
+          <small id={`${listId}-y`}>{hint(yField)}</small>
+        </div>
+        <button type="submit" data-editor-command-id={`${VISUAL_EVENT_COMMANDS.move}.${active.line}`}
+          disabled={readOnly || (shown.x === String(active.x) && shown.y === String(active.y))}>Apply placement</button>
+        <p class="tkr-visual-note">Arrow keys on a placed item move it one unit; Shift moves ten.</p>
+      </form>
+    </section>
+  );
+}
+
+/**
+ * Serialises card actions against the text they were made from. A nudge typed while the previous one is still being
+ * applied is added to it, so held arrow keys end as one further edit instead of a stale-source refusal.
+ */
+function useDispatch(source: string, error: string | null, onAction: Dispatch): Dispatch {
+  const latest = useRef({ source, onAction });
+  latest.current = { source, onAction };
+  const state = useRef<{ inflight: string | null; queued: Extract<VisualEventAction, { type: "nudge" }> | null; timer: ReturnType<typeof setTimeout> | undefined }>({
+    inflight: null, queued: null, timer: undefined,
+  });
+  const send = (action: VisualEventAction, to: Dispatch, from: string): void => {
+    const current = state.current;
+    current.inflight = from;
+    clearTimeout(current.timer);
+    current.timer = setTimeout(settle, SETTLE_MS);
+    to(action);
+  };
+  const settle = (): void => {
+    const current = state.current;
+    clearTimeout(current.timer);
+    current.timer = undefined;
+    current.inflight = null;
+    const queued = current.queued;
+    current.queued = null;
+    if (queued !== null) send(queued, latest.current.onAction, latest.current.source);
+  };
+  useEffect(settle, [source, error]);
+  useEffect(() => () => clearTimeout(state.current.timer), []);
+  return (action) => {
+    const current = state.current;
+    if (action.type !== "nudge" || current.inflight !== latest.current.source) {
+      send(action, onAction, source);
+      return;
+    }
+    const queued = current.queued;
+    current.queued = queued !== null && queued.from === action.from
+      ? { type: "nudge", from: action.from, dx: queued.dx + action.dx, dy: queued.dy + action.dy } : action;
+  };
 }
 
 /** A projection of the live program text, not a second document or undo history (TOOL-12). */
