@@ -501,7 +501,7 @@ export async function runVscodeBoardUpgradeProof(
   expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
 
   const convertedCopyTab = page.getByRole("tab", { name: /village\.pixels\.brd/ });
-  await convertedCopyTab.getByRole("button", { name: /^Close/ }).click();
+  await closeActiveEditor(page, expect);
   await expect(convertedCopyTab).toHaveCount(0);
   await openNativeQuickOpenFile(page, expect, copyPath);
   boardFrame = await waitForBoardUpgradeEditorFrame(page, "still-converted pixel copy after close and reopen", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
@@ -523,7 +523,7 @@ export async function runVscodeBoardUpgradeProof(
   await discardPendingScript.getByRole("button", { name: "Don't Save" }).click();
   await expect(pendingScriptTab).toHaveCount(0);
   expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
-  await convertedCopyTab.getByRole("button", { name: /^Close/ }).click();
+  await closeActiveEditor(page, expect);
   await expect(convertedCopyTab).toHaveCount(0);
 
 

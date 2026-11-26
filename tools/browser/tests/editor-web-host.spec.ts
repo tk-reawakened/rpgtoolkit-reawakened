@@ -1550,6 +1550,9 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   expect(pixelRun?.player).toEqual({ x: 2, y: 2 });
   expect(pixelRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
   await assertAuthoredTilePixels();
+  // Release the active runner before the final backing-store snapshot; its runtime file reads can hold the browser
+  // provider's per-file read path while the proof is checking the persisted source, conversion copies, and script.
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
   const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy, script }) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");
@@ -1570,5 +1573,4 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   expect(finalFiles.upgraded).toEqual(disk.destination);
   expect(finalFiles.pixelCopy).toEqual(pixelCopyBytes);
   expect(finalFiles.script).toEqual(savedScriptBytes);
-  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
 });
