@@ -13,6 +13,7 @@ void test("the shipped registry holds the documented native contracts, and passe
     { extension: ".tkrtle", contract: "tile" },
     { extension: ".tkrpack", contract: "asset-pack" },
     { extension: ".tkrscn", contract: "scene" },
+    { extension: ".tkrskin", contract: "skin" },
   ]);
   validateRegistry(REGISTRY);
 });
