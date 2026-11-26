@@ -3,7 +3,7 @@ title: 'Build a runnable visual event tracer'
 type: 'feature'
 ticket: 2
 created: '2026-11-25'
-status: 'built'
+status: 'done'
 baseline_revision: '1222d6ca26655bb3f976d67ab609d8911e86ff9f'
 route: 'full'
 route_source: 'auto'
@@ -98,3 +98,19 @@ The repair review checked those same defects against more interleavings: a queue
 - Repair proofs: the reviewed code submitted two native edits instead of one and selected browser offset 31 instead of 61. Six focused regressions passed, including the queued action against a reopened native document, pointer activation through blur, equal-byte edits that move the target, and deletion leaving only whitespace. Each of the four additional cases failed at its own assertion when its guard was removed in memory. Two real Chromium tracer cases passed; the shifted target was exact, backing bytes stayed unchanged, and one Undo removed only the prefix. Real VS Code Web closed both tabs, reconstructed the saved card and opaque text, and ran and dismissed the message.
 - The next exact-head review accepted the native repairs and required a real pointer proof for #3480. Chromium now presses the original block while Monaco has pending text, confirms that blur commits the edit and reuses that button for a different block, then releases. The caret must land at the original block's new first column, the backing bytes must stay unchanged, and one Undo must remove only the typing.
   Ignoring the pressed block failed the real cursor assertion (72 px from the target, tolerance <2 px); the unchanged production guard passed it.
+
+## Closure evidence
+
+The owner merged [#3478](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3478) at `69ac7565a7b3581ba57dc0d3d956d86bcf850ead` on 2026-11-25 and closed [#1745](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1745); its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45710682033/job/139554506143) passed. The owner's follow-ups [#3479](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3479) and [#3480](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3480) were fixed in the same PR.
+
+An independent audit at `5ec33c3728` mapped every issue acceptance clause to committed evidence:
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| Add and edit a supported Show message card in the same `.prg`, with handwritten source intact | Chromium `editor-program.spec.ts` checks the generated three lines and exact saved CRLF bytes including the original comment and assignment; the VS Code proof checks the shared native text and exact backing bytes. |
+| Clean diagnostics and run the saved program | Both proofs introduce and fix a real syntax error and observe the real player draw and dismiss the message; VS Code reopens the saved file and delegates to the production `tkr.testProgram`. |
+| Reopen shows the same card and opaque source | Browser reloads and reopens the persisted file and reconstructs the card; VS Code closes both tabs and reconstructs it. |
+| Ordinary undo/redo reflects one step per card mutation | Both proofs separate Add from Apply with one undo step each. |
+| **Open in editor** focuses the same source without editing, saving or history | Browser asserts exact caret placement after pending typing, unchanged bytes and one Undo removing only the typing; native asserts the existing tab, real focus and unchanged undo ordering. |
+
+The audit found two assertion gaps rather than product defects: the native proof did not separately assert a valid native typing changing the live card, and did not check the exact reveal position. Both are required of the successor work in [#3528](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3528), which owns the full pane; they do not reopen this story.

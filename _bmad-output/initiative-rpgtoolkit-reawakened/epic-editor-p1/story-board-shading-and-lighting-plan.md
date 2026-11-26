@@ -3,7 +3,7 @@ title: 'Board shading and lighting'
 type: 'feature'
 ticket: '12'
 created: '2026-11-22'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'eccc276c1d127c91b8202c07d8f285f11c49b2d4'
 route: 'full'
 route_source: 'auto'
@@ -123,3 +123,15 @@ An editor preview or Convert built to the spec would not match what the runner r
 - `pnpm --filter @tk-reawakened/editor-model test` -- expected: pass (package name to be confirmed from `package.json`)
 - `pnpm --filter @tk-reawakened/editor-ui test` -- expected: pass
 - `pnpm check` -- expected: lint, types and guard-rail checks pass; golden tests unchanged (G5)
+
+## Closure evidence
+
+The owner merged [#3359](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3359) at `7deb850a8d04b996ef99f32a0076d61996bea368` and closed [#1737](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1737); its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45048182978/job/137289308316) passed.
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| A board with both light and shade saves, reopens and renders in the runner | `board-preview.test.ts` checks the editor preview equals the engine's `viewbrd` for a board with shade and a light, and that each can be hidden. |
+| Cancellation and supported undo preserve the editable light before an explicit bake | The real Chromium proof paints shading and drags a light, then exercises Convert and Undo with bytes read back; the shared model keeps the light until the explicit Convert. |
+| Per-node colour, cast layer and explicit conversion | Implemented in `board-lights.ts` and `board-shade-tools.ts`, with a "Lights and shading" panel and canvas commands; the golden changes for the corrected engine rules are explained in the PR. |
+
+The independent audit found no uncovered acceptance clause. The engine's deferred white/black swap remains [#3358](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3358), which is not part of this story's acceptance.
