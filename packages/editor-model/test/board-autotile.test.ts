@@ -534,6 +534,24 @@ test("a stroke that re-enters the board keeps the first cell it comes back onto,
   equal(tile(s, other.x, 1), `${sand}14`, "with the Shift it was entered with, so the other set was left alone");
 });
 
+test("a stationary release re-entering the board revisits a cell from before the exit", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const top = { x: c.x, y: 0 };
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: top.x, y: 1 });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  s.editor.pointerDown(at(s, top), { shift: true });
+  s.editor.pointerMove(boardToScreen(s.editor.getState().viewport, cellCentre(s.doc.getSnapshot(), top.x, top.y).x, -48), { shift: true });
+  // No move event after re-entry: only pointerUp tells the editor the stroke returned to this cell.
+  await s.editor.pointerUp(at(s, top), none);
+  equal(tile(s, top.x, top.y), water(51));
+  equal(tile(s, top.x, 1), `${sand}51`, "the unshifted release revisit reshaped the adjacent set");
+});
+
 test("ordinary Fill over a region that already holds the tile answers before walking it", () => {
   const s = rig("2d");
   const c = centreOf(s);
