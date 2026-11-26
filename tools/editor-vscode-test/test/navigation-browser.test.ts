@@ -209,7 +209,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     dialogs.files.push({ name: "hero.png", bytes: pickedBytes });
     dialogs.answers.push("copy");
     await click(button(element, "Choose a file from outside the project…"));
-    deepEqual(await completed(chosen, "copying finishes the asset picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(await completed(chosen, "copying finishes the asset picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
 
     const writesBeforeSelection = control.tick;
@@ -218,7 +218,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     dialogs.answers.push("use");
     await click(element.querySelector('[role="option"]'));
     await click(button(element, "Use hero.png…"));
-    deepEqual(await completed(existing, "choosing an existing reference finishes the picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(await completed(existing, "choosing an existing reference finishes the picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
     equal(control.tick, writesBeforeSelection, "choosing an existing reference creates and writes no file");
 
@@ -231,7 +231,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     option.focus();
     equal(document.activeElement, option, "the loaded option has keyboard focus");
     await key(document.activeElement, "Enter");
-    deepEqual(await completed(readOnlyChoice, "keyboard selection finishes the picker"), { chosen: true, reference: "hero.png" }, "keyboard selection needs no project write");
+    deepEqual(await completed(readOnlyChoice, "keyboard selection finishes the picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } }, "keyboard selection needs no project write");
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
     equal(control.tick, writesBeforeSelection, "read-only selection changes no file revision");
   } finally {

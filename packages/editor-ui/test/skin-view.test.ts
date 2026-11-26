@@ -94,7 +94,7 @@ test("the preview reads the project's asset folders from the host, not the docum
   }
 });
 
-test("a failed re-read of the same reference shows its problem and no longer shows the old picture (#3525)", async () => {
+test("a re-read that finds a case collision, or fails, no longer shows the old picture (#3525)", async () => {
   const { createElement, render } = await import("preact");
   const { NativeSkinView } = await import("@tk-reawakened/editor-ui");
   const { createPendingEdits } = await import("@tk-reawakened/editor-model");
@@ -103,15 +103,27 @@ test("a failed re-read of the same reference shows its problem and no longer sho
   const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source) } });
   const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
   ok(opened.ok);
-  const reader = (refuse: boolean) => ({ readProject: async () => refuse
-    ? { ok: false as const, error: { code: "io-error" as const, message: "disk went away" } }
-    : { ok: true as const, value: BMP_1X1 } });
-  const view = (fs: ReturnType<typeof reader>) => createElement(NativeSkinView, {
+  // The project's folders answer truthfully: a host that can list them finds the stored spelling, and after the assets
+  // change two entries differ only in case, which names neither file.
+  let collision = false;
+  const fs = {
+    // The folder tree the view walks: Bitmap holds the two references' files, so a collision is found at the file part.
+    list: async (folder: string) => ({ ok: true as const, value: folder === ""
+      ? [{ name: "Bitmap", kind: "directory" as const }]
+      : folder === "Bitmap"
+        ? (collision
+          ? [{ name: "window.png", kind: "file" as const }, { name: "Window.png", kind: "file" as const }]
+          : [{ name: "window.png", kind: "file" as const }, { name: "button.png", kind: "file" as const }])
+        : [] }),
+    readProject: async () => ({ ok: true as const, value: BMP_1X1 }),
+  };
+  type Reader = { list: typeof fs.list; readProject: (projectId: string, path: string) => Promise<{ ok: true; value: Uint8Array } | { ok: false; error: { code: "io-error"; message: string } }> };
+  const view = (reader: Reader) => createElement(NativeSkinView, {
     doc: opened.document,
     capabilities: new Set<never>(),
     pendingEdits: createPendingEdits(),
     onEdited: () => undefined,
-    fs,
+    fs: reader,
     projectId: "memory-project",
     layout: { projectFolder: "" },
   });
@@ -120,15 +132,65 @@ test("a failed re-read of the same reference shows its problem and no longer sho
   const canvases = () => root.querySelectorAll("canvas");
   const status = () => root.querySelector("[role='status']")?.textContent ?? "";
   try {
-    await act(async () => { render(view(reader(false)), root); });
+    await act(async () => { render(view(fs), root); });
     await settleUntil(() => canvases().length === 2);
     equal(canvases().length, 2, "both roles show their picture");
-    // The host hands the view its reader again and the read now fails, for the very same two references: the old
-    // pictures must not survive it.
-    await act(async () => { render(view(reader(true)), root); });
+    // The same two references, read again after the assets changed: the folder now names two files that differ only in
+    // case, so neither may be shown — least of all the picture that was there before.
+    collision = true;
+    await act(async () => { render(view({ ...fs }), root); });
+    // Only the window reference collides, so its picture goes and the button keeps its own; the sentence names the clash.
+    await settleUntil(() => root.querySelector('[role="img"][aria-label*="bitmap/window.png"]') === null);
+    equal(root.querySelector('[role="img"][aria-label*="bitmap/window.png"]'), null, "no stale window picture survives a case collision");
+    ok(/differ only in case/.test(status()), status());
+    // A plain read failure takes the same path for both roles.
+    collision = false;
+    const failing: Reader = { ...fs, readProject: async () => ({ ok: false as const, error: { code: "io-error" as const, message: "disk went away" } }) };
+    await act(async () => { render(view(failing), root); });
     await settleUntil(() => canvases().length === 0);
-    equal(canvases().length, 0, "no stale canvas survives a failed re-read");
+    equal(canvases().length, 0, "no stale canvas survives a read failure");
     ok(status().includes("disk went away"), status());
+  } finally {
+    await act(async () => { render(null, root); });
+    root.remove();
+  }
+});
+
+test("a pick previews from the folders the picker read, so a changed game layout is not stale (#3536)", async () => {
+  const { createElement, render } = await import("preact");
+  const { NativeSkinView } = await import("@tk-reawakened/editor-ui");
+  const { createPendingEdits } = await import("@tk-reawakened/editor-model");
+  const path = "Game/Example/Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source) } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  const fs = { readProject: async (projectId: string, readPath: string) => { reads.push(readPath); return host.fs.readProject(projectId, readPath); } };
+  const root = document.createElement("div");
+  document.body.append(root);
+  try {
+    // Mounted while the game file says Game/Old; by the time the user picks, the game file has moved the folders.
+    await act(async () => {
+      render(createElement(NativeSkinView, {
+        doc: opened.document,
+        capabilities: new Set<never>(),
+        pendingEdits: createPendingEdits(),
+        onEdited: () => undefined,
+        fs,
+        projectId: "memory-project",
+        layout: { projectFolder: "Game/Old" },
+        pickAsset: async () => ({ chosen: true, reference: "window-b.png", layout: { projectFolder: "Game/New" } }),
+      }), root);
+    });
+    await settleUntil(() => reads.length >= 2);
+    ok(reads.includes("Game/Old/Bitmap/window.png"), reads.join(", "));
+    reads.length = 0;
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(async () => { choose.click(); });
+    await settleUntil(() => reads.includes("Game/New/Bitmap/window-b.png"));
+    ok(reads.includes("Game/New/Bitmap/window-b.png"), reads.join(", "));
+    ok(!reads.some((read) => read.startsWith("Game/Old/")), `the stale folders are not read again: ${reads.join(", ")}`);
   } finally {
     await act(async () => { render(null, root); });
     root.remove();

@@ -1,7 +1,7 @@
 // ADR 0025 "What 11.2 does first", items 2 and 3: the JSX options agree between `tsc` and esbuild, a `.tsx` file is
 // type-checked and bundled, and the bundle check fails on `eval(` and `new Function`.
 import { test } from "node:test";
-import { equal, match, notEqual, ok } from "node:assert/strict";
+import { equal, match, notEqual, ok, throws } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -180,17 +180,38 @@ test("bundle check CLI: exits 1 on a bundle with eval( or new Function, 0 on a c
   }
 });
 
-// #3527: the help window makes only this repository's HTTPS links clickable, so a changelog's relative link must reach
-// What's New as the same file's absolute URL instead of a label with the destination lost.
+// #3527 and #3537: the help window makes only this repository's HTTPS links clickable, so a changelog's relative link must
+// reach What's New as the same file's absolute URL. The check uses a fixed changelog, not the rolling Unreleased list, so
+// it keeps its meaning as entries move down into a release.
 test("What's New turns a changelog's relative link into the repository's absolute URL", async () => {
+  const { whatsNewNotes, REPOSITORY_BLOB } = await import("../whats-new.mjs");
+  const changelog = [
+    "# Changelog",
+    "",
+    "## Unreleased",
+    "- Edit a native skin (#1747; [native skin](docs/spec/formats/native-skin.md), [contract](#skin-document)).",
+    "- A note with an absolute [changelog](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md).",
+    "",
+    "## 1.0.0",
+    "- Released entries never appear in the notes.",
+  ].join("\n");
+  const notes = whatsNewNotes(changelog, "the fixed fixture");
+  equal(notes.includes(`[native skin](${REPOSITORY_BLOB}docs/spec/formats/native-skin.md)`), true, "a relative file path names its file");
+  equal(notes.includes(`[contract](${REPOSITORY_BLOB}#skin-document)`), true, "a relative anchor keeps its anchor");
+  equal(notes.includes("(https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md)"), true, "an absolute link is left alone");
+  equal(notes.includes("Released entries"), false, "only Unreleased is carried");
+  throws(() => whatsNewNotes("# Changelog\n\n## Unreleased\n", "an empty fixture"), /Missing non-empty Unreleased section/);
+});
+
+// The same rule over the shipped notes, without pinning any one entry: every link in today's What's New must be openable.
+test("every link in the shipped What's New is a clickable repository URL", async () => {
+  const { REPOSITORY_BLOB } = await import("../whats-new.mjs");
   const generated = readFileSync(join(repoRoot, "packages/editor-ui/src/help-content.generated.ts"), "utf8");
   const whatsNew = /export const WHATS_NEW_MARKDOWN = ("(?:[^"\\]|\\.)*");/.exec(generated);
   ok(whatsNew, "the generated What's New is present");
-  const markdown = JSON.parse(whatsNew[1]);
-  const destinations = [...markdown.matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1]);
+  const destinations = [...JSON.parse(whatsNew[1]).matchAll(/\]\(([^)\s]+)\)/g)].map((match) => match[1]);
   ok(destinations.length > 0, "the notes carry links");
   for (const destination of destinations) {
-    ok(destination.startsWith("https://github.com/tk-reawakened/rpgtoolkit-reawakened/"), `What's New link ${destination} is clickable`);
+    ok(destination.startsWith(REPOSITORY_BLOB) || destination === `${REPOSITORY_BLOB}CHANGELOG.md`, `What's New link ${destination} is clickable`);
   }
-  ok(markdown.includes("(https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/docs/spec/formats/native-skin.md)"), "the skin link names its file absolutely");
 });

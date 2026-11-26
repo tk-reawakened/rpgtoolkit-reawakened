@@ -15,7 +15,10 @@ export interface NativeSkinViewProps {
   readonly onEdited: (event: DocumentEdited) => void;
   readonly fs: ProjectReader;
   readonly projectId: string;
-  /** The project's asset folders as the host resolved them; the document path is only a fallback for a standalone mount. */
+  /**
+   * The project's asset folders as the host resolved them when it mounted this view; the document path is only a
+   * fallback for a standalone mount. A pick replaces it with the folders the picker itself read (#3536).
+   */
   readonly layout: ProjectLayout;
   readonly pickAsset?: CharacterAuthoringViewProps["pickAsset"];
 }
@@ -96,6 +99,9 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
   const queue = useRef(Promise.resolve());
   const [message, setMessage] = useState<string | null>(null);
   const [picking, setPicking] = useState<"windowImage" | "buttonImage" | null>(null);
+  // A game file can change which folders a project uses while this view is open; the picker re-resolves them every time,
+  // so the reference it returns is read from the folders it names, not from the ones the view mounted with.
+  const [activeLayout, setActiveLayout] = useState<ProjectLayout>(layout);
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const skin = snapshot.skin;
   const disabled = snapshot.readOnly !== null || snapshot.conflict !== null || snapshot.saving;
@@ -128,6 +134,7 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
         field: field === "windowImage" ? "the skin's window graphic" : "the skin's button graphic",
       });
       if (!outcome.chosen) return;
+      if (outcome.layout !== undefined && outcome.layout.projectFolder !== activeLayout.projectFolder) setActiveLayout(outcome.layout);
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
       await apply({ type: "set-native-skin-image", field, reference });
     } catch (error) {
@@ -178,7 +185,7 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
           {picking === field ? "Choosing image…" : `Choose ${label.toLowerCase()} image…`}
         </button>
         {pickAsset === undefined && <p>Asset picker unavailable here; this host cannot choose a project image.</p>}
-        <SkinImagePreview reference={skin[field]} fs={fs} projectId={projectId} layout={layout} label={label} />
+        <SkinImagePreview reference={skin[field]} fs={fs} projectId={projectId} layout={activeLayout} label={label} />
       </fieldset>;
     })}
     {message !== null && <p role="status">{message}</p>}

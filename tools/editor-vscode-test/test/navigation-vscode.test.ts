@@ -114,13 +114,13 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       host.script.picks.push("outside");
       host.script.files.push({ name: "hero.png", bytes: new Uint8Array([7, 7]) });
       host.script.answers.push("copy");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/hero.png"), new Uint8Array([7, 7]));
       match(host.script.asked.at(-1) ?? "", /Copy hero\.png into Bitmap/);
 
       host.script.picks.push("file:old.png");
       host.script.answers.push("use");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/old.png"), new Uint8Array([4]), "choosing a file already in the folder writes nothing");
     });
 

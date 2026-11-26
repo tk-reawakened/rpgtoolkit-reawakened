@@ -190,7 +190,7 @@ test("selecting changes nothing until it is confirmed, and cancelling leaves the
   ok(host.questions[0]?.message.includes("the hero's picture"));
 
   host.answerQuestions("use");
-  deepEqual(await chooser.confirm(), { chosen: true, reference: "sub\\b.png" });
+  deepEqual(await chooser.confirm(), { chosen: true, reference: "sub\\b.png", layout: ROOT }, "the outcome names the folders the reference was read from");
   equal(chooser.getSnapshot().phase, "closed");
 });
 
@@ -226,7 +226,7 @@ test("choosing a file from outside copies it in only after the user agrees", asy
 
   host.answerFilePicks({ name: "hero.png", bytes: bytes(1, 2, 3) });
   host.answerQuestions("copy");
-  deepEqual(await chooser.pickOutside("people"), { chosen: true, reference: "people\\hero.png" });
+  deepEqual(await chooser.pickOutside("people"), { chosen: true, reference: "people\\hero.png", layout: ROOT });
   deepEqual(host.bytesOf("Bitmap/people/hero.png"), bytes(1, 2, 3));
   deepEqual(host.filePickRequests[0], { title: "Choose a file for the hero's picture", extensions: [".png"] });
 });
