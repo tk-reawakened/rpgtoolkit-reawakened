@@ -3,7 +3,7 @@ type: feature
 title: "Battle background editor"
 ticket: 11
 created: '2026-11-25'
-status: built
+status: done
 baseline_revision: '275f69f0324af5407d996eca00d5ecf0fb02802f'
 route: full
 route_source: auto
@@ -79,3 +79,16 @@ Edit a battle background's image, music and four independently labelled sounds, 
 - Run focused editor-model, editor-ui and core real-battle tests, including independent expected bytes and rendered pixels.
 - Run browser and packaged VS Code host proofs; use actual supported services and record capability limits.
 - Run project-required checks and golden CI before merge; independently review the final exact head.
+
+## Closure evidence
+
+The owner merged [#3509](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3509) at `958617ee7f45e0413d401f86bc2b02bf4c712715` on 2026-11-26 and closed [#1736](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1736); its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45885937529/job/140146218752) passed.
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| A BKG round-trips all six links and loads in a real battle | The browser proof fills all six labelled links, saves exact bytes, and the stock battle reads the editor's saved background, menu sounds and FightEnemy music; the packaged VS Code Web proof does the same through the custom editor. |
+| Preview cancellation and missing or unsupported audio are reported without mutating references | Focused editor-ui tests cover cancellation and each refusal, and the real proofs compare backing bytes before and after refusal. The VS Code host reports audition unavailable rather than faking it. |
+| Text-form backgrounds stay read-only and byte-preserving | The text form is read-only, and the proofs assert unchanged source bytes. |
+| Host capability is honest | Browser hosts audition audio; the VS Code host states that audition is unavailable. No desktop file-host or VS Code playback capability is claimed. |
+
+Three independent-review findings were filed after the merge: [#3516](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3516) and [#3517](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3517) remain open fixes for audition-by-suffix and browser Open eligibility; [#3518](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3518) was fixed by the merged head and is closed. None contradicts the acceptance table above.
