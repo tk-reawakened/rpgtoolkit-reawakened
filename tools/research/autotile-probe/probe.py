@@ -23,7 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'docs', 'spec', 'tools'))
 import rpgtk_formats as fmt  # noqa: E402
 
-TILESET = 'AutoProbe.tst'
+TILESET = 'AUTOTILES_Probe.tst'  # the AUTOTILES_ prefix makes it an autotile set
+SPEC = os.path.join(HERE, '..', '..', '..', 'docs', 'spec', 'editor', 'autotiling.md')
 
 # Neighbour weights, clockwise from north (docs/findings/autotile-sample-evidence-1732.md).
 NEIGHBOURS = [(0, -1, 1), (1, -1, 2), (1, 0, 4), (1, 1, 8),
@@ -57,6 +58,19 @@ PATTERN = """\
 .###.#.####..##.
 .#####..##.####.
 ................"""
+
+
+def spec_table():
+    """Tile number -> mask, from the table in docs/spec/editor/autotiling.md."""
+    bits = {'N': 1, 'NE': 2, 'E': 4, 'SE': 8, 'S': 16, 'SW': 32, 'W': 64, 'NW': 128}
+    table = {}
+    for line in open(SPEC, encoding='utf-8'):
+        m = re.match(r'\| (\d+) \| ([^|]+)\| ([^|]+)\|', line)
+        if m:
+            words = re.findall(r'\b(NE|NW|SE|SW|N|S|E|W)\b', m[2] + ' ' + m[3])
+            table[int(m[1])] = sum(bits[w] for w in words)
+    assert len(table) == 47 and sorted(table.values()) == CANONICAL, 'spec table is not 47 distinct shapes'
+    return table
 
 
 def parse_pattern(text):
@@ -177,7 +191,7 @@ def read_board(path):
 
 def cmd_read(args):
     sx, sy, sl, lut, cells = read_board(args.board)
-    pat = re.compile(r'(?:.*[\\/])?AutoProbe\d*\.tst(\d+)$', re.I)
+    pat = re.compile(r'(?:.*[\\/])?(?:AUTOTILES_Probe|AutoProbe\d*)\.tst(\d+)$', re.I)
     placed = {}  # (x, y) zero-based -> tile index, per layer
     layers = defaultdict(dict)
     for k, slot in enumerate(cells):
@@ -231,23 +245,29 @@ def cmd_read(args):
         problems.append(f'{len(missing)} canonical masks not observed: {missing}')
 
     table = {g: sorted(idx) for g, idx in sorted(by_gated.items())}
+    expected = {mask: tile for tile, mask in spec_table().items()}
+    disagree = [(g, expected[g], idx) for g, idx in table.items() if idx != [expected[g]]]
+    for g, want, idx in disagree:
+        problems.append(f'mask {g} ({ascii_3x3(g)}): spec says tile {want}, editor chose {idx}')
     used = sorted({i for idx in table.values() for i in idx})
     print(f'board {args.board}: {sx}x{sy}x{sl}, layer {z + 1}, {len(placed)} probe tiles, '
           f'{len(by_raw)} raw masks, {len(by_gated)}/47 canonical masks')
     print(f'corner gating hypothesis: {"consistent" if gating_ok else "CONTRADICTED"}')
     print(f'tile indices used: {used}')
+    print(f'spec table (docs/spec/editor/autotiling.md): '
+          f'{"MATCHES" if not disagree and not missing else f"{len(disagree)} disagreements"} on {len(table)} observed masks')
     print()
-    print('| Tile index | Mask | Neighbours (`#` same terrain) |')
-    print('|---:|---:|---|')
+    print('| Tile index | Spec tile | Mask | Neighbours (`#` same set) |')
+    print('|---:|---:|---:|---|')
     for g, idx in sorted(table.items(), key=lambda kv: (kv[1][0], kv[0])):
-        print(f'| {", ".join(map(str, idx))} | {g} | `{ascii_3x3(g)}` |')
+        print(f'| {", ".join(map(str, idx))} | {expected[g]} | {g} | `{ascii_3x3(g)}` |')
     print()
     print('Problems:' if problems else 'No problems found.')
     for p in problems:
         print(f'- {p}')
     if args.json:
         json.dump({'board': os.path.basename(args.board), 'size': [sx, sy, sl], 'layer': z + 1,
-                   'gatingConsistent': gating_ok, 'maskToIndex': table,
+                   'gatingConsistent': gating_ok, 'specDisagreements': len(disagree), 'maskToIndex': table,
                    'rawMaskToIndex': {m: sorted(i) for m, i in sorted(by_raw.items())},
                    'missingMasks': missing, 'problems': problems},
                   open(args.json, 'w'), indent=1)
@@ -259,7 +279,7 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     k = sub.add_parser('kit')
     k.add_argument('out')
-    k.add_argument('--count', type=int, default=64)
+    k.add_argument('--count', type=int, default=52)
     rd = sub.add_parser('read')
     rd.add_argument('board')
     rd.add_argument('--pattern')

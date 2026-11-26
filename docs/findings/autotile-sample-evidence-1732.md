@@ -166,13 +166,11 @@ The current evidence answers: “What is one published, CC0 blob-mask convention
 
 A reviewer/owner must approve whether the pinned sample provenance and available permissions satisfy the acceptance requirement, and approve a complete independently established Toolkit index-to-neighbour mapping; alternatively, a rights-cleared sample with that evidence must be acquired. The fixture route permits functional observation but is not an artwork license. The generic diagram is complete only as a generic mask transcription; this report records no Toolkit mapping approval. Story 13.7 remains incomplete and 13.8 remains blocked.
 
-## Proposed route: black-box observation of the released editor
+## Update 2026-11-26: specification and editor probe
 
-No community sample declares a complete order, so the remaining route is to observe the released Toolkit 3.1.0 editor directly. Paint a known shape with a tileset whose tiles show their own index numbers, save the board, and read which index the auto-tiler chose for each neighbour pattern. Only the running program is observed. No engine or editor source is opened (G7). The numbered tiles are drawn procedurally, so the evidence carries no third-party art and avoids the rights gap above.
+A clean-room behavioural description of the autotiler is now in [docs/spec/editor/autotiling.md](../spec/editor/autotiling.md). It gives the `AUTOTILES_` naming rule and a complete 52-slot tile table: 47 shapes, with slots 9, 18, 27, 36 and 45 unused. Checked: the table has 47 distinct corner-gated masks that together cover all 47 shapes.
 
-The kit, procedure and reader are in [`tools/research/autotile-probe/`](../../tools/research/autotile-probe/README.md). The paint pattern is 16 × 12 with an empty margin. It contains all 47 canonical masks and 96 raw 8-neighbour patterns, so the corner-gating rule and the "about 50 variants" in T-25 are both **tested** against the editor, not assumed. The reader reads the saved board with the spec-derived `docs/spec/tools/rpgtk_formats.py`. It reports painting slips by coordinate, any raw pattern that got more than one index, any lone-diagonal pattern that changed the index, and any mask that was missing.
-
-T-25 currently says to rebuild the order "from sample sets". Using editor observation instead needs owner approval of the method. If approved, the result is recorded here as observed evidence: boards, JSON output, screenshots and notes on how the editor identifies an auto-tile set. It replaces nothing above until reviewed.
+The black-box probe in [`tools/research/autotile-probe/`](../../tools/research/autotile-probe/README.md) verifies that table against the released Toolkit 3.1.0 editor. It paints a numbered set (`AUTOTILES_Probe.tst`, drawn procedurally, so no third-party art), covering all 47 shapes and 96 raw neighbour patterns, and the reader compares every observed tile with the spec. A matching run, with boards, JSON and screenshots attached to #1732, is the evidence this story's acceptance gate asks for. It replaces the need for a rights-cleared community sample to establish the order.
 
 ## References
 
