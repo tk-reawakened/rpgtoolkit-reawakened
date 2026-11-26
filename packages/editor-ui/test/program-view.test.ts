@@ -1136,6 +1136,30 @@ test("a queued nudge is dropped when two same-command cards swap before it is ap
   equal(textOf(s), 'text(9, 9, "B")\ntext(2, 2, "A")\n', "the swap applies and neither card takes the other's gesture");
 });
 
+test("a press made between a dispatch and its text landing still reaches the same card", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  // The first dispatch has not landed when this press arrives; it belongs to the same gesture.
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)); });
+  await settled();
+  equal(textOf(s), 'text(4, 2, "A")\n', "both presses reached the card, across the dispatch and its landing");
+});
+
 test("identical-text twins that differ only in placement never take each other's queued nudge", async () => {
   // Two `text` cards with the same string: the only difference is X, so identity text cannot tell them apart.
   const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 2, "A")\n' });
