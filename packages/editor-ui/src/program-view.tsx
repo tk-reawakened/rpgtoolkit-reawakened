@@ -1,15 +1,14 @@
 import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedRangeStart, trackedTextChanges, type TrackedText, type PendingText, type TextTree } from "./program-text.ts";
 import {
-  addShowMessage,
+  applyVisualEventAction,
   commandReference,
   createEditTracker,
-  deleteShowMessage,
   DEFAULT_PROGRAM_PREFERENCES,
-  editShowMessage,
   filterCommandReference,
   insertCommandEdit,
   insertHeaderCommand,
   projectVisualProgram,
+  visualEventActionLabel,
   type CommandReferenceEntry,
   type ConflictChoice,
   type ConflictResult,
@@ -27,7 +26,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { leaseLanguageClient, type LanguageClient, type LanguageLease } from "./language-client.ts";
 import { createPlainTextSurface, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
-import { VisualEventPane, type VisualEventAction } from "./visual-event-pane.tsx";
+import { VisualEventPane, type VisualAssetPicker, type VisualEventAction } from "./visual-event-pane.tsx";
 import type { ViewDocument } from "./mount.ts";
 
 /** The program document a view binds to. A host whose workbench owns history leaves `undo`/`redo` out. */
@@ -61,6 +60,8 @@ export interface ProgramViewProps {
   readonly settleMs?: number;
   /** Navigation only: bind the existing surface's one-based source revealer; `null` retires it on disposal. */
   readonly onRevealReady?: (reveal: ((line: number, column: number) => void) | null) => void;
+  /** The host's shared asset picker (T-05); typed asset fields in the visual events pane offer it when present. */
+  readonly pickAsset?: VisualAssetPicker;
 }
 
 interface BookmarkRow {
@@ -184,7 +185,7 @@ const formattingRequests = new WeakMap<LanguageClient, Set<object>>();
  * command insertion go to the document and come back to the surface. The language server is a helper: if it is absent or
  * stops, the text still edits, undoes, saves and reopens (docs/spec/engine/rpgcode-tooling.md#tool-10).
  */
-export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createSurface, language, project, preferences, reference, settleMs, onRevealReady }: ProgramViewProps) {
+export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createSurface, language, project, preferences, reference, settleMs, onRevealReady, pickAsset }: ProgramViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -837,16 +838,13 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         return;
       }
       const projection = projectVisualProgram(current.text, current.compiled);
-      const result = action.type === "add" ? addShowMessage(projection, action.message)
-        : action.type === "message" ? editShowMessage(projection, action.from, action.message)
-          : deleteShowMessage(projection, action.from);
+      const result = applyVisualEventAction(projection, action);
       if (!result.ok) {
         setVisualError(result.reason);
         return;
       }
       setVisualError(null);
-      const label = action.type === "add" ? "Add Show message" : action.type === "message" ? "Edit Show message" : "Remove Show message";
-      if (await applyTextCommand({ type: "edit-text", edits: [result.edit], label })) syncFromDocument(true);
+      if (await applyTextCommand({ type: "edit-text", edits: [result.edit], label: visualEventActionLabel(action) })) syncFromDocument(true);
     });
   };
 
@@ -935,7 +933,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         <div class="tkr-program-text" ref={host} />
         {focusMode || !showVisualEvents || snapshot.compiled ? null : (
           <div id={visualEventsId} class="tkr-program-visual-events">
-            <VisualEventPane source={snapshot.text} readOnly={readOnly} error={visualError} onAction={actOnVisualEvent} />
+            <VisualEventPane source={snapshot.text} readOnly={readOnly} error={visualError} onAction={actOnVisualEvent} {...(pickAsset === undefined ? {} : { pickAsset })} />
           </div>
         )}
         {focusMode || !showReference ? null : (

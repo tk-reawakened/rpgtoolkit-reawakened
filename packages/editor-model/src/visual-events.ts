@@ -1,4 +1,4 @@
-import { encodeCp1252, tokenizeObjects, type Token } from "@tk-reawakened/core";
+import { encodeCp1252, tokenizeObjects, type AssetKind, type Token } from "@tk-reawakened/core";
 import type { TextEdit } from "./program-document.ts";
 
 /** A source-backed Show message card. Offsets use the program snapshot's LF-only UTF-16 text. */
@@ -36,6 +36,9 @@ export type VisualEventEditResult =
 const MESSAGE_LINE = /^[ \t]*mwin\("([^"\r\n]*)"\)[ \t]*$/i;
 const WAIT_LINE = /^[ \t]*wait\(\)[ \t]*$/i;
 const CLOSE_LINE = /^[ \t]*mwincls\(\)[ \t]*$/i;
+const CALL_LINE = /^([ \t]*)([A-Za-z_][A-Za-z0-9_]*)[ \t]*\((.*)\)[ \t]*$/;
+const ASSIGNMENT_LINE = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)[ \t]*$/;
+const KEYWORDS_AFTER_BLOCK = new Set(["else", "elseif"]);
 
 function tokenize(source: string): Token[] | null {
   try {
@@ -54,9 +57,13 @@ function classifyLines(tokens: readonly Token[], lines: readonly string[]): Uint
   const flags = new Uint8Array(lines.length);
   let depth = 0;
   for (const token of tokens) {
+    const index = token.line - 1;
+    for (; filled <= index && filled < lines.length; filled += 1) depth[filled] = braces;
     if (token.kind === "op") {
-      if (token.text === "(" || token.text === "[") depth += 1;
-      if (token.text === ")" || token.text === "]") depth -= 1;
+      if (token.text === "(" || token.text === "[") brackets += 1;
+      else if (token.text === ")" || token.text === "]") brackets -= 1;
+      else if (token.text === "{") braces += 1;
+      else if (token.text === "}") braces -= 1;
     }
     if (depth !== 0) continue;
     const index = token.line - 1;
@@ -65,7 +72,8 @@ function classifyLines(tokens: readonly Token[], lines: readonly string[]): Uint
         : token.name === "mwin" ? MESSAGE : token.name === "wait" ? WAIT : token.name === "mwincls" ? CLEAR : 0;
     flags[index] = flags[index]! | bit;
   }
-  return flags;
+  for (; filled < lines.length; filled += 1) depth[filled] = braces;
+  return { names, ends, depth };
 }
 
 function opaque(source: string, compiled: boolean, lexicalError: boolean): VisualProgramProjection {
@@ -86,7 +94,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
   const tokens = tokenize(source);
   if (tokens === null) return opaque(source, false, true);
   const lines = source.split("\n");
-  const flags = classifyLines(tokens, lines);
+  const facts = classifyLines(tokens, lines);
   const starts: number[] = [];
   let offset = 0;
   for (const line of lines) {

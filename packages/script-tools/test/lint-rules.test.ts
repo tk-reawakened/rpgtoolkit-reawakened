@@ -291,6 +291,13 @@ test("the category-representative visual event builder fixture checks clean (int
   deepEqual(result.summary.unassessed, []);
 });
 
+test("the builder's generated output for every supported template checks clean (#1746; pinned by editor-model's visual-events test)", () => {
+  const path = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "veb-supported-templates.prg");
+  const result = run(readFileSync(path, "utf8"), { project: { closed: true, entryPoints: [] } });
+  deepEqual(result.diagnostics, []);
+  deepEqual(result.summary.unassessed, []);
+});
+
 // review regressions --------------------------------------------------------------
 
 test("#2077 controls: a local elsewhere or a non-callable assignment does not hide a genuine command call", () => {

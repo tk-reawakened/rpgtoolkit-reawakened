@@ -17,6 +17,7 @@ import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-r
 import type { LanguageMessage } from "@tk-reawakened/platform-services";
 import type { mount as mountView } from "../src/index.ts";
 import type { ProgramViewDocument } from "../src/program-view.tsx";
+import type { VisualAssetPicker } from "../src/visual-event-pane.tsx";
 import type { LanguageFeatures, SurfaceDiagnostic, TextSurface, TextSurfaceFactory, TextSurfaceHost } from "../src/text-surface.ts";
 
 const PATH = "Prg/intro.prg";
@@ -80,6 +81,7 @@ interface Show {
   readonly history?: boolean;
   readonly document?: ProgramViewDocument;
   readonly element?: HTMLElement;
+  readonly pickAsset?: VisualAssetPicker;
 }
 
 function show(s: Setup, options: Show = {}) {
@@ -97,6 +99,7 @@ function show(s: Setup, options: Show = {}) {
         ...(options.project === undefined ? {} : { project: options.project }),
         ...(options.preferences === undefined ? {} : { preferences: { get: () => options.preferences!, subscribe: () => () => {} } }),
       },
+      ...(options.pickAsset === undefined ? {} : { navigation: { pickAsset: options.pickAsset } }),
     });
   });
   if (handle === undefined) throw new Error("mount returned nothing");
@@ -892,7 +895,7 @@ test("visual-event navigation distinguishes identical bytes that moved within on
 });
 
 test("visual-event navigation declines when only the old block's newline survives", async () => {
-  const s = await setup({ content: "x = 1\n" });
+  const s = await setup({ content: "x = y\n" });
   const spy = spySurface();
   show(s, { createSurface: spy.factory });
   await act(() => named(s.el, "Visual events").click());

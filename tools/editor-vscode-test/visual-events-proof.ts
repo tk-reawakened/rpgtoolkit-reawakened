@@ -86,13 +86,18 @@ export async function runVscodeVisualEventsProof(
   await expect(reopenedPane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event");
   await expect(reopenedPane.getByText("handwritten opaque line", { exact: false })).toBeVisible();
   await expect.poll(() => readBacking(VISUAL_EVENTS_PROOF_PATH)).toEqual(new TextEncoder().encode(expected));
+  const program = await runStructuredAuthoring(page, expect, command, reopenedPane, readBacking);
   await command("Test: Run Example Program");
   const player = await playerFrame(page, expect);
-  const output = async () => await player.evaluate(() => {
-    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
-    return session?.engine.drawList().commands.filter((item) => item.kind === "text").map((item) => item.text ?? "").join(" ") ?? "";
+  const drawn = async () => await player.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; x?: number; y?: number }> } } } | undefined;
+    return session?.engine.drawList().commands.filter((item) => item.kind === "text").map((item) => ({ text: item.text ?? "", x: item.x, y: item.y })) ?? [];
   });
+  const output = async () => (await drawn()).map((item) => item.text).join(" ");
   await expect.poll(output, { timeout: 30_000 }).toContain("Native tracer event");
+  // The saved program draws where its cards say: font size 16 makes cell (2, 2) the pixel origin (16, 16).
+  expect(await drawn()).toEqual(expect.arrayContaining([expect.objectContaining({ text: "Native canvas", x: 16, y: 16 })]));
+  expect(new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH))).toBe(program.replaceAll("\n", "\r\n"));
   await player.locator("#screen").press("Enter");
   await expect.poll(output, { timeout: 30_000 }).not.toContain("Native tracer event");
 }
