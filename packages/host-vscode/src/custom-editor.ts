@@ -320,16 +320,18 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
-      this.#views.delete(target);
+      const detached = this.#views.delete(target);
       // The view may have accepted edits before it disappeared. Without its answer we cannot claim they reached the
       // model, so a concurrent save/revert/backup must fail rather than proceed on a partial snapshot.
       for (const answer of [...target.waiting.values()]) answer(false);
     };
   }
 
+
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
   viewSettled(requestId: string, settled = true, message?: string, kind?: SettleFailureKind): void {
-    for (const view of this.#views) view.waiting.get(requestId)?.(settled, message, kind);
+    const responders = [...this.#views].filter((view) => view.waiting.has(requestId));
+    for (const view of responders) view.waiting.get(requestId)?.(settled, message, kind);
   }
 
   /**
@@ -350,9 +352,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** `settleViews`, saying whether the message is a view's own refusal (text it holds) rather than a failed hand-off. */
   async settleViewsOutcome(reason: SettleReason, saveLock?: number): Promise<{ readonly message: string | null; readonly refused: boolean }> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
-    const answers = [...this.#views].map((view) => new Promise<{ readonly message: string | null; readonly refused: boolean }>((resolve) => {
+    const views = [...this.#views];
+    const answers = await Promise.all(views.map((view) => new Promise<{ readonly message: string | null; readonly refused: boolean }>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
-      const timer = startTimer(() => answer(false));
+      const timer = startTimer(() => {
+        answer(false);
+      });
       const answer = (settled: boolean, message?: string, kind?: SettleFailureKind): void => {
         timer.cancel();
         view.waiting.delete(requestId);
@@ -361,8 +366,14 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         resolve({ message: message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"), refused: !settled && kind === "held" });
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId, reason, saveLock).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
-    }));
+      void view.post(requestId, reason, saveLock).then((delivered) => {
+        if (!delivered) {
+          answer(false);
+        }
+      }, (error: unknown) => {
+        answer(false);
+      });
+    })));
     const settled = await Promise.all(answers);
     // A failed hand-off outranks a refusal: nothing may be written when the model might miss an accepted edit.
     return settled.find((answer) => answer.message !== null && !answer.refused) ?? settled.find((answer) => answer.message !== null) ?? { message: null, refused: false };

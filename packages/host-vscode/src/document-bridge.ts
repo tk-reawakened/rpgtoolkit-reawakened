@@ -709,11 +709,13 @@ export class RemoteDocument {
       }
       // The hand-off answer stays `{ requestId }` when nothing refuses, so #2613's contract is unchanged; a refusal adds
       // its sentence for the provider to surface instead of saving around the field.
-      void this.pendingEdits.settle(message.reason).then((outcome) => this.vscode.postMessage({
-        type: "settled",
-        requestId,
-        ...(outcome.ok ? {} : { ok: false, kind: outcome.kind, message: outcome.message }),
-      }));
+      void this.pendingEdits.settle(message.reason).then((outcome) => {
+        return this.vscode.postMessage({
+          type: "settled",
+          requestId,
+          ...(outcome.ok ? {} : { ok: false, kind: outcome.kind, message: outcome.message }),
+        });
+      });
       return;
     }
     if (message.type === "board-preferences") {
