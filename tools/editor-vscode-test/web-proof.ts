@@ -3763,7 +3763,7 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await saveAllShortcut();
   await expect.poll(async () => [...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
   const backgroundTab = page.getByRole("tab", { name: /forest\.bkg/ }).first();
-  await expect(backgroundTab.evaluate((element) => element.classList.contains("dirty"))).resolves.toBe(false);
+  await expect.poll(async () => backgroundTab.evaluate((element) => element.classList.contains("dirty")), { message: "native Save All clears the BKG dirty marker" }).toBe(false);
   await backgroundTab.click({ button: "middle" });
   await expect(backgroundTab).toHaveCount(0);
   const reopenedBackgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
