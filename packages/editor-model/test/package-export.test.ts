@@ -92,7 +92,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
 test("packaging refuses unsaved documents instead of saving them for the author", async () => {
   const { host, workspace, services } = packageHost(authoredFiles());
   const opened = await workspace.open("Main/demo.gam");
-  ok(opened.ok, opened.ok ? "" : opened.message);
+  ok(opened.ok);
   if (!opened.ok) return;
   ok(opened.document.apply({ type: "set-game-title", title: "Unsaved title" }).ok);
   equal(opened.document.getSnapshot().dirty, true, "the edit is unsaved");
@@ -111,7 +111,7 @@ test("packaging refuses unsaved documents instead of saving them for the author"
 test("packaging refuses a view's buffered accepted edits even when the snapshot is clean", async () => {
   const { host, workspace, services } = packageHost(authoredFiles());
   const opened = await workspace.open("Main/demo.gam");
-  ok(opened.ok, opened.ok ? "" : opened.message);
+  ok(opened.ok);
   if (!opened.ok) return;
   const unregister = workspace.pendingEdits(opened.document).register({ busy: () => true, idle: async () => {}, holdsDraft: () => false });
   try {
@@ -134,7 +134,7 @@ test("packaging refuses a view's buffered accepted edits even when the snapshot 
 test("packaging refuses a view's held draft text even when the snapshot is clean", async () => {
   const { host, workspace, services } = packageHost(authoredFiles());
   const opened = await workspace.open("Main/demo.gam");
-  ok(opened.ok, opened.ok ? "" : opened.message);
+  ok(opened.ok);
   if (!opened.ok) return;
   const unregister = workspace.pendingEdits(opened.document).register({ busy: () => false, idle: async () => {}, holdsDraft: () => true });
   try {
