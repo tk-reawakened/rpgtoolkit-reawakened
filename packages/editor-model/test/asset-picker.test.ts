@@ -2,7 +2,7 @@
 // outside is copied in and never over another file, and nothing is attached until the user confirms.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { platformError } from "@tk-reawakened/platform-services";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { copyIntoReservedFolder, createAssetPicker, linkFor, listCandidates, referencePath, reservedFolder, unusableName } from "../src/index.ts";
 import { projectLayoutForDocumentPath, projectLayoutOwnerForDocumentPath } from "../src/reserved-folders.ts";
@@ -268,6 +268,28 @@ test("an audio field also lists a WAV or MIDI kept under another name, judged by
   deepEqual(byContent.candidates.map((candidate) => candidate.reference), ["battle.mp3", "claimed.wav", "sub\\theme.ogg"], "bytes that are not a header stay out; a listed extension is kept as it was");
   deepEqual(byContent.failures, []);
 });
+test("content candidate checks prefer bounded header reads when the host supports them", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const reads: { path: string; length: number }[] = [];
+  const fs = {
+    list: host.fs.list.bind(host.fs),
+    read: async () => { throw new Error("whole-file read should not be used"); },
+    readPrefix: async (path: string, length: number) => {
+      reads.push({ path, length });
+      const file = await host.fs.read(path);
+      return file.ok ? platformOk(file.value.slice(0, length)) : file;
+    },
+  };
+  const listed = await listCandidates(fs, ROOT, "media", [".wav", ".mid", ".midi"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["battle.mp3", "claimed.wav", "sub\\theme.ogg"]);
+  deepEqual(reads, [
+    { path: "Media/battle.mp3", length: 12 },
+    { path: "Media/tagged.mp3", length: 12 },
+    { path: "Media/notes.txt", length: 12 },
+    { path: "Media/sub/theme.ogg", length: 12 },
+  ]);
+});
+
 
 test("a file that cannot be read for its header is reported, not silently dropped", async () => {
   const host = createMemoryPlatformServices({ files: AUDIO_FILES });

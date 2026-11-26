@@ -251,6 +251,7 @@ test("a header-valid WAV at a .mp3 name is pickable and plays as stored, bytes t
     { path: "Game/Bitmap/Nature/forest.tbm", bytes: bytes("game/Game/Example/Bitmap/forest.tbm") },
     { path: "Game/Bitmap/shot.png", bytes: [137, 80, 78, 71, 13, 10, 26, 10] },
     { path: "Game/Media/battle.mp3", bytes: tone },
+    { path: "Game/Media/not-a-tile-bitmap.tbm", bytes: tone },
     { path: "Game/Media/plain.wav", bytes: tone },
     { path: "Game/Media/tagged.mp3", bytes: notAudio },
     { path: "Game/Media/fake.wav", bytes: notAudio },
@@ -299,6 +300,11 @@ test("a header-valid WAV at a .mp3 name is pickable and plays as stored, bytes t
   await expect(editor.getByRole("button", { name: "Choose background picture", exact: true })).toBeEnabled();
   await expect(editor.getByRole("button", { name: "Open background picture", exact: true })).toHaveCount(0);
   await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  // A WAV kept under a registered tile-bitmap suffix remains playable audio; Open must not route it to the tile reader.
+  await retype(page, "Battle music file", "not-a-tile-bitmap.tbm");
+  await expect(editor.getByRole("button", { name: "Play battle music", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await retype(page, "Battle music file", "battle.mp3");
   await retype(page, "Menu cursor sound file", "plain.wav");
   await expect(editor.getByRole("button", { name: "Play menu cursor sound", exact: true })).toBeEnabled();
   await expect(editor.getByRole("button", { name: "Open menu cursor sound", exact: true })).toHaveCount(0);

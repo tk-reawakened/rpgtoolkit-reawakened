@@ -101,6 +101,13 @@ test("a WAV in the board owner's Media folder loads without a main file", async 
   equal(input.notice, null);
 });
 
+test("an exact resolved audio reference is not trimmed before reading its path", async () => {
+  const bytes = wav(1);
+  const input = valueOf(await loadAuditionInput(auditionOf({ "Media/ ": bytes }, null), " ", "Media/ "));
+  deepEqual(input.bytes, bytes);
+  equal(input.format, "wav");
+});
+
 test("a missing WAV names the file and the Media folder", async () => {
   equal(refusalOf(await loadAuditionInput(auditionOf({}, "main.gam"), "bgm.wav")), 'Could not read "bgm.wav" from the project\'s Media folder.');
 });

@@ -1,4 +1,5 @@
 import {
+  audioContentOf,
   createEditTracker,
   extensionOf,
   kindForPath,
@@ -608,10 +609,18 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     if (message !== null && message !== undefined) setMessage(message);
   };
   const openable = (path: string): boolean => navigation.canOpen?.(path) ?? kindForPath(path) !== null;
+  // A header-valid audio file with a misleading registered suffix (e.g. RIFF bytes at .tbm) still plays as audio; do not
+  // route it to a different format's editor just because that suffix is registered.
+  const openableLinked = linked.state === "found"
+    && content === "audio"
+    && audioContentOf(linked.bytes) !== null
+    && !extensions.includes(extensionOf(linked.path))
+    ? false
+    : linked.state === "found" && openable(linked.path);
   // Only a file the check found says what Open would open. Until then the stored text's own extension says it, and text
   // with none (or none yet) offers Open when any file type this field accepts can be opened.
   const fieldOpenable = extensions.length === 0 || extensions.some((extension) => openable(`file${extension}`));
-  const canOpen = navigation.open !== undefined && (linked.state === "found" ? openable(linked.path) : extensionOf(value) !== "" ? openable(value) : fieldOpenable);
+  const canOpen = navigation.open !== undefined && (linked.state === "found" ? openableLinked : extensionOf(value) !== "" ? openable(value) : fieldOpenable);
   return <fieldset>
     <legend>{label}</legend>
     <p>

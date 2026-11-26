@@ -42,7 +42,7 @@ export interface AuditionInput {
  * the reference as it was.
  */
 export async function loadAuditionInput(audition: BoardAudition, reference: string, resolvedPath?: string): Promise<AuditionOutcome<AuditionInput>> {
-  const name = reference.trim();
+  const name = resolvedPath === undefined ? reference.trim() : reference;
   if (name === "") return { ok: false, message: "Set a background music file first." };
   const layout = audition.layout;
   const bytes = await audition.fs.readProject(audition.projectId, resolvedPath ?? referencePath(layout, "media", name));
