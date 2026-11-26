@@ -1,4 +1,4 @@
-import { encodeCp1252, tokenizeObjects, type AssetKind, type Token } from "@tk-reawakened/core";
+import { encodeCp1252, parse, tokenizeObjects, type Ast, type AssetKind, type Token } from "@tk-reawakened/core";
 import type { TextEdit } from "./program-document.ts";
 
 export type VisualEventValue = string | number;
@@ -169,34 +169,31 @@ function tokenize(source: string): Token[] | null {
   try { return tokenizeObjects(source); } catch { return null; }
 }
 
+/** One line's identifiers outside any bracket, and where the parser starts a statement. */
 interface LineFacts {
-  /** Identifiers outside any bracket, in order; commands and assignment targets are recognised from these, never from text. */
   readonly names: readonly (readonly string[])[];
-  /** Whether the line's own line break ends a statement (false inside a continued statement or open bracket). */
-  readonly ends: Uint8Array;
-  /** Brace depth where the line starts: only depth 0 source is offered as cards. */
-  readonly depth: Int32Array;
+  /** Line index → the statement the parser owns there and the last line with content in that statement. */
+  readonly statements: ReadonlyMap<number, { readonly kind: string; readonly end: number; readonly otherwise: boolean }>;
 }
 
+/**
+ * Statement ownership comes from the parser, not from the line's shape. A line that continues a previous statement
+ * (a hanging `=`, an operator, an open bracket) never owns a card, and a statement that spans lines is never a
+ * one-line card; only a nested block's statements are excluded because only top-level ones appear here. The line's
+ * identifiers say *which* supported command a statement is, never where it starts or ends.
+ */
 function classifyLines(tokens: readonly Token[], lines: readonly string[]): LineFacts {
   const names: string[][] = lines.map(() => []);
-  const ends = new Uint8Array(lines.length);
-  const depth = new Int32Array(lines.length);
+  const statements = new Map<number, { kind: string; end: number; otherwise: boolean }>();
   let brackets = 0;
-  let braces = 0;
-  let filled = 0;
   for (const token of tokens) {
     const index = token.line - 1;
-    for (; filled <= index && filled < lines.length; filled += 1) depth[filled] = braces;
     if (token.kind === "op") {
       if (token.text === "(" || token.text === "[") brackets += 1;
       else if (token.text === ")" || token.text === "]") brackets -= 1;
-      else if (token.text === "{") braces += 1;
-      else if (token.text === "}") braces -= 1;
     }
     if (brackets !== 0 || index < 0 || index >= lines.length) continue;
     if (token.kind === "identifier") names[index]!.push(token.name.toLowerCase());
-    else if ((token.kind === "end" || token.kind === "eof") && token.col === lines[index]!.length + 1) ends[index] = 1;
   }
   for (; filled < lines.length; filled += 1) depth[filled] = braces;
   return { names, ends, depth };
@@ -270,41 +267,44 @@ function parseCall(template: VisualEventTemplate, line: string): readonly Visual
 const CALL_TEMPLATES = new Map(VISUAL_EVENT_TEMPLATES.filter((item) => item.kind === "call").map((item) => [item.command, item]));
 const ASSIGN_TEMPLATE = VISUAL_EVENT_TEMPLATES.find((item) => item.kind === "assignment")!;
 
+/** The expression of `if ( … ) {`, scanned so a quoted `(` is text rather than a group. */
+function conditionHeader(line: string): { readonly expression: string; readonly at: number } | null {
+  const head = /^[ \t]*if[ \t]*\(/i.exec(line);
+  if (head === null) return null;
+  const open = head[0].length - 1;
+  let quoted = false;
+  for (let index = open + 1; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') quoted = !quoted;
+    if (quoted || character !== ")") continue;
+    if (!/^[ \t]*\{[ \t]*$/.test(line.slice(index + 1))) return null;
+    const inner = line.slice(open + 1, index);
+    const expression = inner.trim();
+    if (expression === "" || !CONDITION.test(expression) || !encodeCp1252(expression).ok) return null;
+    return { expression, at: open + 1 + (inner.length - inner.trimStart().length) };
+  }
+  return null;
+}
+
 function conditionCard(
   source: string,
   lines: readonly string[],
   starts: readonly number[],
-  tokens: readonly Token[],
   line: number,
+  endLine: number,
+  id: string,
 ): VisualConditionCard | null {
-  const match = CONDITION_LINE.exec(lines[line]!);
-  if (match === null || !CONDITION.test(match[1]!)) return null;
-  const openIndex = tokens.findIndex((token) => token.kind === "op" && token.text === "{" && token.line === line + 1);
-  if (openIndex === -1) return null;
-  let depth = 0;
-  let closeIndex = -1;
-  for (let index = openIndex; index < tokens.length; index += 1) {
-    const token = tokens[index]!;
-    if (token.kind !== "op") continue;
-    if (token.text === "{") depth += 1;
-    else if (token.text === "}") {
-      depth -= 1;
-      if (depth === 0) { closeIndex = index; break; }
-    }
-  }
-  if (closeIndex === -1) return null;
-  const close = tokens[closeIndex]!;
-  // A following `else` would be orphaned by editing or deleting this block, so the whole chain stays opaque.
-  const after = tokens.slice(closeIndex + 1).find((token) => token.kind !== "end");
-  if (after?.kind === "identifier" && KEYWORDS_AFTER_BLOCK.has(after.name.toLowerCase())) return null;
-  const closeLine = close.line - 1;
-  if (!/^[ \t]*\}[ \t]*$/.test(lines[closeLine]!)) return null;
+  const header = conditionHeader(lines[line]!);
+  if (header === null) return null;
+  const close = lines[endLine] ?? "";
+  if (!/^[ \t]*\}[ \t]*$/.test(close)) return null;
   const from = starts[line]!;
-  const to = starts[closeLine]! + lines[closeLine]!.length + (closeLine + 1 < lines.length ? 1 : 0);
-  const conditionFrom = from + lines[line]!.indexOf("(") + 1;
+  const to = starts[endLine]! + close.length + (endLine + 1 < lines.length ? 1 : 0);
+  const conditionFrom = from + header.at;
   return {
-    type: "condition", condition: match[1]!.trim(), body: source.slice(starts[line]! + lines[line]!.length + 1, starts[closeLine]!),
-    conditionFrom, conditionTo: conditionFrom + match[1]!.length, from, to, line: line + 1,
+    type: "condition", id, condition: header.expression,
+    body: source.slice(starts[line]! + lines[line]!.length + 1, starts[endLine]!),
+    conditionFrom, conditionTo: conditionFrom + header.expression.length, from, to, line: line + 1,
   };
 }
 
@@ -320,6 +320,13 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
   const starts = startsOf(lines);
   const facts = classifyLines(tokens, lines);
   const regions: VisualProgramRegion[] = [];
+  const seen = new Map<string, number>();
+  /** A card's identity: its own text plus its position among identical cards, so an insert above never renames it. */
+  const identify = (base: string): string => {
+    const next = (seen.get(base) ?? 0) + 1;
+    seen.set(base, next);
+    return `${base}#${next}`;
+  };
   let opaqueStart = 0;
   let opaqueLine = 1;
   const flushOpaque = (end: number, endLine: number): void => {
@@ -328,31 +335,45 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     opaqueStart = end;
     opaqueLine = endLine;
   };
-  const only = (line: number, name: string): boolean => facts.names[line]!.length === 1 && facts.names[line]![0] === name && facts.ends[line] === 1;
+  const statement = (line: number, kind: string) => {
+    const found = facts.statements.get(line);
+    return found !== undefined && found.kind === kind ? found : null;
+  };
+  const only = (line: number, name: string): boolean => facts.names[line]!.length === 1 && facts.names[line]![0] === name;
   const lineTo = (line: number): number => starts[line]! + lines[line]!.length + (line + 1 < lines.length ? 1 : 0);
+
   for (let line = 0; line < lines.length; line += 1) {
-    if (facts.depth[line] !== 0 || (line > 0 && facts.ends[line - 1] !== 1)) continue;
-    if (only(line, "mwin") && MESSAGE_LINE.test(lines[line]!)
-      && line + 2 < lines.length && only(line + 1, "wait") && WAIT_LINE.test(lines[line + 1]!)
-      && only(line + 2, "mwincls") && CLOSE_LINE.test(lines[line + 2]!)) {
-      const to = lineTo(line + 2);
-      flushOpaque(starts[line]!, line + 1);
-      regions.push({ type: "show-message", message: MESSAGE_LINE.exec(lines[line]!)![1]!, from: starts[line]!, to, line: line + 1 });
-      opaqueStart = to;
-      opaqueLine = line + 4;
-      line += 2;
+    const block = statement(line, "if");
+    if (block !== null) {
+      if (block.otherwise) continue;
+      const card = conditionCard(source, lines, starts, line, block.end, identify(`condition:${lines[line]!.trim()}`));
+      if (card !== null) {
+        flushOpaque(card.from, card.line);
+        regions.push(card);
+        opaqueStart = card.to;
+        opaqueLine = block.end + 2;
+        line = block.end;
+      }
       continue;
     }
-    const condition = conditionCard(source, lines, starts, tokens, line);
-    if (condition !== null) {
-      flushOpaque(condition.from, condition.line);
-      regions.push(condition);
-      opaqueStart = condition.to;
-      opaqueLine = condition.line + condition.body.split("\n").length + 1;
-      while (line + 1 < lines.length && starts[line + 1]! < condition.to) line += 1;
-      continue;
+    if (statement(line, "expr")?.end !== line) continue;
+    if (only(line, "mwin") && MESSAGE_LINE.test(lines[line]!)) {
+      const wait = statement(line + 1, "expr");
+      const close = statement(line + 2, "expr");
+      if (wait !== null && close !== null && wait.end === line + 1 && close.end === line + 2
+        && only(line + 1, "wait") && WAIT_LINE.test(lines[line + 1]!)
+        && only(line + 2, "mwincls") && CLOSE_LINE.test(lines[line + 2]!)) {
+        const message = MESSAGE_LINE.exec(lines[line]!)![1]!;
+        const to = lineTo(line + 2);
+        flushOpaque(starts[line]!, line + 1);
+        regions.push({ type: "show-message", id: identify(`message:${message}`), message, from: starts[line]!, to, line: line + 1 });
+        opaqueStart = to;
+        opaqueLine = line + 4;
+        line += 2;
+        continue;
+      }
     }
-    if (facts.ends[line] !== 1 || facts.names[line]!.length !== 1) continue;
+    if (facts.names[line]!.length !== 1) continue;
     const name = facts.names[line]![0]!;
     const call = CALL_TEMPLATES.get(name);
     let template: VisualEventTemplate | undefined;
@@ -362,7 +383,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
       values = parseCall(call, lines[line]!);
     } else {
       const assignment = ASSIGNMENT_LINE.exec(lines[line]!);
-      if (assignment !== null && assignment[1]!.toLowerCase() === name && name !== "if") {
+      if (assignment !== null && assignment[1]!.toLowerCase() === name && !NOT_WRITABLE.has(name)) {
         const number = Number(assignment[2]);
         if (Number.isFinite(number)) { template = ASSIGN_TEMPLATE; values = [assignment[1]!, number]; }
       }
@@ -371,7 +392,10 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     const from = starts[line]!;
     const to = lineTo(line);
     flushOpaque(from, line + 1);
-    regions.push({ type: "event", templateId: template.id, values, from, to, line: line + 1, source: lines[line]! });
+    regions.push({
+      type: "event", id: identify(`event:${template.id}:${lines[line]!.trim()}`), templateId: template.id, values,
+      from, to, line: line + 1, source: lines[line]!,
+    });
     opaqueStart = to;
     opaqueLine = line + 2;
   }
