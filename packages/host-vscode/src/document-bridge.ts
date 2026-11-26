@@ -1,5 +1,5 @@
 import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
-import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyOptions, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleFailureKind, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, kindForPath, type AnyDocument, type AssetKind, type ApplyOptions, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleFailureKind, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
@@ -7,8 +7,27 @@ import { createBrowserSession, type BrowserSession, type BrowserState, type Brow
 export interface AssetPickRequest {
   readonly kind: AssetKind;
   readonly extensions: readonly string[];
+  /** Also offer files outside `extensions` whose own bytes the field accepts (audio: a WAV or MIDI header). */
+  readonly content?: "audio";
   /** What the field is called, in words for the confirmation. */
   readonly field: string;
+}
+
+/**
+ * Picture and sound files that no document kind claims, which a linked visit still hands to VS Code's own viewer. This
+ * is the one list: the extension host opens them, and the webview offers Open only for them and for registered kinds.
+ */
+const NATIVE_VISIT_EXTENSIONS = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".wav", ".mid", ".midi"] as const;
+
+/** Whether `path` names a picture or sound VS Code opens in its own viewer (decided by its name, as a visit is). */
+export function isNativeVisitPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return NATIVE_VISIT_EXTENSIONS.some((extension) => lower.endsWith(extension));
+}
+
+/** Whether a linked visit of `path` can open an editor: a registered document kind, or VS Code's own viewer. */
+export function canVisitPath(path: string): boolean {
+  return kindForPath(path) !== null || isNativeVisitPath(path);
 }
 
 /** The result of following a link to another document. */
@@ -374,6 +393,7 @@ function isAssetPickRequest(value: unknown): value is AssetPickRequest {
   return typeof value === "object" && value !== null
     && "kind" in value && typeof value.kind === "string" && Object.prototype.hasOwnProperty.call(ASSET_FOLDERS, value.kind)
     && "extensions" in value && Array.isArray(value.extensions) && value.extensions.every((extension) => typeof extension === "string")
+    && (!("content" in value) || value.content === undefined || value.content === "audio")
     && "field" in value && typeof value.field === "string" && value.field !== "";
 }
 

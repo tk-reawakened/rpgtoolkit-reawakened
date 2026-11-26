@@ -2,7 +2,7 @@ import { boardPreviewRootForLayout, projectLayoutOwnerForDocumentPath, resolveRe
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { encodeBackup, recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
-import { handleEditorHostRequest, isEditorHostRequest, scopeEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
+import { handleEditorHostRequest, isEditorHostRequest, isNativeVisitPath, scopeEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
 /**
@@ -757,7 +757,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const project = projectIn(folder, origin.uri);
       const kind = kindForPath(path);
       if (kind === null) {
-        const nativeAsset = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".wav", ".mid", ".midi"].some((extension) => path.toLowerCase().endsWith(extension));
+        const nativeAsset = isNativeVisitPath(path);
         if (!reference && nativeAsset) {
           const resolved = await resolveDocumentPath(project.fs, path);
           if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
@@ -886,6 +886,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         layout: await owningProjectLayout(project.fs, folder.key, origin.model.identity.path, origin.model.kind === "main" ? origin.model.identity.path : undefined),
         kind: request.kind,
         extensions: request.extensions,
+        ...(request.content === undefined ? {} : { content: request.content }),
         field: request.field,
       });
       await picker.refresh();

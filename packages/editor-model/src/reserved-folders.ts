@@ -1,5 +1,6 @@
 import { ASSET_FOLDERS, BinaryReader, asciiLower, foldPath, projectFolder, readMainFile, stripTypeFolder, toSlashes, type AssetKind } from "@tk-reawakened/core";
 import type { DialogService, FileSystemService, OutsideFile, PlatformError } from "@tk-reawakened/platform-services";
+import { matchesAssetContent, type AssetContent } from "./audio-content.ts";
 
 /**
  * Reserved folders and relative links (T-05, `docs/spec/formats/README.md#paths-inside-files`). Each asset type has a
@@ -153,10 +154,15 @@ export interface ListFailure {
  * project has none yet. Any other failure is reported with the folder that could not be read.
  */
 export async function listCandidates(
-  fs: Pick<FileSystemService, "list">,
+  fs: Pick<FileSystemService, "list"> & Partial<Pick<FileSystemService, "read">>,
   layout: ProjectLayout,
   kind: AssetKind,
   extensions: readonly string[],
+  /**
+   * Also list a file whose extension is not in `extensions` when its bytes satisfy this rule. Those files are read to
+   * decide, so a file that cannot be read is reported as a failure, not silently left out.
+   */
+  content?: AssetContent,
 ): Promise<{ readonly candidates: readonly AssetCandidate[]; readonly failures: readonly ListFailure[] }> {
   const candidates: AssetCandidate[] = [];
   const failures: ListFailure[] = [];
@@ -180,7 +186,15 @@ export async function listCandidates(
       if (entry.kind !== "file") continue;
       const dot = entry.name.lastIndexOf(".");
       const extension = dot <= 0 ? "" : asciiLower(entry.name.slice(dot));
-      if (extensions.length > 0 && !extensions.includes(extension)) continue;
+      if (extensions.length > 0 && !extensions.includes(extension)) {
+        if (content === undefined || fs.read === undefined) continue;
+        const bytes = await fs.read(path);
+        if (!bytes.ok) {
+          if (bytes.error.code !== "not-found") failures.push({ path, error: bytes.error });
+          continue;
+        }
+        if (!matchesAssetContent(content, bytes.value)) continue;
+      }
       const link = linkFor(layout, kind, path);
       if (link.inside) candidates.push({ reference: link.reference, path, name: entry.name });
     }

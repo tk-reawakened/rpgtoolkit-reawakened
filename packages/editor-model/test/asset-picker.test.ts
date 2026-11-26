@@ -248,3 +248,48 @@ test("a folder that cannot be read is shown in the picker's message", async () =
   ok(chooser.getSnapshot().message?.includes("no access"));
   deepEqual(chooser.getSnapshot().candidates, []);
 });
+
+// The bytes that make a file a WAV or a MIDI to the game, whatever it is called (docs/spec/engine/audio-media.md#audio-format-policy).
+const wavBytes = bytes(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69);
+const midiBytes = bytes(77, 84, 104, 100);
+const AUDIO_FILES = {
+  "Media/battle.mp3": wavBytes,
+  "Media/sub/theme.ogg": midiBytes,
+  "Media/tagged.mp3": bytes(73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0),
+  "Media/claimed.wav": bytes(1, 2, 3),
+  "Media/notes.txt": bytes(4),
+};
+
+test("an audio field also lists a WAV or MIDI kept under another name, judged by its first bytes", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const byExtension = await listCandidates(host.fs, ROOT, "media", [".wav", ".mid", ".midi"]);
+  deepEqual(byExtension.candidates.map((candidate) => candidate.reference), ["claimed.wav"], "the extension list alone hides a valid WAV named .mp3");
+  const byContent = await listCandidates(host.fs, ROOT, "media", [".wav", ".mid", ".midi"], "audio");
+  deepEqual(byContent.candidates.map((candidate) => candidate.reference), ["battle.mp3", "claimed.wav", "sub\\theme.ogg"], "bytes that are not a header stay out; a listed extension is kept as it was");
+  deepEqual(byContent.failures, []);
+});
+
+test("a file that cannot be read for its header is reported, not silently dropped", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const fs = { list: host.fs.list.bind(host.fs), read: (path: string) => path === "Media/battle.mp3" ? Promise.resolve(platformError("permission-denied", "no access")) : host.fs.read(path) };
+  const listed = await listCandidates(fs, ROOT, "media", [".wav"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["claimed.wav", "sub\\theme.ogg"]);
+  equal(listed.failures[0]?.path, "Media/battle.mp3");
+});
+
+test("a host that cannot read files lists by extension only", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const listed = await listCandidates({ list: host.fs.list.bind(host.fs) }, ROOT, "media", [".wav"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["claimed.wav"]);
+});
+
+test("the picker offers a mismatched-name WAV and chooses it as listed, without renaming it", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const chooser = createAssetPicker({ services: host, layout: ROOT, kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" });
+  await chooser.refresh();
+  ok(chooser.getSnapshot().candidates.some((candidate) => candidate.reference === "battle.mp3"));
+  chooser.select("battle.mp3");
+  host.answerQuestions("use");
+  deepEqual(await chooser.confirm(), { chosen: true, reference: "battle.mp3" });
+  deepEqual(host.bytesOf("Media/battle.mp3"), wavBytes, "the file is untouched");
+});

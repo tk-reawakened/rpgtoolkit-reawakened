@@ -1,11 +1,14 @@
 import {
   createEditTracker,
+  extensionOf,
+  kindForPath,
   linkedFileCandidates,
   resolveDocumentPath,
   linkReferenceProblem,
   projectLayoutForDocumentPath,
   reservedFolder,
   type ProjectLayout,
+  type AssetContent,
   type AssetKind,
   type DocumentSnapshot,
   type HeldFields,
@@ -36,11 +39,17 @@ import { useDocumentSnapshot } from "./use-document.ts";
  */
 
 export interface BattleDataNavigation {
-  readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
+  readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly content?: AssetContent; readonly field: string }) => Promise<PickOutcome>;
   /** Owning game layout, when a host knows it independently of this document's path. */
   readonly layout?: ProjectLayout;
   /** Open the project file at this project-relative path in its own editor, remembering the way back. Resolves with a message when it could not. */
   readonly open?: (path: string) => Promise<string | null>;
+  /**
+   * Whether this host can open the project file at `path` (a project-relative path, or a reference's text). A host
+   * states what it can open; without it, a file is openable when a document kind is registered for its extension. A
+   * link that cannot be opened shows no Open action, and keeps its picker and diagnostics.
+   */
+  readonly canOpen?: (path: string) => boolean;
 }
 
 export interface BattleDataFormProps<Snapshot extends DocumentSnapshot<Command>, Command> extends BattleDataNavigation {
@@ -566,7 +575,7 @@ export function useLinkedFile(
   return entry.key === linkedKey ? entry.value : { state: "checking" };
 }
 
-export function LinkRow<Command>({ form, id, label, value, hint, kind, extensions, navigation, linked, command, children }: {
+export function LinkRow<Command>({ form, id, label, value, hint, kind, extensions, content, navigation, linked, command, children }: {
   readonly form: BattleDataFormBase<Command>;
   readonly id: string;
   readonly label: string;
@@ -574,6 +583,8 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly hint?: string;
   readonly kind: AssetKind;
   readonly extensions: readonly string[];
+  /** Also offer, in the picker, a file outside `extensions` whose own bytes the field accepts. */
+  readonly content?: AssetContent;
   readonly navigation: BattleDataNavigation;
   readonly linked: LinkedFile;
   readonly command: (value: string) => Command;
@@ -585,7 +596,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
   const choose = async (): Promise<void> => {
-    const outcome = await navigation.pickAsset?.({ kind, extensions, field: `Choose ${label.toLowerCase()}` });
+    const outcome = await navigation.pickAsset?.({ kind, extensions, ...(content === undefined ? {} : { content }), field: `Choose ${label.toLowerCase()}` });
     if (outcome?.chosen !== true || form.snapshot.identity.path !== origin) return;
     // The chosen file replaces whatever was typed, so the stale draft goes with it.
     dropDraft(id);
@@ -596,6 +607,11 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     const message = await navigation.open?.(linked.path);
     if (message !== null && message !== undefined) setMessage(message);
   };
+  const openable = (path: string): boolean => navigation.canOpen?.(path) ?? kindForPath(path) !== null;
+  // Only a file the check found says what Open would open. Until then the stored text's own extension says it, and text
+  // with none (or none yet) offers Open when any file type this field accepts can be opened.
+  const fieldOpenable = extensions.length === 0 || extensions.some((extension) => openable(`file${extension}`));
+  const canOpen = navigation.open !== undefined && (linked.state === "found" ? openable(linked.path) : extensionOf(value) !== "" ? openable(value) : fieldOpenable);
   return <fieldset>
     <legend>{label}</legend>
     <p>
@@ -607,7 +623,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     </p>
     <p>
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy || form.locked} onClick={() => void choose()}>Choose…</button>}
-      {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
+      {canOpen && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
     {linked.state === "checking" && <p role="status">Checking {drafts[id]?.text ?? value}…</p>}
     {linked.state === "collision" && <p role="status">{linked.message} The reference is kept as typed; rename one of the files.</p>}

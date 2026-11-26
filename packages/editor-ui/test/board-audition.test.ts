@@ -31,6 +31,8 @@ function valueOf<T>(outcome: AuditionOutcome<T>): T {
 // A hand-authored Standard MIDI File, format 0: one track with middle C on at tick 0 and off at tick 96.
 const MIDI = new Uint8Array([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 77, 84, 114, 107, 0, 0, 0, 12, 0, 144, 60, 100, 96, 128, 60, 0, 0, 255, 47, 0]);
 const BANK = new Uint8Array([83, 70, 50]);
+// The twelve header bytes a WAV needs to be recognised (RIFF, a size, WAVE), then a tail that tells two files apart.
+const wav = (...tail: number[]): Uint8Array => new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69, ...tail]);
 
 // A main file whose audio block names the given SoundFont.
 function mainWithSoundFont(soundFont: string): Uint8Array {
@@ -50,27 +52,48 @@ function recordingOutput(plays: Array<{ format: string; soundFont: Uint8Array | 
   };
 }
 
-test("auditionFormatOf judges wav, mid and midi by extension, ignoring case", () => {
-  deepEqual(auditionFormatOf("bgm.wav"), { ok: true, value: "wav" });
-  deepEqual(auditionFormatOf("Theme.MIDI"), { ok: true, value: "midi" });
-  deepEqual(auditionFormatOf("theme.mid"), { ok: true, value: "midi" });
+test("auditionFormatOf judges the bytes: a RIFF/WAVE file is wav and an MThd file is midi, whatever the name", () => {
+  deepEqual(auditionFormatOf("bgm.mp3", wav()), { ok: true, value: "wav" });
+  deepEqual(auditionFormatOf("Theme.WAV", MIDI), { ok: true, value: "midi" });
+  deepEqual(auditionFormatOf("theme", MIDI), { ok: true, value: "midi" });
 });
 
-test("auditionFormatOf refuses other formats with the list it plays", () => {
-  equal(refusalOf(auditionFormatOf("bgm.mp3")), 'Audition plays .wav, .mid and .midi files. "bgm.mp3" is none of these.');
+test("auditionFormatOf refuses bytes that are neither, whatever the name says", () => {
+  const message = 'Audition plays WAV and MIDI files, judged by their contents. "bgm.wav" is neither: its first bytes are not a WAV or MIDI header.';
+  equal(refusalOf(auditionFormatOf("bgm.wav", new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0]))), message);
+  equal(refusalOf(auditionFormatOf(" bgm.wav ", new Uint8Array([]))), message);
+  // A RIFF container that is not a WAVE form is not a WAV.
+  equal(refusalOf(auditionFormatOf("bgm.wav", new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 65, 86, 73, 32]))), message);
 });
 
 test("an empty reference asks for a file before anything else", async () => {
   equal(refusalOf(await loadAuditionInput(auditionOf({}, "main.gam"), "   ")), "Set a background music file first.");
 });
 
-test("an unsupported format is refused before the main file is read", async () => {
-  ok(refusalOf(await loadAuditionInput(auditionOf({}, null), "bgm.mp3")).startsWith("Audition plays .wav, .mid and .midi files."));
+test("bytes that are neither WAV nor MIDI are refused without reading the main file", async () => {
+  const files = { "Media/bgm.mp3": new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0]) };
+  ok(refusalOf(await loadAuditionInput(auditionOf(files, "main.gam"), "bgm.mp3")).startsWith("Audition plays WAV and MIDI files, judged by their contents."));
 });
 
+test("a header-valid WAV at a .mp3 name plays as WAV, and a MIDI at a .wav name plays as MIDI with the project's bank", async () => {
+  const mislabelled = valueOf(await loadAuditionInput(auditionOf({ "Media/bgm.mp3": wav(9) }, null), "bgm.mp3"));
+  equal(mislabelled.format, "wav");
+  deepEqual(mislabelled.bytes, wav(9));
+  const files = { "Main/A.gam": mainWithSoundFont("bank.sf2"), "Game/A/Media/theme.wav": MIDI, "Game/A/Media/bank.sf2": BANK };
+  const midi = valueOf(await loadAuditionInput(auditionOf(files, "Main/A.gam", "Game/A"), "theme.wav"));
+  equal(midi.format, "midi");
+  deepEqual(midi.soundFont, BANK);
+});
+
+test("a WAV at a .mid name chooses no bank, so an unreadable main file is not consulted", async () => {
+  const input = valueOf(await loadAuditionInput(auditionOf({ "Media/theme.mid": wav() }, "missing.gam"), "theme.mid"));
+  equal(input.format, "wav");
+  equal(input.soundFont, null);
+  equal(input.notice, null);
+});
 
 test("a WAV in the board owner's Media folder loads without a main file", async () => {
-  const bytes = new Uint8Array([82, 73, 70, 70]);
+  const bytes = wav();
   const input = valueOf(await loadAuditionInput(auditionOf({ "Media/bgm.wav": bytes }, null), "bgm.wav"));
   deepEqual(input.bytes, bytes);
   equal(input.format, "wav");
@@ -171,7 +194,7 @@ test("the fight-background palette registers per-cue Play plus owned Stop and Lo
 test("Stop cancels a BKG command while its path lookup is pending", async () => {
   const played: Uint8Array[] = [];
   let stops = 0;
-  const host = createMemoryPlatformServices({ files: { "Media/old.wav": new Uint8Array([6]), "Media/battle.wav": new Uint8Array([7]) } });
+  const host = createMemoryPlatformServices({ files: { "Media/old.wav": wav(6), "Media/battle.wav": wav(7) } });
   const controls = createAuditionControls({
     audioOutput: {
       play: async (bytes) => { played.push(bytes); return { ok: true, value: undefined }; },
@@ -204,8 +227,8 @@ test("Stop cancels a BKG command while its path lookup is pending", async () => 
   equal(stops, 1, "Stop silences this view's existing playback while cancelling its pending lookup");
 });
 test("a fast play from a later view wins over an earlier slow BKG path lookup", async () => {
-  const firstBytes = new Uint8Array([11]);
-  const laterBytes = new Uint8Array([12]);
+  const firstBytes = wav(11);
+  const laterBytes = wav(12);
   const host = createMemoryPlatformServices({ files: { "Media/first.wav": firstBytes, "Media/later.wav": laterBytes } });
   const played: Uint8Array[] = [];
   const output: AudioOutputService = {
@@ -246,7 +269,7 @@ test("a fast play from a later view wins over an earlier slow BKG path lookup", 
 test("BKG command lookup preserves exact text and reports unresolved links", async () => {
   const reference = " battle.wav ";
   const path = "Media/ battle.wav ";
-  const bytes = new Uint8Array([8]);
+  const bytes = wav(8);
   const readPaths: string[] = [];
   const played: Uint8Array[] = [];
   let failLookup = false;
@@ -292,7 +315,7 @@ test("play from the palette starts the active board's reference through the outp
     },
     stop: async () => ({ ok: true, value: undefined }),
   };
-  const bytes = new Uint8Array([82, 73, 70, 70]);
+  const bytes = wav();
   const host = createMemoryPlatformServices({ files: { "Media/bgm.wav": bytes } });
   const controls = createAuditionControls({ audioOutput: output, fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: "main.gam" });
   controls.setReference("bgm.wav");
@@ -327,8 +350,8 @@ test("play with a missing project SoundFont plays the bundled bank and shows why
   equal(controls.getSnapshot().note, 'The project\'s default SoundFont "missing.sf2" could not be read, so the bundled bank plays instead.');
 });
 test("disposing the current audition does not cancel a newer view's pending play", async () => {
-  const oldBytes = new Uint8Array([1]);
-  const newBytes = new Uint8Array([2]);
+  const oldBytes = wav(1);
+  const newBytes = wav(2);
   const base = createMemoryPlatformServices({ files: { "Media/old.wav": oldBytes, "Media/new.wav": newBytes } });
   const played: Uint8Array[] = [];
   let stops = 0;
@@ -372,8 +395,8 @@ test("disposing the current audition does not cancel a newer view's pending play
   deepEqual(played[1], newBytes);
 });
 void test("stopping one view never stops another view's playback or cancels its pending play", async () => {
-  const oldBytes = new Uint8Array([3]);
-  const newBytes = new Uint8Array([4]);
+  const oldBytes = wav(3);
+  const newBytes = wav(4);
   const host = createMemoryPlatformServices({ files: { "Media/old.wav": oldBytes, "Media/new.wav": newBytes } });
   const played: Uint8Array[] = [];
   let stops = 0;
@@ -415,4 +438,21 @@ void test("stopping one view never stops another view's playback or cancels its 
   deepEqual(played, [oldBytes, newBytes]);
   unrelated.stop();
   equal(stops, 1, "an unrelated view still cannot stop the newer view's playback");
+});
+
+test("a refused file reports why, never reaches the host, and leaves the reference as it was", async () => {
+  const host = createMemoryPlatformServices({ files: { "Media/bgm.mp3": new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0]), "Media/ok.mp3": wav(5) } });
+  const played: Array<{ bytes: Uint8Array; format: string }> = [];
+  const controls = createAuditionControls({
+    audioOutput: { play: async (bytes, format) => { played.push({ bytes, format }); return { ok: true, value: undefined }; }, stop: async () => ({ ok: true, value: undefined }) },
+    fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: null,
+  });
+  controls.setReference("bgm.mp3");
+  await controls.play();
+  deepEqual(played, [], "unsupported bytes never reach the host");
+  ok(controls.getSnapshot().note?.includes('"bgm.mp3" is neither'));
+  controls.setReference("ok.mp3");
+  await controls.play();
+  deepEqual(played, [{ bytes: wav(5), format: "wav" }], "a header-valid WAV under a .mp3 name plays as WAV");
+  equal(controls.getSnapshot().note, null);
 });

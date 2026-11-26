@@ -52,6 +52,7 @@ import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { FontView, type FontViewDocument } from "./font-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { BoardPropertiesNavigation } from "./board-properties-view.tsx";
+import type { BattleDataNavigation } from "./battle-data-form.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
 import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
@@ -133,7 +134,7 @@ export interface ViewContext {
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
-  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset"> & Partial<BoardPropertiesNavigation>;
+  readonly navigation?: Pick<BattleDataNavigation, "pickAsset" | "canOpen"> & Partial<BoardPropertiesNavigation>;
   /**
    * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
    * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
