@@ -145,6 +145,11 @@ void test("the webview's import request carries the document's own board, and a 
   equal(isEditorHostRequest(imageRequest), true);
   live.receive({ type: "save-image-result", requestId: "save-image-2", result: { ok: true, value: true } });
   deepEqual(await imageSave, { ok: true, value: true });
+  ok(live.runUpgradeCommand !== undefined, "a live board view receives registered upgrade actions");
+  live.runUpgradeCommand!("tile-to-pixel");
+  deepEqual(posted.at(-1), { type: "run-board-upgrade", requestId: "upgrade-3", operation: "tile-to-pixel" });
+  equal(isEditorHostRequest(posted.at(-1)), true);
+  equal(isEditorHostRequest({ type: "run-board-upgrade", requestId: "bad", operation: "delete" }), false);
 
   const calls: string[] = [];
   const replies: BridgeMessage[] = [];
@@ -155,6 +160,7 @@ void test("the webview's import request carries the document's own board, and a 
       calls.push(`${fileName}:${bytes.byteLength}`);
       return { ok: true as const, value: true };
     },
+    runBoardUpgrade: async (operation: string) => { calls.push(`upgrade:${operation}`); },
   } as unknown as BridgedDocument;
   const forged = { type: "import-as-scene", requestId: "r2", path: "Boards/Other.brd" } as unknown as EditorHostRequest;
   await handleEditorHostRequest(bridged, forged, (reply) => { replies.push(reply); });
@@ -164,4 +170,6 @@ void test("the webview's import request carries the document's own board, and a 
   await handleEditorHostRequest(bridged, hostImageRequest, (reply) => { replies.push(reply); });
   deepEqual(calls, ["import", "Village.png:4"]);
   deepEqual(replies.at(-1), { type: "save-image-result", requestId: "r3", result: { ok: true, value: true } });
+  await handleEditorHostRequest(bridged, { type: "run-board-upgrade", requestId: "r4", operation: "pre-vector" }, (reply) => { replies.push(reply); });
+  deepEqual(calls, ["import", "Village.png:4", "upgrade:pre-vector"]);
 });

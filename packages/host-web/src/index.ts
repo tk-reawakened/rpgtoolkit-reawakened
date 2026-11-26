@@ -1,5 +1,5 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
-import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForLayout } from "@tk-reawakened/editor-model";
 import type { AudioOutputApi, Capability, ClipboardService, DialogService, ImageExportService, LanguageService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { audioOutputFromApi, bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type AuditionPanel, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpecialMoveViewDocument, type SpriteViewDocument, type StatusEffectViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -357,7 +357,7 @@ function historyOutcome(result: HistoryResult): { readonly ok: true } | { readon
   return result.ok ? { ok: true } : { ok: false, message: `There is nothing to ${result.reason === "read-only" ? "change: the font is read-only" : result.reason === "nothing-to-undo" ? "undo" : "redo"}.` };
 }
 
-function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
+function viewDocumentFor(project: WebProject, document: AnyDocument, projectLayout: ProjectLayout, importBoard?: (path: string) => Promise<PlatformResult<void>>, runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"]): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "font") {
     // The browser workbench owns no stack of its own: Undo and Redo are the document's, as they are for a board.
@@ -428,7 +428,7 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard
   }
   if (document.kind !== "board") throw new Error(`No browser view is registered for document kind "${document.kind}".`);
   const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
-  const previewRoot = boardPreviewRootForPath(document.identity.path);
+  const previewRoot = boardPreviewRootForLayout(projectLayout);
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
   const view: BoardViewDocument = {
     kind: board.kind,
@@ -445,8 +445,9 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard
     // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
     undo: () => board.undo(),
     redo: () => board.redo(),
-    // Live board tabs and the Files panel use the same workbench import route; previews do not offer it.
-    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(document.identity.path) }),
+    // Live board tabs and Files panels use the same workbench import route; previews do not offer it.
+    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(board.identity.path) }),
+    ...(runUpgradeCommand === undefined ? {} : { runUpgradeCommand }),
   };
   return view;
 }
@@ -505,11 +506,11 @@ export function mountDocumentView(
   main: string | null = null,
   /** Only live editors may import; history and snapshot mounts do not pass this action. */
   importBoard?: (path: string) => Promise<PlatformResult<void>>,
+  runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"],
   /** The board's background-music audition and its palette commands, created by the caller; the view disposes the audition with itself. */
   audition?: AuditionPanel,
 ): DocumentView {
-  const documentLayout = projectLayoutForDocumentPath(document.identity.path);
-  const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
+  const browserLayout = projectLayout;
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
   let disposed = false;
@@ -530,7 +531,7 @@ export function mountDocumentView(
     mounted = document.kind === "terrain-scene"
       ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder, openSource === undefined ? undefined : (path) => openSource({ path, tile: null }))
       : mount(container, {
-      document: viewDocumentFor(project, document, importBoard),
+      document: viewDocumentFor(project, document, browserLayout, importBoard, runUpgradeCommand),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),

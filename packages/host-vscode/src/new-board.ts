@@ -35,6 +35,8 @@ export interface NewBoardEnvironment {
   readonly layout: ProjectLayout;
   readonly settings: SettingsService;
   readonly ui: NewBoardUi;
+  /** A stable key shared by same-editor board creation and upgrade writes. */
+  readonly projectId?: string;
   /** The project's history, so the new board is one restorable group (ADR 0022 D12.10 item 6). */
   readonly history?: WizardHistory;
 }
@@ -59,7 +61,7 @@ export async function runNewBoard(env: NewBoardEnvironment): Promise<NewBoardOut
     } else {
       settings = { ...remembered, name: await uniqueBoardName(env.fs, env.layout) };
     }
-    const created = await createBoardFile(env.fs, env.layout, settings, env.history);
+    const created = await createBoardFile(env.fs, env.layout, settings, env.history, env.projectId);
     if (!created.ok) return { ok: false, reason: "refused", message: created.message };
     return { ok: true, path: created.path, warning: await rememberNewBoard(preferences, settings) };
   } catch (error) {

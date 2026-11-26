@@ -153,7 +153,7 @@ async function applyAction(state: PaneState, document: vscode.TextDocument, mess
 }
 
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
-  const script = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "visual-events.js"));
+  const script = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "visual-events-webview.js"));
   const nonce = crypto.randomUUID().replaceAll("-", "");
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource};"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Visual events</title></head><body><main id="root" aria-label="Visual events"></main><script nonce="${nonce}" src="${script}"></script></body></html>`;
 }

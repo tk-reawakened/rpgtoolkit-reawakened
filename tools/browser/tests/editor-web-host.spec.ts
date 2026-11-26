@@ -1,15 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { BinaryReader, createEmptyMainFile, decodeBoard, readPreVectorBoard, writeMainFile } from "@tk-reawakened/core";
 interface ProofWindow extends Window {
   __tkrCspViolations?: string[];
   __tkrTestFolder?: FileSystemDirectoryHandle;
   __tkrSlowReadStarted?: boolean;
   __tkrReleaseSlowRead?: () => void;
+  __tkrDeleteTestFile?: (path: string) => Promise<void>;
+  __tkrDenyFileRead?: (name: string, successfulReadsAllowed?: number) => void;
+  __tkrWriteTestFile?: (path: string, bytes: readonly number[]) => Promise<void>;
+  __tkrDenyFileWrite?: (name: string) => void;
+  __tkrAllowFileWrite?: (name: string) => void;
 }
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
@@ -319,6 +325,32 @@ test("browser Save As replaces its sole source tab, then reopening the source re
   await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Main/copy.gam", exact: true })).toBeVisible();
   await expect(title).toHaveValue("Example Game");
+});
+
+test("browser Save As opens its copy when an unrelated game cannot be read", async ({ page }) => {
+  await installFolderPicker(page, sampleProjectFiles());
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
+  await page.evaluate(async (bytes) => {
+    await (window as ProofWindow).__tkrWriteTestFile!("Main/Other.gam", bytes);
+  }, validMain);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save Active Document As/i }).click();
+  const dialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
+  await dialog.getByLabel("Save Main/example.gam as").fill("Main/copy.gam");
+  await page.evaluate(() => (window as ProofWindow).__tkrDenyFileRead!("Other.gam"));
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText("Main/copy.gam (saved as a copy of Main/example.gam)");
+  await expect(page.getByRole("tab", { name: "Main/copy.gam", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toHaveCount(0);
+  const bytes = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const main = await root.getDirectoryHandle("Main");
+    return Array.from(new Uint8Array(await (await (await main.getFileHandle("copy.gam")).getFile()).arrayBuffer()));
+  });
+  expect(bytes).toEqual(validMain);
 });
 
 test("browser folder open requires explicit selection when multiple nested games are found", async ({ page }) => {
@@ -820,6 +852,245 @@ test("browser workbench creates a new project in the chosen folder, copies only 
   }
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
 });
+test("browser board upgrade rechecks changed game ownership and refuses a sibling outside the new Boards root", async ({ page }) => {
+  const source = "Game/A/Boards/Region/Old.brd";
+  const destination = "Game/A/Boards/Future/Copy.brd";
+  const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Future" });
+  expect(mainA.ok).toBe(true);
+  expect(mainB.ok).toBe(true);
+  if (!mainA.ok || !mainB.ok) throw new Error("Could not create owner fixtures.");
+  await installFolderPicker(page, [
+    { path: "Main/A.gam", bytes: Array.from(mainA.value) },
+    { path: source, bytes: sourceBytes },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+
+  for (const name of ["Game", "A", "Boards", "Region"]) {
+    const folder = page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true });
+    await folder.press("ArrowRight");
+  }
+  const board = page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true });
+  await board.dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Convert active board from tile to pixel");
+  await search.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${source} as` });
+  await saveDialog.getByRole("textbox").fill(destination);
+  await page.evaluate(async (bytes) => {
+    const write = (window as ProofWindow).__tkrWriteTestFile;
+    if (write === undefined) throw new Error("The browser test folder writer is missing.");
+    await write("B.gam", bytes);
+  }, Array.from(mainB.value));
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam", 1);
+  });
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  const refusal = page.getByRole("dialog").filter({ hasText: "Save the upgraded copy inside the source board's owning game." });
+  await expect(refusal).toBeVisible();
+  await refusal.getByRole("button", { name: "OK", exact: true }).click();
+  const disk = await page.evaluate(async ({ sourcePath, destinationPath }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const sourceParts = sourcePath.split("/");
+    let parent = root;
+    for (const part of sourceParts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+    const sourceHandle = await parent.getFileHandle(sourceParts.at(-1)!);
+    const actualSource = [...new Uint8Array(await (await sourceHandle.getFile()).arrayBuffer())];
+    let destinationExists = false;
+    try {
+      const destinationParts = destinationPath.split("/");
+      let destinationParent = root;
+      for (const part of destinationParts.slice(0, -1)) destinationParent = await destinationParent.getDirectoryHandle(part);
+      await destinationParent.getFileHandle(destinationParts.at(-1)!);
+      destinationExists = true;
+    } catch { destinationExists = false; }
+    return { actualSource, destinationExists };
+  }, { sourcePath: source, destinationPath: destination });
+  expect(disk.actualSource).toEqual(sourceBytes);
+  expect(disk.destinationExists).toBe(false);
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam");
+  });
+  await page.keyboard.press("Control+Shift+P");
+  const upgradeSearch = page.getByRole("combobox", { name: "Search commands and files" });
+  await upgradeSearch.fill("Upgrade a pre-vector board");
+  await upgradeSearch.press("Enter");
+  const readFailure = page.getByRole("dialog").filter({ hasText: "Could not refresh game ownership: Could not read B.gam:" });
+  await expect(readFailure).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await readFailure.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await waitForFolderPicker(page);
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam");
+  });
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "Main/A.gam" });
+  await page.getByRole("button", { name: "Open selected game" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "A", "Boards", "Region"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("browser board upgrade preserves loose Boards ownership while a declared game folder is absent", async ({ page }) => {
+  const source = "Boards/Old.brd";
+  const destination = "Boards/Copy.brd";
+  const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  expect(main.ok).toBe(true);
+  if (!main.ok) throw new Error("Could not create owner fixture.");
+  await installFolderPicker(page, [
+    { path: "Main/A.gam", bytes: Array.from(main.value) },
+    { path: source, bytes: sourceBytes },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Boards, folder, closed", exact: true }).press("ArrowRight");
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Convert active board from tile to pixel");
+  await search.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${source} as` });
+  await saveDialog.getByRole("textbox").fill(destination);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: destination, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const file = await root.getDirectoryHandle("Boards").then((folder) => folder.getFileHandle(path.split("/").at(-1)!));
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: destination, original: sourceBytes })).toBe(true);
+  const actualSource = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const folder = await root.getDirectoryHandle("Boards");
+    const file = await folder.getFileHandle("Old.brd");
+    return [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+  });
+  expect(actualSource).toEqual(sourceBytes);
+});
+test("browser board upgrade uses live Main inventory after the originally selected Main is deleted", async ({ page }) => {
+  const source = "Game/A/Region/Boards/Old.brd";
+  const destination = "Game/A/Region/Boards/Copy.brd";
+  const selectedSource = "Game/A/Boards/Initial/Before.brd";
+  const selectedCopy = "Game/A/Boards/Initial/Copy.brd";
+  const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Region" });
+  expect(mainA.ok).toBe(true);
+  expect(mainB.ok).toBe(true);
+  if (!mainA.ok || !mainB.ok) throw new Error("Could not create owner fixtures.");
+  await installFolderPicker(page, [
+    { path: "A.gam", bytes: Array.from(mainA.value) },
+    { path: "Main/B.gam", bytes: Array.from(mainB.value) },
+    { path: selectedSource, bytes: sourceBytes },
+    { path: source, bytes: sourceBytes },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("combobox", { name: "Game in project" }).selectOption({ label: "A.gam" });
+  await page.getByRole("button", { name: "Open selected game" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "A", "Boards", "Initial"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Before.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: selectedSource, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const selectedSearch = page.getByRole("combobox", { name: "Search commands and files" });
+  await selectedSearch.fill("Convert active board from tile to pixel");
+  await selectedSearch.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const selectedSave = page.getByRole("dialog", { name: `Save ${selectedSource} as` });
+  await selectedSave.getByRole("textbox").fill(selectedCopy);
+  await selectedSave.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: selectedCopy, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: selectedCopy, original: sourceBytes })).toBe(true);
+  await page.evaluate(async () => {
+    const remove = (window as ProofWindow).__tkrDeleteTestFile;
+    if (remove === undefined) throw new Error("The browser test folder delete hook is missing.");
+    await remove("A.gam");
+  });
+  for (const name of ["Region", "Boards"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Convert active board from tile to pixel");
+  await search.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${source} as` });
+  await saveDialog.getByRole("textbox").fill(destination);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: destination, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: destination, original: sourceBytes })).toBe(true);
+  const disk = await page.evaluate(async ({ sourcePath, destinationPath }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const handle = await parent.getFileHandle(parts.at(-1)!);
+      return [...new Uint8Array(await (await handle.getFile()).arrayBuffer())];
+    };
+    return { source: await read(sourcePath), destination: await read(destinationPath) };
+  }, { sourcePath: source, destinationPath: destination });
+  expect(disk.source).toEqual(sourceBytes);
+  expect(disk.destination).not.toEqual(sourceBytes);
+});
 
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
 
@@ -858,6 +1129,46 @@ async function installFolderPicker(
       await writable.write(new Uint8Array(input.bytes));
       await writable.close();
     }
+    (window as ProofWindow).__tkrWriteTestFile = async (path, bytes) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part, { create: true });
+      const file = await parent.getFileHandle(parts.at(-1)!, { create: true });
+      const writable = await file.createWritable();
+      await writable.write(new Uint8Array(bytes));
+      await writable.close();
+    };
+    (window as ProofWindow).__tkrDeleteTestFile = async (path) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      await parent.removeEntry(parts.at(-1)!);
+    };
+    const originalGetFile = FileSystemFileHandle.prototype.getFile;
+    (window as ProofWindow).__tkrDenyFileRead = (target, successfulReadsAllowed = 0) => {
+      let remainingSuccessfulReads = successfulReadsAllowed;
+      Object.defineProperty(FileSystemFileHandle.prototype, "getFile", {
+        configurable: true,
+        value: async function (this: FileSystemFileHandle): Promise<File> {
+          if (this.name === target) {
+            if (remainingSuccessfulReads === 0) throw new DOMException("Permission denied", "NotAllowedError");
+            remainingSuccessfulReads -= 1;
+          }
+          return originalGetFile.call(this);
+        },
+      });
+    };
+    const originalCreateWritable = FileSystemFileHandle.prototype.createWritable;
+    const deniedWrites = new Set<string>();
+    Object.defineProperty(FileSystemFileHandle.prototype, "createWritable", {
+      configurable: true,
+      value: async function (this: FileSystemFileHandle, ...args: Parameters<typeof originalCreateWritable>) {
+        if (deniedWrites.has(this.name)) throw new DOMException("Permission denied", "NotAllowedError");
+        return originalCreateWritable.apply(this, args);
+      },
+    });
+    (window as ProofWindow).__tkrDenyFileWrite = (target) => { deniedWrites.add(target); };
+    (window as ProofWindow).__tkrAllowFileWrite = (target) => { deniedWrites.delete(target); };
     armed = true;
 
     if (!canPersist) {
@@ -876,3 +1187,390 @@ async function waitForFolderPicker(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
 }
 
+test("browser host upgrades the pinned original minor-2 board and runs its reopened pixel-coordinate copy", async ({ page }) => {
+  const fixturePath = fileURLToPath(new URL("../../../fixtures/legacy/Caoquest/Boards/red.brd", import.meta.url));
+  test.skip(!existsSync(fixturePath), "Run pnpm fixtures:fetch to use the pinned original minor-2 board; no source game files are committed.");
+  const sourcePath = "Game/Example/Boards/red.brd";
+  const copyPath = "Game/Example/Boards/red.upgraded.brd";
+  const original = new Uint8Array(readFileSync(fixturePath));
+  expect(createHash("sha256").update(original).digest("hex")).toBe("ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
+  const raw = readPreVectorBoard(new BinaryReader(original, sourcePath));
+  expect(raw.ok).toBe(true);
+  if (!raw.ok) throw new Error(raw.error.message);
+  expect([raw.value.major, raw.value.minor, raw.value.sizeX, raw.value.sizeY, raw.value.sizeL]).toEqual([2, 2, 19, 14, 8]);
+  expect(Object.fromEntries([...new Set(raw.value.tileMatrix.map((cell) => cell.tileType))].sort((a, b) => a - b)
+    .map((type) => [type, raw.value.tileMatrix.filter((cell) => cell.tileType === type).length]))).toEqual({ 0: 2007, 1: 85, 2: 36 });
+  expect(raw.value.programs).toHaveLength(501);
+  expect(raw.value.programs.filter(({ file }) => file.length > 0)).toHaveLength(24);
+  expect(raw.value.programs.slice(0, 2)).toMatchObject([
+    { file: "warp00000002.prg", x: 17, y: 5, layer: 1 },
+    { file: "talktored.prg", x: 9, y: 5, layer: 1 },
+  ]);
+  expect(raw.value.sprites).toHaveLength(11);
+  expect(raw.value.sprites.filter(({ file }) => file.length > 0)).toHaveLength(2);
+  expect(raw.value.sprites.filter(({ file }) => file.length > 0).slice(0, 2)).toMatchObject([
+    { file: "gem.itm", x: 17, y: 3, layer: 1 },
+    { file: "red.itm", x: 3, y: 7, layer: 1 },
+  ]);
+  expect(raw.value.tileMatrix.filter((cell) => cell.r !== 0 || cell.g !== 0 || cell.b !== 0)).toEqual([
+    { lutIndex: 26, r: -26, g: -26, b: -26, tileType: 2 },
+    { lutIndex: 5, r: -26, g: -26, b: -26, tileType: 2 },
+  ]);
+
+  // Board tile 7 uses tileset entry 6, under the fetched board's explicit (2, 2) runner start.
+  const tileCount = 218;
+  const tilesetBytes = new Uint8Array(6 + tileCount * 1024);
+  const tilesetHeader = new DataView(tilesetBytes.buffer);
+  tilesetHeader.setUint16(0, 20, true);
+  tilesetHeader.setUint16(2, tileCount, true);
+  tilesetHeader.setUint16(4, 3, true);
+  for (let tile = 0; tile < tileCount; tile += 1) {
+    for (let y = 0; y < 32; y += 1) {
+      for (let x = 0; x < 32; x += 1) tilesetBytes[6 + tile * 1024 + y * 32 + x] = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213);
+    }
+  }
+
+  const scriptPath = "Game/Example/Prg/warp00000002.prg";
+  const scriptBytes = Array.from(new TextEncoder().encode("// Authored sentinel; board coordinate upgrade must not rewrite this external script.\n"));
+  const programFiles = [...new Set(raw.value.programs.map(({ file }) => file).filter((file) => file.length > 0))]
+    .map((file) => ({ path: `Game/Example/Prg/${file}`, bytes: file === "warp00000002.prg" ? scriptBytes : [] }));
+  const midi = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0];
+  await installFolderPicker(page, [
+    { path: "Main/example.gam", bytes: validMain },
+    { path: sourcePath, bytes: Array.from(original) },
+    { path: "Game/Example/Tiles/forest_set.tst", bytes: Array.from(tilesetBytes) },
+    { path: "Game/Example/Chrs/ada.tem", bytes: Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/Chrs/ada.tem", import.meta.url))) },
+    { path: "Game/Example/Item/gem.itm", bytes: validItem },
+    { path: "Game/Example/Item/red.itm", bytes: validItem },
+    { path: "Game/Example/Music/Town.mid", bytes: midi },
+    ...programFiles,
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "Example", "Boards"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+
+  const openUpgrade = async () => {
+    await page.keyboard.press("Control+Shift+P");
+    const search = page.getByRole("combobox", { name: "Search commands and files" });
+    await search.fill("Upgrade a pre-vector board");
+    await search.press("Enter");
+  };
+  await openUpgrade();
+  const boardPicker = page.getByRole("dialog").filter({ hasText: "Choose a board to upgrade" });
+  await boardPicker.getByRole("button", { name: sourcePath, exact: true }).click();
+  const cancelledPreview = page.getByRole("dialog").filter({ hasText: `Upgrade pre-vector board: ${sourcePath}?` });
+  await expect(cancelledPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await cancelledPreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  const cancelledState = await page.evaluate(async ({ sourceName, destinationName }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const boards = await (await (await root.getDirectoryHandle("Game")).getDirectoryHandle("Example")).getDirectoryHandle("Boards");
+    const sourceBytes = new Uint8Array(await (await (await boards.getFileHandle(sourceName)).getFile()).arrayBuffer());
+    let destinationExists = false;
+    try {
+      await boards.getFileHandle(destinationName);
+      destinationExists = true;
+    } catch {
+      // An absent destination is the expected cancellation result.
+    }
+    return { sourceBytes: [...sourceBytes], destinationExists };
+  }, { sourceName: sourcePath.split("/").at(-1)!, destinationName: copyPath.split("/").at(-1)! });
+  expect(cancelledState.sourceBytes).toEqual([...original]);
+  expect(cancelledState.destinationExists).toBe(false);
+  await openUpgrade();
+  const acceptedPicker = page.getByRole("dialog").filter({ hasText: "Choose a board to upgrade" });
+  await acceptedPicker.getByRole("button", { name: sourcePath, exact: true }).click();
+  const preview = page.getByRole("dialog").filter({ hasText: `Upgrade pre-vector board: ${sourcePath}?` });
+  await expect(preview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await expect(preview).toContainText("vector 1 points [32,0; 352,0; 352,32; 32,32]");
+  await expect(preview).toContainText('program 1 "warp00000002.prg" points [512,128; 544,128; 544,160; 512,160]');
+  await expect(preview).toContainText("sprite 1 gem.itm at 528,95, layer 1");
+  await expect(preview).toContainText("shade records [16:0,0,0; 1:-26,-26,-26; 77:0,0,0; 1:-26,-26,-26]");
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${sourcePath} as` });
+  await saveDialog.getByRole("textbox").fill(copyPath);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toBeVisible();
+
+  const disk = await page.evaluate(async ({ source, destination }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      return [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+    };
+    return { source: await read(source), destination: await read(destination) };
+  }, { source: sourcePath, destination: copyPath });
+  expect(disk.source).toEqual([...original]);
+  const decoded = decodeBoard(new Uint8Array(disk.destination));
+  expect(decoded.ok).toBe(true);
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  expect(decoded.value.layout).toBe("vector");
+  expect(decoded.value.board).toMatchObject({
+    coordType: 0,
+    sizeX: 19,
+    sizeY: 14,
+    sizeL: 8,
+    tileMatrix: expect.arrayContaining([1, 2, 6, 12]),
+  });
+  expect(decoded.value.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
+  expect(decoded.value.board.vectors.length).toBe(32);
+  expect(decoded.value.board.vectors[0]).toMatchObject({ type: 2, attributes: 1, closed: -1, points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }] });
+  expect(decoded.value.board.programs).toHaveLength(24);
+  expect(decoded.value.board.programs[0]).toMatchObject({ program: "warp00000002.prg", points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }] });
+  expect(decoded.value.board.programs[1]).toMatchObject({ program: "talktored.prg", points: [{ x: 256, y: 128 }, { x: 288, y: 128 }, { x: 288, y: 160 }, { x: 256, y: 160 }] });
+  expect(decoded.value.board.sprites).toMatchObject([
+    { itemFile: "gem.itm", x: 528, y: 95, layer: 1 },
+    { itemFile: "red.itm", x: 80, y: 223, layer: 1 },
+  ]);
+  expect(decoded.value.board.shadeLayers[0]?.records.slice(0, 5)).toEqual([
+    { runCount: 16, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 77, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 171, r: 0, g: 0, b: 0 },
+  ]);
+
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "red.upgraded.brd" }).dblclick();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toBeVisible();
+  await page.getByRole("treeitem", { name: "Prg, folder, closed", exact: true }).press("ArrowRight");
+  await page.getByRole("treeitem", { name: /^warp00000002\.prg, program editor/ }).dblclick();
+  const scriptEditor = page.locator(".monaco-editor");
+  const readPathBytes = async (path: string): Promise<number[]> => await page.evaluate(async (filePath) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const parts = filePath.split("/");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+    return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+  }, path);
+  const pathExists = async (path: string): Promise<boolean> => await page.evaluate(async (filePath) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const parts = filePath.split("/");
+    let parent = root;
+    try {
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      await parent.getFileHandle(parts.at(-1)!);
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") return false;
+      throw error;
+    }
+  }, path);
+  const dismissScriptWriteFailure = async (): Promise<void> => {
+    const failure = page.getByRole("dialog").filter({ hasText: "warp00000002.prg" });
+    if (await failure.isVisible()) await failure.getByRole("button", { name: "OK", exact: true }).click();
+  };
+  const scriptBytesBeforeUpgrade = await readPathBytes(scriptPath);
+  await page.evaluate((name) => (window as ProofWindow).__tkrDenyFileWrite?.(name), scriptPath.split("/").at(-1)!);
+  const assertPendingScript = async (): Promise<void> => {
+    await dismissScriptWriteFailure();
+    await page.getByRole("tab", { name: scriptPath }).click();
+    await dismissScriptWriteFailure();
+    await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
+    await expect(page.locator(".tkr-program-state")).toHaveText("Unsaved changes");
+    expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
+    await page.getByRole("tab", { name: copyPath, exact: true }).click();
+    await dismissScriptWriteFailure();
+  };
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+
+  const setupButton = page.getByRole("group", { name: "Run" }).getByRole("button", { name: "New run setup" });
+  await setupButton.click();
+  const setup = page.getByRole("dialog", { name: "New run setup" });
+  await setup.getByRole("tab", { name: "Test board", exact: true }).click();
+  await expect(setup.getByRole("combobox", { name: "Board", exact: true })).toHaveValue(copyPath);
+  await setup.getByRole("spinbutton", { name: "Column", exact: true }).fill("2");
+  await setup.getByRole("spinbutton", { name: "Row", exact: true }).fill("2");
+  await setup.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await setup.getByRole("button", { name: "Test board", exact: true }).click();
+  const runner = page.frameLocator('iframe[title="Running game"]');
+  await expect(runner.locator("#screen")).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    const live = (frame?.contentWindow as unknown as { __live?: { board: string | null } } | null)?.__live;
+    return live?.board?.toLowerCase() ?? "";
+  }), { timeout: 30_000 }).toContain("red.upgraded.brd");
+  const run = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    return (frame?.contentWindow as unknown as { __live?: { player: { x: number; y: number } | null; stateHash: string } } | null)?.__live ?? null;
+  });
+  expect(run?.player).toEqual({ x: 48, y: 63 });
+  expect(run?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  const assertAuthoredTilePixels = async (): Promise<void> => {
+    const colors = await page.evaluate(() => {
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+      const screen = frame?.contentDocument?.querySelector<HTMLCanvasElement>("#screen");
+      const gl = screen?.getContext("webgl2");
+      if (!screen || !gl) return null;
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let orange = 0;
+      let olive = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] === 255 && pixels[index + 1] === 128 && pixels[index + 2] === 0) orange += 1;
+        if (pixels[index] === 56 && pixels[index + 1] === 64 && pixels[index + 2] === 32) olive += 1;
+      }
+      return { orange, olive };
+    });
+    expect(colors?.orange, "the authored palette-42 tile pixels must be rendered").toBeGreaterThan(10_000);
+    expect(colors?.olive, "the authored palette-213 tile pixels must be rendered").toBeGreaterThan(10_000);
+  };
+  await assertAuthoredTilePixels();
+  await page.getByRole("tab", { name: scriptPath }).click();
+  await scriptEditor.locator(".view-line").first().click();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("// Pending authored edit; cancellation and copy-write failure must leave it open.\n");
+  await expect(scriptEditor.locator(".view-lines")).toContainText("Pending authored edit");
+  await expect(page.locator(".tkr-program-state")).toHaveText("Unsaved changes");
+  await dismissScriptWriteFailure();
+  expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await dismissScriptWriteFailure();
+  await page.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
+  const coordinatePreview = page.getByRole("dialog").filter({ hasText: "Convert tile coordinates to pixels" });
+  await expect(coordinatePreview).toBeVisible();
+  await expect(coordinatePreview).toContainText("script coordinate unit to pixels");
+  const cancelledPixelPath = "Game/Example/Boards/red.cancelled.brd";
+  await coordinatePreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const cancelledPixelDialog = page.getByRole("dialog", { name: `Save ${copyPath} as` });
+  await expect(cancelledPixelDialog).toBeVisible();
+  await cancelledPixelDialog.getByRole("textbox").fill(cancelledPixelPath);
+  await cancelledPixelDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("tab", { name: cancelledPixelPath, exact: true })).toHaveCount(0);
+  expect(await pathExists(cancelledPixelPath)).toBe(false);
+  if (await coordinatePreview.isVisible()) await coordinatePreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  await assertPendingScript();
+  const reopenCoordinatePreview = async () => {
+    if (!await coordinatePreview.isVisible()) {
+      await page.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
+    }
+    await expect(coordinatePreview).toBeVisible();
+  };
+  await reopenCoordinatePreview();
+  const failedPixelPath = "Game/Example/Boards/red.failed-write.brd";
+  await page.evaluate((name) => (window as ProofWindow).__tkrDenyFileWrite?.(name), failedPixelPath.split("/").at(-1)!);
+  await coordinatePreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const failedPixelDialog = page.getByRole("dialog", { name: `Save ${copyPath} as` });
+  await failedPixelDialog.getByRole("textbox").fill(failedPixelPath);
+  await failedPixelDialog.getByRole("button", { name: "Save", exact: true }).click();
+  const failedWriteNotice = page.getByRole("dialog").filter({ hasText: /Could not write .*red\.failed-write\.brd/ });
+  await expect(failedWriteNotice).toBeVisible();
+  await expect(failedWriteNotice).toContainText("A destination may remain");
+  await expect(failedWriteNotice).toContainText("cannot prove that this write created it");
+  await failedWriteNotice.getByRole("button", { name: "OK", exact: true }).click();
+  expect(await pathExists(failedPixelPath)).toBe(true);
+  expect(await readPathBytes(failedPixelPath)).toEqual([]);
+  if (await coordinatePreview.isVisible()) await coordinatePreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  await assertPendingScript();
+  expect(await readPathBytes(scriptPath)).toEqual(scriptBytesBeforeUpgrade);
+  await page.evaluate((name) => (window as ProofWindow).__tkrAllowFileWrite?.(name), scriptPath.split("/").at(-1)!);
+  await page.getByRole("tab", { name: scriptPath }).click();
+  await page.keyboard.press("Control+S");
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+  const savedScriptBytes = await readPathBytes(scriptPath);
+  expect(new TextDecoder().decode(new Uint8Array(savedScriptBytes))).toContain("Pending authored edit");
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await reopenCoordinatePreview();
+  await coordinatePreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const pixelCopyPath = "Game/Example/Boards/red.pixels.brd";
+  const pixelSaveDialog = page.getByRole("dialog", { name: `Save ${copyPath} as` });
+  await pixelSaveDialog.getByRole("textbox").fill(pixelCopyPath);
+  await pixelSaveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toBeVisible();
+
+  await expect.poll(async () => {
+    try {
+      const savedBytes = await page.evaluate(async (path) => {
+        const root = (window as ProofWindow).__tkrTestFolder;
+        if (!root) throw new Error("The owned browser folder is missing.");
+        const parts = path.split("/");
+        let parent = root;
+        for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+        return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+      }, pixelCopyPath);
+      const saved = decodeBoard(new Uint8Array(savedBytes));
+      return saved.ok ? saved.value.board.coordType & 4 : 0;
+    } catch {
+      return 0;
+    }
+  }, { timeout: 30_000 }).toBe(4);
+  const pixelCopyBytes = await page.evaluate(async (path) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const parts = path.split("/");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+    return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+  }, pixelCopyPath);
+  const pixels = decodeBoard(new Uint8Array(pixelCopyBytes));
+  expect(pixels.ok).toBe(true);
+  if (!pixels.ok) throw new Error(pixels.error.message);
+  expect(pixels.value.layout).toBe("vector");
+  expect(pixels.value.board.coordType & 4).toBe(4);
+  expect(pixels.value.board.sizeX).toBe(decoded.value.board.sizeX);
+
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "red.pixels.brd" }).dblclick();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toBeVisible();
+  await setupButton.click();
+  const pixelSetup = page.getByRole("dialog", { name: "New run setup" });
+  await pixelSetup.getByRole("tab", { name: "Test board", exact: true }).click();
+  await expect(pixelSetup.getByRole("combobox", { name: "Board", exact: true })).toHaveValue(pixelCopyPath);
+  await pixelSetup.getByRole("spinbutton", { name: "Column", exact: true }).fill("2");
+  await pixelSetup.getByRole("spinbutton", { name: "Row", exact: true }).fill("2");
+  await pixelSetup.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await pixelSetup.getByRole("button", { name: "Test board", exact: true }).click();
+  await expect(runner.locator("#screen")).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    const live = (frame?.contentWindow as unknown as { __live?: { board: string | null } } | null)?.__live;
+    return live?.board?.toLowerCase() ?? "";
+  }), { timeout: 30_000 }).toContain("red.pixels.brd");
+  const pixelRun = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    return (frame?.contentWindow as unknown as { __live?: { player: { x: number; y: number } | null; stateHash: string } } | null)?.__live ?? null;
+  });
+  expect(pixelRun?.player).toEqual({ x: 2, y: 2 });
+  expect(pixelRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await assertAuthoredTilePixels();
+  // Release the active runner before the final backing-store snapshot; its runtime file reads can hold the browser
+  // provider's per-file read path while the proof is checking the persisted source, conversion copies, and script.
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+  const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy, script }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+    };
+    return {
+      source: await read(source),
+      upgraded: await read(upgraded),
+      pixelCopy: await read(pixelCopy),
+      script: await read(script),
+    };
+  }, { source: sourcePath, upgraded: copyPath, pixelCopy: pixelCopyPath, script: scriptPath });
+  expect(finalFiles.source).toEqual(disk.source);
+  expect(finalFiles.upgraded).toEqual(disk.destination);
+  expect(finalFiles.pixelCopy).toEqual(pixelCopyBytes);
+  expect(finalFiles.script).toEqual(savedScriptBytes);
+});

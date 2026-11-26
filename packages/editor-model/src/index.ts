@@ -23,6 +23,7 @@ export {
   type ShadeAssignment,
 } from "./board-document.ts";
 export { importSavedBoardAsScene } from "./board-scene-import.ts";
+export { createBoardCoordinateUpgradeCommand, planBoardCoordinateUpgrade, upgradeBoardCopy, type BoardCoordinateUpgrade, type BoardUpgradeCopyOptions, type BoardUpgradeOperation, type BoardUpgradePlan, type BoardUpgradePlanResult } from "./board-upgrade.ts";
 export {
   createTilesetArtDocument,
   openTilesetArtDocument,
@@ -84,7 +85,7 @@ export {
   type NewBoardSettings,
   type NewBoardStorage,
 } from "./board-creation.ts";
-export { boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
+export { boardPreviewRootForLayout, boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
 export {
   ZOOM_STEPS,
   DEFAULT_ZOOM_INDEX,
@@ -529,7 +530,10 @@ export {
   listCandidates,
   projectLayoutForDocumentPath,
   projectLayoutOfMain,
+  projectLayoutOfMainFromBytes,
+  projectLayoutOwnerForDocumentPath,
   referencePath,
+  resolveReservedFolderPath,
   reservedFolder,
   unusableName,
   type AssetCandidate,
@@ -537,6 +541,7 @@ export {
   type LinkOutcome,
   type ListFailure,
   type ProjectLayout,
+  type ProjectLayoutOwner,
 } from "./reserved-folders.ts";
 export {
   createProjectTree,
@@ -626,3 +631,5 @@ export {
 export * from "./board-lights.ts";
 export * from "./board-shade-tools.ts";
 export * from "./board-clipboard.ts";
+export { foldPath } from "@tk-reawakened/core";
+export type { AssetRoot } from "@tk-reawakened/core";

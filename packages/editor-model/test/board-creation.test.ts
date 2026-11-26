@@ -179,6 +179,13 @@ test("creating a board writes it once into the boards folder and never over anot
   ok(listed.ok);
   if (listed.ok) deepEqual(listed.value.map((entry) => entry.name).sort(), ["Village.brd", "meadow.brd"], "a refused board writes nothing");
 });
+test("new boards follow the actual case of a case-variant boards folder", async () => {
+  const host = createMemoryPlatformServices({ files: { "boards/Existing.brd": new Uint8Array([1, 2, 3]) } });
+  equal(await uniqueBoardName(host.fs, { projectFolder: "" }), "untitled");
+  const created = await createBoardFile(host.fs, { projectFolder: "" }, { ...base, name: "Copy" });
+  deepEqual(created, { ok: true, path: "boards/Copy.brd" });
+  deepEqual(host.bytesOf("boards/Existing.brd"), new Uint8Array([1, 2, 3]));
+});
 
 test("a board is created in the boards folder of a project that keeps its folders below a project folder", async () => {
   const host = createMemoryPlatformServices({});

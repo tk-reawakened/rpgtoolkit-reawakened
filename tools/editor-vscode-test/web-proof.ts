@@ -3,7 +3,7 @@ import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-pr
 import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { createHash } from "node:crypto";
-import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
+import { BinaryReader, decodeBoard, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
@@ -236,6 +236,325 @@ export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchU
   expect(result.snapshot.seed).toBe(23);
   await verifyHostRunHash(page, frame, expect);
 }
+/** Exercise conversion through the packaged VS Code custom editor and its real workbench undo/save lifecycle. */
+export async function runVscodeBoardUpgradeProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  readEvents: () => readonly { readonly kind: "readDirectory" | "readFile"; readonly path: string }[],
+): Promise<void> {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const assertAuthoredTilePixels = async (
+    frame: Frame,
+    first: readonly [number, number, number],
+    second: readonly [number, number, number],
+  ): Promise<void> => {
+    const colors = await frame.evaluate((expected) => {
+      const screen = document.querySelector<HTMLCanvasElement>("#screen");
+      const gl = screen?.getContext("webgl2") ?? screen?.getContext("webgl");
+      if (!screen || !gl) return null;
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const pixels = new Uint8Array(width * height * 4);
+      gl.finish();
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let firstCount = 0;
+      let secondCount = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] === expected[0]![0] && pixels[index + 1] === expected[0]![1] && pixels[index + 2] === expected[0]![2]) firstCount += 1;
+        if (pixels[index] === expected[1]![0] && pixels[index + 1] === expected[1]![1] && pixels[index + 2] === expected[1]![2]) secondCount += 1;
+      }
+      return { firstCount, secondCount };
+    }, [first, second]);
+    expect(colors?.firstCount, `authored tile color ${first.join(",")} must be rendered`).toBeGreaterThan(10_000);
+    expect(colors?.secondCount, `authored tile color ${second.join(",")} must be rendered`).toBeGreaterThan(10_000);
+  };
+  const sourcePath = "Game/Example/Boards/village.brd";
+  const copyPath = "Game/Example/Boards/village.pixels.brd";
+  const decode = (bytes: Uint8Array) => {
+    const result = decodeBoard(bytes);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  };
+  const sourceBoard = decode(await readBacking(sourcePath));
+  const scriptPath = "Game/Example/Prg/start.prg";
+  const sourceScriptBytes = await readBacking(scriptPath);
+  const legacySourcePath = "Game/Example/Boards/red.brd";
+  const legacyCopyPath = "Game/Example/Boards/red.upgraded.brd";
+  const legacySourceBytes = await readBacking(legacySourcePath);
+  expect(createHash("sha256").update(legacySourceBytes).digest("hex")).toBe("ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
+  const rawLegacy = readPreVectorBoard(new BinaryReader(legacySourceBytes, legacySourcePath));
+  if (!rawLegacy.ok) throw new Error(`The pinned minor-2.2 board could not be read: ${rawLegacy.error.message}`);
+  expect([rawLegacy.value.major, rawLegacy.value.minor, rawLegacy.value.sizeX, rawLegacy.value.sizeY, rawLegacy.value.sizeL]).toEqual([2, 2, 19, 14, 8]);
+  expect(Object.fromEntries([...new Set(rawLegacy.value.tileMatrix.map((cell) => cell.tileType))].sort((a, b) => a - b)
+    .map((type) => [type, rawLegacy.value.tileMatrix.filter((cell) => cell.tileType === type).length]))).toEqual({ 0: 2007, 1: 85, 2: 36 });
+  expect(rawLegacy.value.programs).toHaveLength(501);
+  expect(rawLegacy.value.programs.filter(({ file }) => file.length > 0)).toHaveLength(24);
+  expect(rawLegacy.value.sprites).toHaveLength(11);
+  expect(rawLegacy.value.sprites.filter(({ file }) => file.length > 0)).toHaveLength(2);
+  expect(rawLegacy.value.sprites.filter(({ file }) => file.length > 0).slice(0, 2)).toMatchObject([
+    { file: "gem.itm", x: 17, y: 3, layer: 1 },
+    { file: "red.itm", x: 3, y: 7, layer: 1 },
+  ]);
+
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "View: Close All Editors");
+  await expect(page.getByRole("tab", { name: /red\.upgraded\.brd/ })).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, "Game/Example/Boards/village.brd");
+  const legacyFrame = await waitForBoardUpgradeEditorFrame(page, "modern board used to upgrade a selected legacy board", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  await legacyFrame.getByRole("button", { name: "Upgrade pre-vector board…", exact: true }).click();
+  const legacyChoice = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row")
+    .filter({ hasText: legacySourcePath }).first();
+  await expect(legacyChoice).toBeVisible();
+  await legacyChoice.click();
+  const cancelledLegacyPreview = page.locator(".monaco-dialog-box").filter({ hasText: "Upgrade pre-vector board" });
+  await expect(cancelledLegacyPreview).toBeVisible();
+  await expect(cancelledLegacyPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await cancelledLegacyPreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await readBacking(legacySourcePath)).toEqual(legacySourceBytes);
+  await expect.poll(async () => {
+    try { await readBacking(legacyCopyPath); return true; } catch { return false; }
+  }).toBe(false);
+  await legacyFrame.getByRole("button", { name: "Upgrade pre-vector board…", exact: true }).click();
+  const acceptedLegacyChoice = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row")
+    .filter({ hasText: legacySourcePath }).first();
+  await expect(acceptedLegacyChoice).toBeVisible();
+  await acceptedLegacyChoice.click();
+  const acceptedLegacyPreview = page.locator(".monaco-dialog-box").filter({ hasText: "Upgrade pre-vector board" });
+  await expect(acceptedLegacyPreview).toBeVisible();
+  await expect(acceptedLegacyPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await expect(acceptedLegacyPreview).toContainText('program 1 "warp00000002.prg" points [512,128; 544,128; 544,160; 512,160]');
+  await acceptedLegacyPreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const legacySavePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(legacySavePath).toBeVisible({ timeout: 15_000 });
+  await legacySavePath.fill(`/${legacyCopyPath}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect.poll(async () => {
+    try { return decode(await readBacking(legacyCopyPath)).layout; } catch { return null; }
+  }, { timeout: 30_000 }).toBe("vector");
+  const upgradedLegacy = decode(await readBacking(legacyCopyPath));
+  expect({ sizeX: upgradedLegacy.board.sizeX, sizeY: upgradedLegacy.board.sizeY, sizeL: upgradedLegacy.board.sizeL }).toEqual({ sizeX: 19, sizeY: 14, sizeL: 8 });
+  expect(upgradedLegacy.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
+  expect(upgradedLegacy.board.vectors).toHaveLength(32);
+  expect(upgradedLegacy.board.programs).toHaveLength(24);
+  expect(upgradedLegacy.board.sprites).toHaveLength(2);
+  expect(upgradedLegacy.board.vectors[0]).toMatchObject({
+    type: 2, attributes: 1, closed: -1,
+    points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }],
+  });
+  expect(upgradedLegacy.board.programs[0]).toMatchObject({
+    program: "warp00000002.prg",
+    points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }],
+  });
+  expect(upgradedLegacy.board.sprites[0]).toMatchObject({ itemFile: "gem.itm", x: 528, y: 95, layer: 1 });
+  expect(upgradedLegacy.board.shadeLayers[0]?.records.slice(0, 5)).toEqual([
+    { runCount: 16, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 77, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 171, r: 0, g: 0, b: 0 },
+  ]);
+  expect(upgradedLegacy.board.shadeLayers).toHaveLength(1);
+  const legacyCopyTab = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
+  await legacyCopyTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(legacyCopyTab).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, legacyCopyPath);
+  const legacyReopenedFrame = await waitForBoardUpgradeEditorFrame(page, "saved minor-2.2 copy after close and reopen", "red.upgraded.brd", [rawLegacy.value.sizeX, rawLegacy.value.sizeY, rawLegacy.value.sizeL]);
+  await expect(legacyReopenedFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  expect(await readBacking(legacySourcePath)).toEqual(legacySourceBytes);
+  const reopenedLegacyTab = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
+  await reopenedLegacyTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(reopenedLegacyTab).toHaveCount(0);
+  const readsBeforeLegacyRun = readEvents().length;
+  await runCommand(page, expect, "Test: Run Legacy Board Upgrade Copy");
+  const legacyPlayer = await findPlayerFrame(page, "real minor-2.2 upgraded-copy player frame");
+  await expect.poll(async () => await legacyPlayer.evaluate(() => (Reflect.get(window, "__live") as {
+    board: string | null;
+  } | undefined)?.board ?? ""), { timeout: 30_000 }).toContain("red.upgraded.brd");
+  const legacyRuntimeReads = readEvents().slice(readsBeforeLegacyRun)
+    .filter(({ kind }) => kind === "readFile")
+    .map(({ path }) => path);
+  expect(legacyRuntimeReads).toContain("/Game/Example/Tiles/forest_set.tst");
+  const legacyRun = await legacyPlayer.evaluate(() => Reflect.get(window, "__live") as {
+    board: string | null;
+    player: { x: number; y: number } | null;
+    stateHash: string;
+  } | undefined);
+  expect(legacyRun?.board).toContain("red.upgraded.brd");
+  // The legacy-copy runner's explicit tile start (2, 2) maps to this pixel position.
+  expect(legacyRun?.player).toEqual({ x: 48, y: 63 });
+  expect(legacyRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await assertAuthoredTilePixels(legacyPlayer, [255, 128, 0], [56, 64, 32]);
+  await verifyHostRunHash(page, legacyPlayer, expect);
+
+  const sourceBytes = await readBacking(sourcePath);
+  expect(decode(sourceBytes).board).toEqual(sourceBoard.board);
+  if (sourceBoard.layout !== "vector" || (sourceBoard.board.coordType & 4) !== 0) {
+    throw new Error("The fetched village board must be a tile-coordinate vector board");
+  }
+
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  // The browser may restore earlier custom-editor tabs after navigation; close them before reopening a single board preview.
+  const restoredBoardTabs = page.getByRole("tab", { name: /\.brd/ });
+  while (await restoredBoardTabs.count() > 0) {
+    const restoredBoardTab = restoredBoardTabs.first();
+    await restoredBoardTab.getByRole("button", { name: /^Close/ }).click();
+    await expect(restoredBoardTab).toHaveCount(0);
+  }
+  await openNativeQuickOpenFile(page, expect, sourcePath);
+  let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  await openNativeQuickOpenFile(page, expect, scriptPath);
+  const pendingScriptEditor = page.locator(".monaco-editor .view-lines");
+  await expect(pendingScriptEditor).toBeVisible();
+  await page.locator(".monaco-editor .view-line").last().click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("// Pending authored edit; board-copy cancel and write failure must preserve it.");
+  await expect(pendingScriptEditor).toContainText("Pending authored edit");
+  await openNativeQuickOpenFile(page, expect, sourcePath);
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  const verifyPendingScriptAndReturnToBoard = async (path: string, title: string): Promise<void> => {
+    const quickInput = page.locator(".quick-input-widget");
+    if (await quickInput.isVisible()) {
+      await page.keyboard.press("Escape");
+      await expect(quickInput).toBeHidden();
+    }
+    await openNativeQuickOpenFile(page, expect, scriptPath);
+    await expect(pendingScriptEditor).toContainText("Pending authored edit");
+    expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+    await openNativeQuickOpenFile(page, expect, path);
+    boardFrame = await waitForBoardUpgradeEditorFrame(page, title, path.split("/").at(-1)!, [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  };
+  const preview = page.locator(".monaco-dialog-box").filter({ hasText: "Convert tile coordinates to pixels" });
+  const openPreview = async (): Promise<void> => {
+    if (!await preview.isVisible()) await boardFrame.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
+    await expect(preview).toBeVisible();
+  };
+  const cancelledPath = "Game/Example/Boards/village.cancelled.brd";
+  await openPreview();
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const cancelSavePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(cancelSavePath).toBeVisible({ timeout: 15_000 });
+  await cancelSavePath.fill(`/${cancelledPath}`);
+  await page.keyboard.press("Escape");
+  await expect(cancelSavePath).toBeHidden();
+  if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await verifyPendingScriptAndReturnToBoard(sourcePath, "source board after save-picker cancellation");
+  const pathExists = async (path: string): Promise<boolean> => {
+    try { await readBacking(path); return true; } catch { return false; }
+  };
+  expect(await pathExists(cancelledPath)).toBe(false);
+  const failedPath = "Game/Example/Boards/village.failed-write.brd";
+  await runCommand(page, expect, "Test: Fail Board Upgrade Copy Writes");
+  await openPreview();
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const failedSavePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(failedSavePath).toBeVisible({ timeout: 15_000 });
+  await failedSavePath.fill(`/${failedPath}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  const writeErrorNotification = page.getByRole("alert").filter({ hasText: /Could not write .*village\.failed-write\.brd/ });
+  await expect(writeErrorNotification).toBeVisible({ timeout: 15_000 });
+  if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
+  const failedBytes = await readBacking(failedPath).catch(() => null);
+  expect(failedBytes === null || failedBytes.length === 0).toBe(true);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await verifyPendingScriptAndReturnToBoard(sourcePath, "source board after destination write failure");
+  await runCommand(page, expect, "Test: Allow Board Upgrade Copy Writes");
+  await openPreview();
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const savePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(savePath).toBeVisible({ timeout: 15_000 });
+  await savePath.fill(`/${copyPath}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "converted board copy before save", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(async () => {
+    try { return decode(await readBacking(copyPath)).board.coordType & 4; } catch { return 0; }
+  }, { timeout: 30_000 }).toBe(4);
+  const convertedBytes = await readBacking(copyPath);
+  const converted = decode(convertedBytes);
+  expect(converted.layout).toBe("vector");
+  expect([converted.board.sizeX, converted.board.sizeY, converted.board.sizeL]).toEqual([sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  expect(converted.board.tileMatrix).toEqual(sourceBoard.board.tileMatrix);
+  expect(converted.board.coordType).toBe(sourceBoard.board.coordType | 4);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await verifyPendingScriptAndReturnToBoard(copyPath, "pixel copy after pending script verification");
+  await boardFrame.getByRole("img", { name: "The board as the engine draws it" }).focus();
+  await page.keyboard.press("ControlOrMeta+Z");
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(async () => decode(await readBacking(copyPath)).board.coordType, { timeout: 30_000 }).toBe(sourceBoard.board.coordType);
+  expect(await readBacking(copyPath)).toEqual(sourceBytes);
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(async () => decode(await readBacking(copyPath)).board.coordType & 4, { timeout: 30_000 }).toBe(4);
+  await expect.poll(async () => readBacking(copyPath), { timeout: 30_000 }).toEqual(convertedBytes);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+
+  const convertedCopyTab = page.getByRole("tab", { name: /village\.pixels\.brd/ });
+  await closeActiveEditor(page, expect);
+  await expect(convertedCopyTab).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, copyPath);
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "still-converted pixel copy after close and reopen", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  expect(decode(await readBacking(copyPath)).board.coordType).toBe(sourceBoard.board.coordType | 4);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  await openNativeQuickOpenFile(page, expect, scriptPath);
+  await expect(pendingScriptEditor).toContainText("Pending authored edit");
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await openNativeQuickOpenFile(page, expect, copyPath);
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "pixel copy before runner launch", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  const pendingScriptTab = page.getByRole("tab", { name: /start\.prg/ });
+  await pendingScriptTab.click();
+  await pendingScriptTab.getByRole("button", { name: /^Close/ }).click();
+  const discardPendingScript = page.getByRole("dialog").filter({ hasText: "Don't Save" });
+  await expect(discardPendingScript).toBeVisible();
+  await discardPendingScript.getByRole("button", { name: "Don't Save" }).click();
+  await expect(pendingScriptTab).toHaveCount(0);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await closeActiveEditor(page, expect);
+  await expect(convertedCopyTab).toHaveCount(0);
+
+
+  const readsBeforeConvertedRun = readEvents().length;
+  await runCommand(page, expect, "Test: Run Board Upgrade Copy");
+  const boardLaunchStatus = page.getByText(/Upgraded-copy board launch (?:accepted|refused:)/);
+  await expect(boardLaunchStatus).toBeVisible({ timeout: 30_000 });
+  const boardLaunchResult = await boardLaunchStatus.textContent();
+  if (!boardLaunchResult?.includes("accepted")) throw new Error(`The reopened pixel-coordinate board run was refused: ${boardLaunchResult}`);
+  let player = await findPlayerFrame(page, "converted-copy player frame");
+  const playerBoard = async () => await player.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { board: string | null; player: unknown; stateHash: string } | undefined;
+    return live;
+  });
+  await expect.poll(async () => (await playerBoard())?.board ?? "", { timeout: 30_000 }).toContain("village.pixels.brd");
+  const convertedRun = await playerBoard();
+  const convertedRuntimeReads = readEvents().slice(readsBeforeConvertedRun)
+    .filter(({ kind }) => kind === "readFile")
+    .map(({ path }) => path);
+  expect(convertedRuntimeReads).toContain("/Game/Example/Tiles/village.tst");
+  // The probe's BoardLaunch.start literal is interpreted in the converted board's unit mode:
+  // flag 4 makes (2,2) an absolute-pixel run start.
+  expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
+  expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await assertAuthoredTilePixels(player, [42, 42, 42], [213, 213, 213]);
+  await verifyHostRunHash(page, player, expect);
+  await openNativeQuickOpenFile(page, expect, scriptPath);
+  await expect(pendingScriptEditor).not.toContainText("Pending authored edit");
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+}
+
 
 /** The player frames on the page, by their `#screen` canvas. */
 async function playerFrames(page: Page): Promise<Frame[]> {
@@ -2354,6 +2673,37 @@ async function logFrameDiagnostics(page: Page, reason: string): Promise<void> {
     };
   }));
   console.error(`[vscode-web:frame-diagnostic] ${reason}: ${JSON.stringify(frames, null, 2)}`);
+}
+
+async function waitForBoardUpgradeEditorFrame(
+  page: Page,
+  label: string,
+  selectedTabLabel: string,
+  expectedDimensions: readonly [number, number, number],
+): Promise<Frame> {
+  const deadline = Date.now() + 30_000;
+  let pause = 100;
+  while (Date.now() < deadline) {
+    const selectedTabs = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
+    if (await selectedTabs.count() > 0) {
+      const matchingFrames: Frame[] = [];
+      for (const outer of await page.locator("iframe.webview:visible").elementHandles()) {
+        const outerFrame = await outer.contentFrame().catch(() => null);
+        const frame = outerFrame?.childFrames().find((candidate) => candidate.name() === "pending-frame");
+        if (frame === undefined) continue;
+        const toolbar = frame.getByRole("toolbar", { name: "Board coordinate and format upgrades" });
+        if (await toolbar.count() === 0 || !await toolbar.isVisible()) continue;
+        const dimensions = `${expectedDimensions[0]} × ${expectedDimensions[1]} cells, ${expectedDimensions[2]} layers`;
+        if ((await frame.locator("body").innerText()).includes(dimensions)) matchingFrames.push(frame);
+      }
+      if (matchingFrames.length === 1) return matchingFrames[0]!;
+      if (matchingFrames.length > 1) throw new Error(`Found multiple board webviews matching selected tab ${selectedTabLabel} and expected dimensions ${expectedDimensions.join("x")}`);
+    }
+    await page.waitForTimeout(pause);
+    pause = Math.min(pause * 2, 1_000);
+  }
+  await logFrameDiagnostics(page, `${label} board editor not correlated with selected tab ${selectedTabLabel} and dimensions ${expectedDimensions.join("x")}`);
+  throw new Error(`Timed out waiting for ${label}; selectedTab=${selectedTabLabel}; expectedDimensions=${expectedDimensions.join("x")}`);
 }
 
 async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {

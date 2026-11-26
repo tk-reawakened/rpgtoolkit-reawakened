@@ -24,7 +24,9 @@
     "onStartupFinished",
     "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
-    "onCommand:tkr.importBoardAsScene",
+    "onCommand:tkr.upgradeBoardStackedToRotated",
+    "onCommand:tkr.upgradeBoardTileToPixel",
+    "onCommand:tkr.upgradePreVectorBoard",
     "onCommand:tkr.packageGame",
     "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
@@ -92,6 +94,18 @@
       {
         "command": "tkr.importBoardAsScene",
         "title": "RPG Toolkit: Import board as scene…"
+      },
+      {
+        "command": "tkr.upgradeBoardStackedToRotated",
+        "title": "RPG Toolkit: Convert board from iso-stacked to iso-rotated…"
+      },
+      {
+        "command": "tkr.upgradeBoardTileToPixel",
+        "title": "RPG Toolkit: Convert board from tile to pixel coordinates…"
+      },
+      {
+        "command": "tkr.upgradePreVectorBoard",
+        "title": "RPG Toolkit: Upgrade pre-vector board…"
       },
       {
         "command": "tkr.newProject",

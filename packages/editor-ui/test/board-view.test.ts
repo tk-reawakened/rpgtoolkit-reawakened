@@ -1050,3 +1050,27 @@ test("canceling an export ignores its late preview result", async () => {
     s.el.remove();
   }
 });
+
+test("board surface invokes each host-registered upgrade action", async () => {
+  const s = await setup();
+  const actions: string[] = [];
+  const view: BoardViewDocument = { ...s.view, runUpgradeCommand: (operation) => { actions.push(operation); } };
+  let handle: ViewHandle | undefined;
+  try {
+    await act(() => {
+      handle = mount(s.el, { document: view, services: s.host, browser: s.browser });
+    });
+    const button = (label: string): HTMLButtonElement => {
+      const found = [...s.el.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+      if (found === undefined) throw new Error(`no button ${label}`);
+      return found;
+    };
+    await act(() => button("Convert stacked coordinates…").click());
+    await act(() => button("Convert tile coordinates…").click());
+    await act(() => button("Upgrade pre-vector board…").click());
+    deepEqual(actions, ["stacked-to-rotated", "tile-to-pixel", "pre-vector"]);
+  } finally {
+    handle?.dispose();
+    s.el.remove();
+  }
+});
