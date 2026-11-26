@@ -3,7 +3,7 @@ title: 'Build a runnable visual event tracer'
 type: 'feature'
 ticket: 2
 created: '2026-11-25'
-status: 'done'
+status: 'built'
 baseline_revision: '1222d6ca26655bb3f976d67ab609d8911e86ff9f'
 route: 'full'
 route_source: 'auto'
@@ -113,4 +113,4 @@ An independent audit at `5ec33c3728` mapped every issue acceptance clause to com
 | Ordinary undo/redo reflects one step per card mutation | Both proofs separate Add from Apply with one undo step each. |
 | **Open in editor** focuses the same source without editing, saving or history | Browser asserts exact caret placement after pending typing, unchanged bytes and one Undo removing only the typing; native asserts the existing tab, real focus and unchanged undo ordering. |
 
-The audit found two assertion gaps rather than product defects: the native proof did not separately assert a valid native typing changing the live card, and did not check the exact reveal position. Both are required of the successor work in [#3528](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3528), which owns the full pane; they do not reopen this story.
+The audit found two plan-level proof gaps rather than product defects: the native proof did not assert a valid native typing changing the live card, and checked focus rather than the exact opaque-block reveal. The issue-level acceptance is proven, but the approved plan's clauses are not, so this story stays built and [#3579](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3579) tracks the two assertions. They are not treated as transferred to [#3528](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3528).
