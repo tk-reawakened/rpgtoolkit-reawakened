@@ -44,8 +44,13 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" }, "wrong")).status, 403);
     assert.deepEqual(bridge.events(), []);
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" })).status, 200);
+    const settlement = JSON.stringify({ side: "host", stage: "send", requestId: "settle-1" });
+    assert.equal((await request({ op: "trace", kind: "settlement", value: settlement })).status, 200);
     assert.equal((await request({ op: "trace", kind: "trace-marker", value: "unexpected" })).status, 400);
-    assert.deepEqual(bridge.events(), [{ kind: "save", value: "/game.gam" }]);
+    assert.deepEqual(bridge.events(), [
+      { kind: "save", value: "/game.gam" },
+      { kind: "settlement", value: settlement },
+    ]);
     assert.equal((await request({ op: "trace", kind: "save-request", value: "/game.gam" })).status, 200);
     const saveReached = bridge.pauseSave();
     let saveResponseReceived = false;
@@ -59,6 +64,7 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     assert.equal((await pausedSaveResponse).status, 200);
     assert.deepEqual(bridge.events(), [
       { kind: "save", value: "/game.gam" },
+      { kind: "settlement", value: settlement },
       { kind: "save-request", value: "/game.gam" },
       { kind: "save-request", value: "/game.gam" },
     ]);

@@ -47,6 +47,9 @@ await access(resolve(extension, manifest.browser));
 await access(resolve(extension, "dist/webview.js"));
 await access(resolve(root, "extensions/rpgcode/dist/extension.browser.js"));
 await access(workspace);
+if (process.env.TKR_VSCODE_BOARD_UPGRADE_PROOF === "1" && process.env.TKR_VSCODE_CREATOR_ACCEPTANCE_PROOF === "1") {
+  throw new Error("TKR_VSCODE_BOARD_UPGRADE_PROOF cannot be combined with another VS Code proof mode");
+}
 if (process.env.TKR_VSCODE_CREATOR_ACCEPTANCE_PROOF === "1") {
   // The creator-acceptance lane owns its whole journey: an empty workspace, the real New project wizard, authored edits
   // through the shipped editors, then the reviewed export handed as exact bytes to the portable playback oracle.
@@ -116,6 +119,14 @@ const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
 const battleDataProof = process.env.TKR_VSCODE_BATTLE_DATA_PROOF === "1";
 if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
+}
+if (boardUpgradeProof && (
+  nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof ||
+  animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof ||
+  historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || visualEventsProof || scriptWorkflowProof ||
+  fontProof || battleDataProof
+)) {
+  throw new Error("TKR_VSCODE_BOARD_UPGRADE_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
 if (visualEventsProof) {
@@ -286,6 +297,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
   const browserDiagnostics = [];
   const probeDiagnostics = [];
   const historyPreviewTraceDiagnostics = [];
+  const settlementTraceDiagnostics = [];
+  let settlementWebviewInstrumentationCount = 0;
   try {
     if (designProof) {
       await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
@@ -364,6 +377,14 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
       const restoreGate = `async (uri) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "armNativeRestoreRead", path: uri.path }) }); if (!response.ok) throw new Error("Native restore proof gate failed"); }`;
+      const resolveEditorReplacement = boardUpgradeProof
+        ? `resolveCustomEditor: async (document2, panel) => {
+            globalThis.__tkrSettlementTrace = (side, details = {}) => (${trace})("settlement", JSON.stringify({ side, timestamp: performance.timeOrigin + performance.now(), ...details }));
+            const logSettlement = (stage, details = {}) => {
+              void globalThis.__tkrSettlementTrace("host", { stage, resource: document2.uri.path, viewType: panel.viewType, ...details }).catch((error) => console.error("[proof trace]", error));
+            };
+            void (${trace})("resolve", JSON.stringify({ resource: document2.uri.toString(), viewType: panel.viewType })).catch((error) => console.error("[proof trace]", error));`
+        : `resolveCustomEditor: async (document2, panel) => { void (${trace})("resolve", JSON.stringify({ resource: document2.uri.toString(), viewType: panel.viewType })).catch((error) => console.error("[proof trace]", error));`;
       const probes = [
         [
           "openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId)",
@@ -371,13 +392,37 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         ],
         [
           "resolveCustomEditor: async (document2, panel) => {",
-          `resolveCustomEditor: async (document2, panel) => { void (${trace})("resolve", JSON.stringify({ resource: document2.uri.toString(), viewType: panel.viewType })).catch((error) => console.error("[proof trace]", error));`,
+          resolveEditorReplacement,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
           `saveCustomDocument: (document2) => { void (${trace})("save", document2.uri.path).then(() => (${trace})("save-uri", document2.uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.saveCustomDocument(document2); }`,
         ],
       ];
+      if (boardUpgradeProof) {
+        const settlementAdapter = /postMessage: \((\w+)\) => panel\.webview\.postMessage\(\1\),\n([ \t]*)onDidReceiveMessage: \(listener\) => panel\.webview\.onDidReceiveMessage\(listener\),\n\2onDidDispose: \(listener\) => panel\.onDidDispose\(listener\)(,?)/g;
+        const adapterMatches = [...source.matchAll(settlementAdapter)];
+        if (adapterMatches.length !== 1) throw new Error("Built VS Code settlement adapter no longer matches the proof instrumentation");
+        const [, messageBinding, indent, trailingComma] = adapterMatches[0];
+        source = source.replace(settlementAdapter, `postMessage: (${messageBinding}) => {
+${indent}  if (${messageBinding}.type !== "settle") return panel.webview.postMessage(${messageBinding});
+${indent}  logSettlement("send", { requestId: ${messageBinding}.requestId, reason: ${messageBinding}.reason, saveLock: ${messageBinding}.saveLock });
+${indent}  const posted = panel.webview.postMessage(${messageBinding});
+${indent}  void posted.then(
+${indent}    (delivered) => { logSettlement("post-result", { requestId: ${messageBinding}.requestId, delivered }); },
+${indent}    (error) => { logSettlement("post-reject", { requestId: ${messageBinding}.requestId, errorName: error?.name ?? typeof error }); },
+${indent}  ).catch((error) => console.error("[proof trace]", error));
+${indent}  return posted;
+${indent}},
+${indent}onDidReceiveMessage: (listener) => panel.webview.onDidReceiveMessage((message) => {
+${indent}  if (message?.type === "settled") logSettlement("reply-received", { requestId: message.requestId, ok: message.ok !== false, kind: message.kind });
+${indent}  listener(message);
+${indent}}),
+${indent}onDidDispose: (listener) => panel.onDidDispose(() => {
+${indent}  logSettlement("panel-dispose", {});
+${indent}  listener();
+${indent}})${trailingComma}`);
+      }
       for (const [before, after] of probes) {
         if (source.split(before).length !== 2) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
         source = source.replace(before, after);
@@ -388,15 +433,94 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       const nativeRestoreRead = /const current = wasDirty \? new TextEncoder\(\)\.encode\(textBeforeRead\) : await (vscode\d+)\.workspace\.fs\.readFile\(uri\);/g;
       if ([...source.matchAll(nativeRestoreRead)].length !== 1) throw new Error("Native restore read no longer matches the proof gate");
       source = source.replace(nativeRestoreRead, (_match, vscodeBinding) => `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return ${vscodeBinding}.workspace.fs.readFile(uri); })();`);
+      if (boardUpgradeProof) {
+        const coreTimeout = /const timer = startTimer\(\(\) => (\w+)\(false\)\);/g;
+        const timeoutMatches = [...source.matchAll(coreTimeout)];
+        if (timeoutMatches.length !== 1) throw new Error("Settlement timeout no longer matches the proof instrumentation");
+        source = source.replace(coreTimeout, (_match, answer) => `const timer = startTimer(() => { if (typeof globalThis.__tkrSettlementTrace === "function") void globalThis.__tkrSettlementTrace("core", { stage: "timeout", requestId, path: this.model.identity.path }).catch(() => undefined); ${answer}(false); });`);
+        const coreDetach = "this.#views.delete(target);";
+        if (source.split(coreDetach).length !== 2) throw new Error("Settlement disposal no longer matches the proof instrumentation");
+        source = source.replace(coreDetach, `if (typeof globalThis.__tkrSettlementTrace === "function") void globalThis.__tkrSettlementTrace("core", { stage: "view-detach", path: this.model.identity.path, waitingIds: [...target.waiting.keys()] }).catch(() => undefined); ${coreDetach}`);
+        const coreReply = /for \(const view of this\.#views\) view\.waiting\.get\((\w+)\)\?\.\((\w+), (\w+), (\w+)\);/g;
+        const replyMatches = [...source.matchAll(coreReply)];
+        if (replyMatches.length !== 1) throw new Error("Settlement reply dispatch no longer matches the proof instrumentation");
+        source = source.replace(coreReply, (_match, requestId, settled, message, kind) => `if (typeof globalThis.__tkrSettlementTrace === "function") void globalThis.__tkrSettlementTrace("core", { stage: "reply-dispatch", requestId: ${requestId}, settled: ${settled}, kind: ${kind}, waitingViews: [...this.#views].filter((view) => view.waiting.has(${requestId})).length }).catch(() => undefined); for (const view of this.#views) view.waiting.get(${requestId})?.(${settled}, ${message}, ${kind});`);
+      }
+      await route.fulfill({ response, body: source });
+    });
+    const webviewRoute = captureRouteErrors(async (route) => {
+      const response = await route.fetch();
+      let source = await response.text();
+      const earlyAck = /if \((\w+)\.data\.type === "settle" && remoteDocument === (?:undefined|void 0)\) \{/g;
+      const earlyAckMatches = [...source.matchAll(earlyAck)];
+      if (earlyAckMatches.length === 0) {
+        await route.fulfill({ response, body: source });
+        return;
+      }
+      if (earlyAckMatches.length !== 1) throw new Error("Webview early settlement branch no longer matches the proof instrumentation");
+      settlementWebviewInstrumentationCount += 1;
+      const earlyEvent = earlyAckMatches[0][1];
+      source = source.replace(earlyAck, (_match, eventBinding) => `if (${eventBinding}.data.type === "settle" && remoteDocument === void 0) {
+    console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "early-ack", requestId: ${eventBinding}.data.requestId, reason: ${eventBinding}.data.reason }));`);
+      const earlyReply = /api\.postMessage\(\{\s*type: "settled",\s*requestId: (\w+)\.data\.requestId\s*\}\);/g;
+      const earlyReplyMatches = [...source.matchAll(earlyReply)];
+      if (earlyReplyMatches.length !== 1 || earlyReplyMatches[0][1] !== earlyEvent) throw new Error("Webview early settlement reply no longer matches the proof instrumentation");
+      source = source.replace(earlyReply, (_match, eventBinding) => `console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "early-reply-post", requestId: ${eventBinding}.data.requestId }));
+    try {
+      api.postMessage({ type: "settled", requestId: ${eventBinding}.data.requestId });
+      console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "early-reply-return", requestId: ${eventBinding}.data.requestId }));
+    } catch (error) {
+      console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "early-reply-throw", requestId: ${eventBinding}.data.requestId, errorName: error?.name ?? typeof error }));
+      throw error;
+    }`);
+      const documentReceive = 'if (message.type === "settle") {';
+      if (source.split(documentReceive).length !== 2) throw new Error("Webview settlement receiver no longer matches the proof instrumentation");
+      source = source.replace(documentReceive, `${documentReceive}
+      console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "document-receive", requestId: message.requestId, reason: message.reason, saveLock: message.saveLock, busy: this.pendingEdits.busy(), holdsDraft: this.pendingEdits.holdsDraft() }));`);
+      const pendingSettle = /void this\.pendingEdits\.settle\(message\.reason\)\.then\(\(outcome\) => this\.vscode\.postMessage\(\{([\s\S]*?)\n\s*\}\)\);/g;
+      if ([...source.matchAll(pendingSettle)].length !== 1) throw new Error("Webview pending-edits settlement no longer matches the proof instrumentation");
+      source = source.replace(pendingSettle, (_match, fields) => `void this.pendingEdits.settle(message.reason).then((outcome) => {
+        console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "pending-outcome", requestId, outcome, busy: this.pendingEdits.busy(), holdsDraft: this.pendingEdits.holdsDraft() }));
+        console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "reply-post", requestId }));
+        try {
+          this.vscode.postMessage({${fields}
+          });
+          console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "reply-post-return", requestId }));
+        } catch (error) {
+          console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "reply-post-throw", requestId, errorName: error?.name ?? typeof error }));
+          throw error;
+        }
+      });`);
+      const dispatch = /^([ \t]*)remoteDocument\?\.receive\((\w+)\.data\);/gm;
+      const dispatchMatches = [...source.matchAll(dispatch)];
+      if (dispatchMatches.length !== 1) throw new Error("Webview message dispatch no longer matches the proof instrumentation");
+      source = source.replace(dispatch, (_match, indent, eventBinding) => `${indent}if (${eventBinding}.data.type === "settle") console.log("[tkr-vscode-settlement-trace]", JSON.stringify({ side: "webview", stage: "document-dispatch", requestId: ${eventBinding}.data.requestId, hasDocument: remoteDocument !== void 0 }));
+${indent}remoteDocument?.receive(${eventBinding}.data);`);
+      const webviewTracePattern = 'JSON.stringify({ side: "webview", stage:';
+      const webviewTraceCount = source.split(webviewTracePattern).length - 1;
+      if (webviewTraceCount !== 10) throw new Error(`Expected 10 settlement webview trace points, found ${webviewTraceCount}`);
+      source = source.replaceAll(webviewTracePattern, 'JSON.stringify({ side: "webview", timestamp: performance.timeOrigin + performance.now(), stage:');
       await route.fulfill({ response, body: source });
     });
     const registerContextRoutes = async () => {
       await browser.route("**/static/extensions/0/extension.js", providerRoute);
       await browser.route("**/static/devextensions/dist/extension.browser.js", browserExtensionRoute);
+      if (boardUpgradeProof) await browser.route("**/webview.js", webviewRoute);
     };
     await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const styleCspViolations = [];
+    const recordSettlementTrace = (message) => {
+      const clean = message.replaceAll(persistentFs.token, "[redacted]");
+      const marker = "[tkr-vscode-settlement-trace]";
+      const payload = clean.slice(clean.indexOf(marker) + marker.length).trim();
+      try {
+        settlementTraceDiagnostics.push(JSON.parse(payload));
+      } catch {
+        settlementTraceDiagnostics.push({ side: "webview", raw: clean });
+      }
+      if (settlementTraceDiagnostics.length > 128) settlementTraceDiagnostics.shift();
+    };
     let historyPreviewTraceSequence = 0;
     const recordHistoryPreviewTrace = (message) => {
       const clean = message.replaceAll(persistentFs.token, "[redacted]");
@@ -409,6 +533,10 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       const page = await browser.newPage();
       page.on("console", (message) => {
         const text = message.text();
+        if (text.includes("[tkr-vscode-settlement-trace]")) {
+          recordSettlementTrace(`[console] ${text}`);
+          return;
+        }
         if (designProof && /(?:violates|violating).*Content Security Policy.*style-src/i.test(text)) styleCspViolations.push(text.replaceAll(persistentFs.token, "[redacted]"));
         if (text.includes("[history-preview-trace]") || text.includes("[editor-preview-trace]")) {
           recordHistoryPreviewTrace(`[console] ${text}`);
@@ -692,6 +820,37 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       try { await persistentFs.close(); } catch (error) { cleanupErrors.push(error); }
     }
     try { await rm(browserProfile, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (boardUpgradeProof) {
+    const hostTrace = persistentFs === undefined
+      ? []
+      : persistentFs.events().filter(({ kind }) => kind === "settlement").map(({ value }) => {
+        const clean = value.replaceAll(persistentFs.token, "[redacted]");
+        try {
+          return JSON.parse(clean);
+        } catch {
+          return { side: "host", raw: clean };
+        }
+      });
+    const hostSent = hostTrace.some((event) => event.side === "host" && event.stage === "send");
+    const webviewReceived = settlementTraceDiagnostics.some((event) => event.side === "webview" && (event.stage === "document-receive" || event.stage === "early-ack"));
+    if (settlementWebviewInstrumentationCount === 0) cleanupErrors.push(new Error("Board-upgrade proof did not load the settlement-instrumented webview bundle"));
+    if (!hostSent) cleanupErrors.push(new Error("Board-upgrade proof did not execute the host settlement-send probe"));
+    if (!webviewReceived) cleanupErrors.push(new Error("Board-upgrade proof did not execute the webview settlement-receive probe"));
+    const trace = [...hostTrace, ...settlementTraceDiagnostics].sort((left, right) => (left.timestamp ?? 0) - (right.timestamp ?? 0));
+    const traceLines = [];
+    for (let index = 0; index < trace.length;) {
+      const timestamp = trace[index].timestamp ?? 0;
+      let end = index + 1;
+      while (end < trace.length && (trace[end].timestamp ?? 0) === timestamp) end += 1;
+      const events = trace.slice(index, end);
+      traceLines.push(events.length > 1
+        ? `${index + 1}-${end} unordered tie timestamp=${timestamp}: ${JSON.stringify(events)}`
+        : `${index + 1} ${JSON.stringify(events[0])}`);
+      index = end;
+    }
+    console.error(`[vscode-web:settlement-trace]\n${traceLines.length > 0 ? traceLines.join("\n") : "(no settlement events)"}`);
+    console.error(`[vscode-web:settlement-trace-coverage] host-send=${hostSent} webview-receive=${webviewReceived} rewritten-bundles=${settlementWebviewInstrumentationCount}`);
   }
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
