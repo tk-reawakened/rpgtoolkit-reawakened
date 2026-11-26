@@ -145,8 +145,8 @@ test("previewLightConversion counts cells past the draw range, a light that adds
   const everywhere = (r: number) => [{ castLayer: base.layers, records: [{ runCount: cells, r, g: 0, b: 0 }] }];
   const past = previewLightConversion({ ...base, lights: [hot], shadeLayers: everywhere(250) }, 0);
   ok(past.ok);
-  equal(past.cellsPastDrawRange, dims.cellsChanged, "every cell the light adds red to now totals more than 255");
-  ok(past.cellsPastDrawRange > 0);
+  equal(past.cellsBeyondShadeRange, dims.cellsChanged, "every cell the light adds red to now has a stored total beyond ±255");
+  ok(past.cellsBeyondShadeRange > 0);
   equal(past.createsShadingLayer, false);
   const dark = newLight(1, { x: 0, y: 0 }, { r: 0, g: 0, b: 0 });
   const nothing = previewLightConversion({ ...base, lights: [dark] }, 0);

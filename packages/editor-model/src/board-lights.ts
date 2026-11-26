@@ -98,8 +98,8 @@ export interface LightConversionPreview {
   readonly cellsChanged: number;
   /** The smallest rectangle holding every changed cell, in 1-based column and row numbers; `null` when nothing changes. */
   readonly bounds: { readonly column0: number; readonly row0: number; readonly column1: number; readonly row1: number } | null;
-  /** Cells whose total shade would pass ±255, which the picture draws clamped. */
-  readonly cellsPastDrawRange: number;
+  /** Cells where any channel of the stored shade total would be outside ±255. This counts stored values only; how such a cell is drawn depends on ambient light and tile colour. */
+  readonly cellsBeyondShadeRange: number;
   /** Whether the board has no shading yet, so converting creates the shading layer. */
   readonly createsShadingLayer: boolean;
 }
@@ -127,7 +127,7 @@ export function previewLightConversion(board: LightBoard, index: number): LightC
   const into = decodeShade(existing, cells);
   if (added === null || into === null) return { ok: false, message: "This board's shading covers more cells than its grid, so a light cannot be converted into it." };
   let cellsChanged = 0;
-  let cellsPastDrawRange = 0;
+  let cellsBeyondShadeRange = 0;
   let column0 = grid.width;
   let row0 = grid.height;
   let column1 = -1;
@@ -152,7 +152,7 @@ export function previewLightConversion(board: LightBoard, index: number): LightC
       column0 = Math.min(column0, x); column1 = Math.max(column1, x);
       row0 = Math.min(row0, y); row1 = Math.max(row1, y);
     }
-    if (past) cellsPastDrawRange += 1;
+    if (past) cellsBeyondShadeRange += 1;
   }
   if (overflowing.length > 0) {
     const shown = overflowing.slice(0, 3).join("; ");
@@ -169,7 +169,7 @@ export function previewLightConversion(board: LightBoard, index: number): LightC
     added,
     cellsChanged,
     bounds: cellsChanged === 0 ? null : { column0: column0 + 1, row0: row0 + 1, column1: column1 + 1, row1: row1 + 1 },
-    cellsPastDrawRange,
+    cellsBeyondShadeRange,
     createsShadingLayer: board.shadeLayers.length === 0,
   };
 }

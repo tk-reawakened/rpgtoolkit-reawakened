@@ -91,7 +91,7 @@ function describeConversion(name: string, preview: LightConversionPreview): stri
     ? `${name} adds nothing to any of the ${cells} shade cells (it lies off the board or its colours are zero), so converting only removes the light.`
     : `${name} adds shade to ${preview.cellsChanged} of the ${cells} shade cells, in columns ${preview.bounds.column0} to ${preview.bounds.column1} and rows ${preview.bounds.row0} to ${preview.bounds.row1}.`;
   const layer = preview.createsShadingLayer ? " The board has no shading yet, so this creates its shading layer." : " This adds to the shading the board already has.";
-  const past = preview.cellsPastDrawRange === 0 ? "" : ` ${preview.cellsPastDrawRange} cell${preview.cellsPastDrawRange === 1 ? "" : "s"} would total more than 255 either way once added to the shading already there, and the board's picture draws those clamped at 255.`;
+  const past = preview.cellsBeyondShadeRange === 0 ? "" : ` ${preview.cellsBeyondShadeRange} cell${preview.cellsBeyondShadeRange === 1 ? "" : "s"} would have a stored shade beyond ±255 (in red, green or blue) once added to the shading already there. That is allowed and is not a drawing error: how those cells look depends on the board's ambient light and tile colours, which clamp the final colour when it is drawn.`;
   return `${spread}${layer}${past}`;
 }
 
@@ -291,7 +291,7 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
                   <p class="tkr-board-note">Apply adds this into the board's shading and removes the light, in one step that Undo takes back. Cancel, or Escape, changes nothing and keeps the light editable.</p>
                   <figure class="tkr-board-light-figure">
                     <canvas ref={previewCanvas} class="tkr-board-light-preview" aria-hidden="true" width={review.preview.width} height={review.preview.height} />
-                    <figcaption class="tkr-board-note">This picture shows only what {name} adds on its own, one pixel per cell: grey where it adds nothing, lighter where it adds shade, darker where it takes shade away. It never shows the total with the shading already on the board, so it does not mark clamped cells; the count above is where clamping is reported.</figcaption>
+                    <figcaption class="tkr-board-note">This picture shows only what {name} adds on its own, one pixel per cell: grey where it adds nothing, lighter where it adds shade, darker where it takes shade away. It never shows the total with the shading already on the board, so it does not mark cells whose stored shade passes ±255; the count above reports those.</figcaption>
                   </figure>
                   <button type="button" disabled={reviewLocked} data-light-review-cancel aria-label={`Cancel converting ${name}`} onClick={cancelConvert}>Cancel</button>
                   <button type="button" disabled={reviewLocked} aria-label={`Apply conversion of ${name} to shading`} onClick={applyConvert}>Apply conversion</button>

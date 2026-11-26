@@ -327,15 +327,16 @@ test("Escape cancels the review from wherever focus has moved, but leaves anothe
   equal(fingerprint(s.doc), before);
 });
 
-test("the review says its picture is only what the light adds, and counts the cells whose total is clamped", async () => {
+test("the review says its picture is only what the light adds, and counts the cells whose stored shade passes ±255", async () => {
   const s = await setup();
   ok((await s.doc.apply({ type: "set-board-fields", fields: { shadeLayers: [{ castLayer: 2, records: [{ runCount: 12, r: 250, g: 0, b: 0 }] }] } })).ok);
   await act(() => s.renderView());
   await click(s.root, "Add gradient");
   await click(s.root, CONVERT);
   const text = review(s.root)!.textContent ?? "";
-  ok(/This picture shows only what Light 1 adds on its own/.test(text) && /does not mark clamped cells/.test(text));
-  ok(/\d+ cells? would total more than 255 either way once added to the shading already there, and the board's picture draws those clamped at 255/.test(text), "the clamped cells are counted, and the board's picture (not this one) is what clamps");
+  ok(/This picture shows only what Light 1 adds on its own/.test(text) && /does not mark cells whose stored shade passes ±255/.test(text));
+  ok(/\d+ cells? would have a stored shade beyond ±255 \(in red, green or blue\) once added to the shading already there/.test(text), "cells with a stored total beyond ±255 are counted");
+  ok(/not a drawing error/.test(text) && !/draws those clamped/.test(text), "the count makes no claim about rendered clipping");
 });
 
 test("two open reviews in two panes: Escape answers only the active one, and never pulls focus into the other pane", async () => {
