@@ -78,8 +78,6 @@ export const VISUAL_EVENT_TEMPLATES: readonly VisualEventTemplate[] = [
     fields: [{ label: "Question", type: "string" }, { label: "Result variable", type: "variable" }], defaults: ["Your name?", "answer"] },
   { id: "get-gold", category: "Info", label: "Read gold", command: "getgp", kind: "call",
     fields: [{ label: "Result variable", type: "variable" }], defaults: ["gold"] },
-  { id: "get-level", category: "Info", label: "Read player level", command: "getlevel", kind: "call",
-    fields: [{ label: "Player handle", type: "number", integer: true }, { label: "Result variable", type: "variable" }], defaults: [0, "level"] },
 ];
 
 /** The default cell size of script text until a `fontsize` card changes it (the engine's UI default). */

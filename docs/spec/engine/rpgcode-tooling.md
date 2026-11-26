@@ -610,7 +610,7 @@ Every subcommand accepts `--json`. With it, the envelope below goes to stdout an
   | Items | Give item, Take item | `giveitem("file.itm")`, `takeitem("file.itm")`, asset fields over the `Item` folder |
   | Variables | Set variable | `name = number` |
   | Input | Wait for key, Delay, Ask for text | `wait()`, `delay(seconds)`, `prompt("question", name)` |
-  | Info | Read gold, Read player level | `getgp(name)`, `getlevel(handle, name)` |
+  | Info | Read gold | `getgp(name)` |
 
   A string value is Windows-1252 text without a double quote or line break; an asset field is a non-empty link in the type's folder, chosen through the shared picker where the host has one (T-05); a variable is an identifier. A value outside a field's range is refused with a reason naming the field, unit and range, and nothing is written. Editing a card replaces only its own statement and keeps its indentation. A command is added at the end of the program or immediately before a chosen card, never inside handwritten code. Neighbouring cards can swap places; a card never moves across opaque code. A held arrow key is applied against the text each nudge was made from, so it is never refused as stale. Cards and the canvas show the generated code and apply through the same registered actions as every other card edit.
 

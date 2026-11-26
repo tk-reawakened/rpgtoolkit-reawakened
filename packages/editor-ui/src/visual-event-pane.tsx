@@ -424,7 +424,9 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
       <form noValidate class="tkr-visual-inspector" aria-label="Placement of the selected command" onSubmit={(event) => {
         event.preventDefault();
         if (readOnly) return;
-        dispatch({ type: "move", from: active.from, x: Number(shown.x), y: Number(shown.y) });
+        // A blank field is not a zero: refusing it keeps the model's range check from silently placing at the origin.
+        const coordinate = (text: string): number => text.trim() === "" ? Number.NaN : Number(text);
+        dispatch({ type: "move", from: active.from, x: coordinate(shown.x), y: coordinate(shown.y) });
       }}>
         <div class="tkr-visual-field">
           <label>Placed X <input type="number" step="any" min={xField.minimum} value={shown.x} readOnly={readOnly}

@@ -1070,6 +1070,17 @@ test("nudges made while an earlier edit is still being applied are added togethe
   equal(textOf(s), 'text(2, 3, "HP")\n');
 });
 
+test("a blank placement coordinate is refused instead of reading as zero", async () => {
+  const s = await setup({ content: 'pixeltext(40, 50, "B")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  await fill(labelled(s.el, "Placed X"), "");
+  await act(() => named(s.el, "Apply placement").click());
+  await settled();
+  match(alerts(s.el).join(" "), /X must be a number/);
+  equal(textOf(s), 'pixeltext(40, 50, "B")\n', "an empty field never places the command at zero");
+});
+
 test("the layout list selects with arrow keys and the numeric inspector follows the selection", async () => {
   const s = await setup({ content: 'text(2, 3, "A")\npixeltext(40, 50, "B")\n' });
   show(s);
