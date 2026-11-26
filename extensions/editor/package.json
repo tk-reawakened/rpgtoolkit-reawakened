@@ -36,6 +36,11 @@
     "onCommand:tkr.openWhatsNew",
     "onCommand:tkr.help.firstBoard",
     "onCommand:tkr.help.dailyTip",
+    "onCommand:tkr.help.firstBoard.back",
+    "onCommand:tkr.help.firstBoard.next",
+    "onCommand:tkr.help.firstBoard.restart",
+    "onCommand:tkr.help.firstBoard.close",
+    "onCommand:tkr.help.dailyTip.toggle",
     "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
@@ -152,6 +157,31 @@
       {
         "command": "tkr.help.dailyTip",
         "title": "RPG Toolkit: Tip of the day"
+      },
+      {
+        "command": "tkr.help.firstBoard.back",
+        "title": "RPG Toolkit: Previous step",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.back"
+      },
+      {
+        "command": "tkr.help.firstBoard.next",
+        "title": "RPG Toolkit: Next step",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.next"
+      },
+      {
+        "command": "tkr.help.firstBoard.restart",
+        "title": "RPG Toolkit: Restart tutorial",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.restart"
+      },
+      {
+        "command": "tkr.help.firstBoard.close",
+        "title": "RPG Toolkit: Close help",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.close"
+      },
+      {
+        "command": "tkr.help.dailyTip.toggle",
+        "title": "RPG Toolkit: Show a tip when the editor opens",
+        "enablement": "tkr.firstBoard.action.help.dailyTip.toggle"
       },
       {
         "command": "tkr.distractionFree",

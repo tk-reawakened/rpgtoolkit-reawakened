@@ -1,12 +1,29 @@
 import * as vscode from "vscode";
-import { firstBoardHelpCommands, readFirstBoardTipsEnabled, type FirstBoardHelpSurface } from "@tk-reawakened/editor-ui";
-import { createCommandRegistry } from "@tk-reawakened/editor-model";
+import {
+  FIRST_BOARD_ACTIONS,
+  firstBoardHelpCommands,
+  firstBoardTipOfTheDay,
+  readFirstBoardTipsEnabled,
+  type FirstBoardActionId,
+  type FirstBoardHelpSurface,
+} from "@tk-reawakened/editor-ui";
+import { createCommandRegistry, type CommandRegistry } from "@tk-reawakened/editor-model";
 import { platformError, platformOk, type SettingsService } from "@tk-reawakened/platform-services";
 import { createVscodeSettings } from "./services.ts";
 import { DOCUMENT_KINDS_BY_VIEW_TYPE } from "./custom-editor.ts";
 
 const STEP = "onboarding.firstBoard.step";
 const TIPS = "editor.showTips";
+const ACTION_CONTEXT = "tkr.firstBoard.action.";
+
+type TutorialPanel = {
+  readonly panel: vscode.WebviewPanel;
+  readonly surface: FirstBoardHelpSurface;
+  closed: boolean;
+  ready: boolean;
+  initialized: boolean;
+  documentId: string | null;
+};
 
 function tutorialSettings(context: vscode.ExtensionContext): SettingsService {
   const native = createVscodeSettings();
@@ -27,20 +44,52 @@ function tutorialSettings(context: vscode.ExtensionContext): SettingsService {
   };
 }
 
-/** Host the shared tutorial commands and their non-modal webview in the VS Code workbench. */
+/** Host shared tutorial commands and their non-modal webview in the VS Code workbench. */
 export function registerFirstBoardTutorial(context: vscode.ExtensionContext): void {
   const settings = tutorialSettings(context);
-  let current: { readonly panel: vscode.WebviewPanel; readonly surface: FirstBoardHelpSurface } | null = null;
+  let current: TutorialPanel | null = null;
+  let commands: CommandRegistry | null = null;
+  let capabilities = new Set<FirstBoardActionId>();
   let enteredManually = false;
   let consideredStartupTip = false;
 
+  const isCurrentPanel = (panel: vscode.WebviewPanel): boolean =>
+    current?.panel === panel && !current.closed;
+  const isCurrentVisiblePanel = (panel: vscode.WebviewPanel): boolean =>
+    isCurrentPanel(panel) && panel.visible && panel.active;
+
+  function updateNativeContext(): void {
+    const active = current !== null && isCurrentVisiblePanel(current.panel);
+    for (const action of FIRST_BOARD_ACTIONS) {
+      void vscode.commands.executeCommand(
+        "setContext", `${ACTION_CONTEXT}${action.id}`, active && capabilities.has(action.id),
+      );
+    }
+  }
+  function dispatchAction(id: FirstBoardActionId, panel: vscode.WebviewPanel): void {
+    const documentId = current?.panel === panel ? current.documentId : null;
+    if (!isCurrentVisiblePanel(panel) || !capabilities.has(id) || documentId === null) return;
+    void panel.webview.postMessage({ type: "invoke-action", documentId, id });
+  }
+
+  function updateCapabilities(panel: vscode.WebviewPanel, values: unknown): void {
+    if (!isCurrentPanel(panel)) return;
+    capabilities = Array.isArray(values)
+      && values.every((value): value is FirstBoardActionId => FIRST_BOARD_ACTIONS.some(({ id }) => id === value))
+      ? new Set(values)
+      : new Set();
+    updateNativeContext();
+  }
+
   function show(surface: FirstBoardHelpSurface, preserveFocus: boolean): void {
-    if (current?.surface === surface) {
+    if (current?.surface === surface && !current.closed) {
       current.panel.reveal(undefined, preserveFocus);
+      updateNativeContext();
       return;
     }
     const previous = current;
     current = null;
+    capabilities = new Set();
     previous?.panel.dispose();
 
     const panel = vscode.window.createWebviewPanel(
@@ -48,20 +97,46 @@ export function registerFirstBoardTutorial(context: vscode.ExtensionContext): vo
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus },
       { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] },
     );
-    current = { panel, surface };
-    let closed = false;
+    const state: TutorialPanel = { panel, surface, closed: false, ready: false, initialized: false, documentId: null };
+    current = state;
+    panel.onDidChangeViewState(() => {
+      updateNativeContext();
+      initialize();
+    });
+
+    function initialize(): void {
+      if (!state.ready || state.initialized || !isCurrentVisiblePanel(panel) || state.documentId === null) return;
+      state.initialized = true;
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      const writable = folders.some(({ uri }) => vscode.workspace.fs.isWritableFileSystem(uri.scheme) !== false);
+      void panel.webview.postMessage({
+        type: "initialize", documentId: state.documentId, surface, autofocus: !preserveFocus,
+        canWrite: vscode.workspace.isTrusted && writable, canRun: vscode.workspace.isTrusted && folders.length > 0,
+      });
+    }
+
     const listener = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-      if (closed || typeof message !== "object" || message === null || !("type" in message)) return;
+      if (state.closed || !isCurrentPanel(panel) || typeof message !== "object" || message === null || !("type" in message)) return;
       if (message.type === "ready") {
-        const folders = vscode.workspace.workspaceFolders ?? [];
-        const writable = folders.some(({ uri }) => vscode.workspace.fs.isWritableFileSystem(uri.scheme) !== false);
-        await panel.webview.postMessage({ type: "initialize", surface, autofocus: !preserveFocus,
-          canWrite: vscode.workspace.isTrusted && writable, canRun: vscode.workspace.isTrusted && folders.length > 0 });
+        if (!("documentId" in message) || typeof message.documentId !== "string" || message.documentId.length === 0) return;
+        state.documentId = message.documentId;
+        state.ready = true;
+        state.initialized = false;
+        capabilities = new Set();
+        updateNativeContext();
+        initialize();
+        return;
+      }
+      if (!("documentId" in message) || message.documentId !== state.documentId) return;
+      if (message.type === "action-capabilities" && "ids" in message) {
+        updateCapabilities(panel, message.ids);
       } else if (message.type === "close") {
-        // Disposing a native panel restores its previous editor group; do not reopen closed documents.
-        panel.dispose();
-      } else if (message.type === "setting" && "requestId" in message && typeof message.requestId === "number"
+        if (isCurrentVisiblePanel(panel)) panel.dispose();
+      } else if (message.type === "setting"
+        && "requestId" in message && typeof message.requestId === "number"
         && "layer" in message && message.layer === "user" && "id" in message && typeof message.id === "string" && "operation" in message) {
+        const requestDocumentId = state.documentId;
+        if (requestDocumentId === null) return;
         let result;
         try {
           result = message.operation === "get" ? await settings.get("user", message.id)
@@ -71,33 +146,53 @@ export function registerFirstBoardTutorial(context: vscode.ExtensionContext): vo
         } catch {
           result = platformError("unavailable", "VS Code could not access this user preference.");
         }
-        if (!closed) await panel.webview.postMessage({ type: "setting-result", requestId: message.requestId, result });
+        if (isCurrentPanel(panel) && state.documentId === requestDocumentId) {
+          await panel.webview.postMessage({ type: "setting-result", documentId: requestDocumentId, requestId: message.requestId, result });
+        }
       }
     });
+
     panel.onDidDispose(() => {
-      closed = true;
+      state.closed = true;
       listener.dispose();
-      if (current?.panel === panel) current = null;
+      if (current?.panel === panel) {
+        current = null;
+        capabilities = new Set();
+        updateNativeContext();
+      }
     });
     panel.webview.html = tutorialHtml(panel.webview, context.extensionUri);
+    updateNativeContext();
   }
 
-  const commands = createCommandRegistry(firstBoardHelpCommands((surface) => {
+  commands = createCommandRegistry(firstBoardHelpCommands((surface) => {
     enteredManually = true;
     show(surface, false);
   }));
-  for (const { id } of commands.getCommands()) {
-    context.subscriptions.push(vscode.commands.registerCommand(`tkr.${id}`, () => { commands.execute(id); }));
+  for (const command of commands.getCommands()) {
+    context.subscriptions.push(vscode.commands.registerCommand(`tkr.${command.id}`, () => { commands?.execute(command.id); }));
   }
+  for (const action of FIRST_BOARD_ACTIONS) {
+    context.subscriptions.push(vscode.commands.registerCommand(`tkr.${action.id}`, () => {
+      const panel = current?.panel;
+      if (panel !== undefined) dispatchAction(action.id, panel);
+    }));
+  }
+  updateNativeContext();
 
   async function offerStartupTip(): Promise<void> {
     if (consideredStartupTip || enteredManually) return;
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     if (!(input instanceof vscode.TabInputCustom) || !Object.hasOwn(DOCUMENT_KINDS_BY_VIEW_TYPE, input.viewType)) return;
     consideredStartupTip = true;
-    if (await readFirstBoardTipsEnabled(settings) && !enteredManually) show("tip", true);
+    if (await readFirstBoardTipsEnabled(settings) && !enteredManually) {
+      void vscode.window.showInformationMessage(firstBoardTipOfTheDay());
+    }
   }
-  context.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs(() => { void offerStartupTip(); }), {
+  context.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs(() => {
+    updateNativeContext();
+    void offerStartupTip();
+  }), {
     dispose() { current?.panel.dispose(); },
   });
   void offerStartupTip();
