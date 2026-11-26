@@ -31,7 +31,7 @@ import {
     encodeScenePng,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, ClipboardService, DocumentEdited, ImageExportService } from "@tk-reawakened/platform-services";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
 import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-lighting-view.tsx";
@@ -399,7 +399,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   // Object art and visual board data affect composition; region-only edits need no asset work.
   }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.lights, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
 
-  useEffect(() => {
+  // Move focus only after the new roving tab stop is committed, not in an older passive effect.
+  useLayoutEffect(() => {
     if (!focusCell.current) return;
     focusCell.current = false;
     grid.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
@@ -957,8 +958,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
                         const step = event.key === "ArrowLeft" ? [-1, 0] : event.key === "ArrowRight" ? [1, 0] : event.key === "ArrowUp" ? [0, -1] : event.key === "ArrowDown" ? [0, 1] : null;
                         if (step !== null) {
                           event.preventDefault();
-                          focusCell.current = true;
+                          const before = editor.getState().cursor;
                           editor.moveCursor(step[0]!, step[1]!);
+                          focusCell.current ||= editor.getState().cursor !== before;
                         } else if (event.key === "Enter") {
                           event.preventDefault();
                           tileField.current?.focus();

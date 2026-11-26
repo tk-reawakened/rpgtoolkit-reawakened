@@ -1,4 +1,4 @@
-import { FIRST_BOARD_ACTIONS, firstBoardTipOfTheDay } from "@tk-reawakened/editor-ui";
+import { FIRST_BOARD_ACTIONS, firstBoardTipOfTheDay, type FirstBoardActionId } from "@tk-reawakened/editor-ui";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 import { pollNoFrameMatching, pollPageFrames } from "./frame-poll.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
@@ -29,16 +29,16 @@ async function closeHelp(page: Page, expect: Expect, title: string): Promise<voi
   });
 }
 
-async function expectNativeCommandUnavailable(page: Page, expect: Expect, title: string): Promise<void> {
+async function expectNativeCommandUnavailable(page: Page, expect: Expect, id: FirstBoardActionId): Promise<void> {
   await page.keyboard.press("ControlOrMeta+Shift+P");
   const input = page.locator(".quick-input-widget input:visible");
   await expect(input).toBeVisible();
-  await input.fill(`>${title}`);
-  await expect(input).toHaveValue(`>${title}`);
-  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const row = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
-  await expect(page.locator(".quick-input-widget").getByText(/No matching commands/)).toBeVisible();
-  await expect(row, `${title} is absent while the shared registry marks it inapplicable`).toHaveCount(0);
+  // A human-readable query can yield fuzzy matches for other commands. VS Code
+  // provides exact command-ID matching, which means this inactive ID has no pick.
+  const query = `>tkr.${id}`;
+  await input.fill(query);
+  await expect(input).toHaveValue(query);
+  await expect(page.locator(".quick-input-widget").getByText("No matching commands", { exact: true })).toBeVisible();
   await input.press("Escape");
 }
 
@@ -62,6 +62,7 @@ export async function runVscodeFirstBoardTutorialProof(page: Page, expect: Expec
   await expect(titleField).toBeFocused();
   await expect(page.locator(".notification-toast").filter({ hasText: firstBoardTipOfTheDay() })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Tip of the day/ })).toHaveCount(0);
+  await expect(page.locator("iframe.webview:visible")).toHaveCount(1);
   await pollNoFrameMatching<Frame>({
     label: "No automatic first-board tutorial webview beside the selected game settings editor",
     frames: () => page.frames(),
@@ -81,9 +82,9 @@ export async function runVscodeFirstBoardTutorialProof(page: Page, expect: Expec
   let frame = await openHelp(page, expect, guide);
   await expect(frame.getByRole("heading", { name: /^Step 1 of 9:/ })).toBeVisible();
   await expect(frame.getByRole("heading", { name: /^Step 1 of 9:/ })).toBeFocused();
-  await expectNativeCommandUnavailable(page, expect, back);
-  await expectNativeCommandUnavailable(page, expect, restart);
-  await expectNativeCommandUnavailable(page, expect, toggle);
+  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.back");
+  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.restart");
+  await expectNativeCommandUnavailable(page, expect, "help.dailyTip.toggle");
 
   await runCommandMatching(page, expect, next, next);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9: Find Game and Files/ })).toBeVisible();
@@ -92,6 +93,7 @@ export async function runVscodeFirstBoardTutorialProof(page: Page, expect: Expec
   await runCommandMatching(page, expect, next, next);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9:/ })).toBeVisible();
   await closeHelp(page, expect, close);
+  await expectNativeCommandUnavailable(page, expect, "help.firstBoard.next");
 
   frame = await openHelp(page, expect, guide);
   await expect(frame.getByRole("heading", { name: /^Step 2 of 9:/ })).toBeVisible();

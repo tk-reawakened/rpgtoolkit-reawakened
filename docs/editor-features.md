@@ -38,6 +38,8 @@ The board's tools, history and view controls use compact icons in one wrapping s
 <a id="t-09-onboarding--help"></a>
 **T-09 Onboarding & help.** The nine-step **First board tutorial** and **Tip of the day** open from Help in the browser workbench, from the browser welcome page, or from the RPG Toolkit commands in the VS Code command palette. The guide stays open alongside the editor. Close it and return to the last step, or restart it; progress and **Show a tip when the editor opens** are separate user preferences that do not travel with the project. A tip changes with the UTC day and can still be opened manually after turning off startup tips. The guide covers project creation with the opt-in original starter tiles, making a board, painting with the pointer or keyboard, saving the board and main file separately, and comparing the board picture, **Test board** and a normal game run. Contextual F1 help, the searchable RPGCode quick reference, the RPGCode authoring guide and **What's New** remain separate.
 
+While Help is open, use its controls or the command palette for the available actions: **Previous step**, **Next step**, **Restart tutorial**, **Close help**, or **Show a tip when the editor opens**. In VS Code, the automatic tip appears as a notification without opening another editor; choose **Tip of the day** to open the full tip and its setting.
+
 If the browser does not expose user storage, Help says the guide position and tip preference last only for the current page. If a preference write is refused, Help shows the error and keeps the previous value.
 
 ### Reawakened rules for the new-project wizard (story 11.10)

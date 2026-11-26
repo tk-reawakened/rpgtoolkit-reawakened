@@ -3,7 +3,7 @@
 export { mountCreatorTests, mountCheckpoints, mount, mountAssetPicker, mountEmptyExplorer, mountNewBoard, mountNewProject, mountPreferences, mountRun, mountRunControl, mountRunStatus, mountScriptWorkflow, mountShell, type BoardPreferencesSource, type BoardViewDocument, type CodeEditorContext, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "./mount.ts";
 export { mountTerrainScene } from "./mount.ts";
 export { mountFirstBoardTutorial } from "./mount.ts";
-export { firstBoardHelpCommands, readFirstBoardTipsEnabled, type FirstBoardHelpSurface, type FirstBoardTutorialProps } from "./first-board-tutorial.tsx";
+export { FIRST_BOARD_ACTIONS, firstBoardHelpCommands, firstBoardTipOfTheDay, readFirstBoardTipsEnabled, type FirstBoardActionId, type FirstBoardHelpSurface, type FirstBoardTutorialProps } from "./first-board-tutorial.tsx";
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
 export { EmptyExplorerView, type EmptyExplorerRecentProject, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 export { WorkbenchCommandBar, type CommandPaletteProps } from "./command-palette.tsx";

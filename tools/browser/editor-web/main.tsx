@@ -76,6 +76,7 @@ const mirrors = new Map<AnyDocument, { readonly view: DocumentView; readonly ele
 const pendingMirrors = new Set<AnyDocument>();
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
+let mirrorGeneration = 0;
 let tutorialView: ViewHandle | null = null;
 let tutorialSurface: FirstBoardHelpSurface | null = null;
 let tutorialInvoker: HTMLElement | null = null;
@@ -110,6 +111,7 @@ function openFirstBoardHelp(surface: FirstBoardHelpSurface, autofocus = true): v
     host: "browser",
     surface,
     settings: helpSettings,
+    commandRegistry: tutorialCommands,
     canWrite: shown?.project.services.capabilities.has("folderWrite") ?? false,
     canRun: shown?.project.services.capabilities.has("runGame") ?? false,
     autofocus,
@@ -120,11 +122,9 @@ void readFirstBoardTipsEnabled(helpSettings).then((enabled) => {
   if (enabled && tutorialView === null) openFirstBoardHelp("tip", false);
 });
 
-const tutorialCommands = firstBoardHelpCommands(openFirstBoardHelp);
-const welcomeHelpCommands = createCommandRegistry(tutorialCommands);
-tutorialGuideButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.firstBoard"); });
-dailyTipButton?.addEventListener("click", () => { void welcomeHelpCommands.execute("help.dailyTip"); });
-let mirrorGeneration = 0;
+const tutorialCommands = createCommandRegistry(firstBoardHelpCommands(openFirstBoardHelp));
+tutorialGuideButton?.addEventListener("click", () => { tutorialCommands.execute("help.firstBoard"); });
+dailyTipButton?.addEventListener("click", () => { tutorialCommands.execute("help.dailyTip"); });
 
 
 let projectWithChoices: WebProject | null = null;

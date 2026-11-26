@@ -1,6 +1,7 @@
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { createCommandRegistry } from "@tk-reawakened/editor-model";
 import { platformError, platformOk, type SettingsService, type SettingValue } from "@tk-reawakened/platform-services";
 import type { FirstBoardHelpSurface, FirstBoardTutorialProps, ViewHandle } from "../src/index.ts";
 import type { act as TestAct } from "preact/test-utils";
@@ -24,6 +25,7 @@ function fixture(options: Partial<Pick<FirstBoardTutorialProps, "host" | "canWri
   entry.focus();
   const values = new Map<string, SettingValue | null>();
   const writes: [string, SettingValue | null][] = [];
+  const commandRegistry = createCommandRegistry();
   let closeCount = 0;
   let refused = false;
   let readRefused = false;
@@ -42,14 +44,14 @@ function fixture(options: Partial<Pick<FirstBoardTutorialProps, "host" | "canWri
     },
   };
   return {
-    entry, el, values, writes, settings,
+    entry, el, values, writes, settings, commandRegistry,
     refuseWrites() { refused = true; },
     refuseReads() { readRefused = true; },
     closed: () => closeCount,
     async open(surface: FirstBoardHelpSurface = "guide") {
       await act(async () => {
         view = ui.mountFirstBoardTutorial(el, {
-          host: "browser", canWrite: true, canRun: true, ...options, surface, settings,
+          host: "browser", canWrite: true, canRun: true, ...options, surface, settings, commandRegistry,
           onClose: () => { view.dispose(); closeCount++; entry.focus(); },
         });
       });
@@ -79,6 +81,26 @@ test("the two host entry commands open different surfaces", () => {
   ]);
   for (const command of commands) command.run();
   deepEqual(opened, ["guide", "tip"]);
+});
+
+test("the shared command scope tracks its mounted surface, progress, and disposal", async () => {
+  const f = fixture();
+  equal(f.commandRegistry.execute("help.firstBoard.next"), false);
+  await f.open();
+  equal(f.commandRegistry.execute("help.firstBoard.back"), false);
+  equal(f.commandRegistry.execute("help.firstBoard.restart"), false);
+  equal(f.commandRegistry.execute("help.dailyTip.toggle"), false);
+  await act(async () => { equal(f.commandRegistry.execute("help.firstBoard.next"), true); });
+  match(heading(f)?.textContent ?? "", /Step 2 of 9/);
+  deepEqual(f.writes, [[STEP, 2]]);
+  await act(() => { equal(f.commandRegistry.execute("help.firstBoard.close"), true); });
+  equal(f.commandRegistry.execute("help.firstBoard.next"), false);
+  await f.open("tip");
+  equal(f.commandRegistry.execute("help.firstBoard.next"), false);
+  await act(async () => { equal(f.commandRegistry.execute("help.dailyTip.toggle"), true); });
+  deepEqual(f.writes, [[STEP, 2], [TIPS, false]]);
+  await f.close();
+  equal(f.commandRegistry.execute("help.dailyTip.toggle"), false);
 });
 
 test("keyboard escape closes, returns focus, and the guide resumes until reset", async () => {

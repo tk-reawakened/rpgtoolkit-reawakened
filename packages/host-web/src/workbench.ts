@@ -61,6 +61,7 @@ import {
   projectLayoutOwnerForDocumentPath,
   resolveReservedFolderPath,
   createCommandRegistry,
+  type CommandRegistry,
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
   type ProjectLayoutOwner,
@@ -81,8 +82,8 @@ export interface WorkbenchOptions {
   readonly projectLayout?: ProjectLayout;
   /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
   readonly main?: string;
-  /** Shared host commands, registered in the workbench menu and palette. */
-  readonly helpCommands?: readonly WorkbenchCommand[];
+  /** Live host Help commands, including commands registered by the currently mounted help panel. */
+  readonly helpCommands?: CommandRegistry;
 }
 
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
@@ -944,7 +945,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
-    extraCommands: [...auditionCommands, ...scriptCommands, ...boardUpgradeCommands, ...(options.helpCommands ?? [])],
+    extraCommands: [...auditionCommands, ...scriptCommands, ...boardUpgradeCommands],
+    ...(options.helpCommands === undefined ? {} : { contextCommands: options.helpCommands }),
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {

@@ -50,14 +50,34 @@ test("editor-web exposes shared first-board help on welcome and workbench and pr
   await page.getByRole("menuitem", { name: "First board tutorial" }).click();
   await expect(tutorial.getByRole("heading", { name: "Step 1 of 9: Create a project" })).toBeVisible();
   await expect(tutorial.getByText(/needs a writable project folder/i)).toBeVisible();
-  await tutorial.getByRole("button", { name: "Close help" }).click();
-
-  await page.getByRole("button", { name: "Command palette" }).click();
   const palette = page.getByRole("dialog", { name: "Command palette" });
-  await palette.getByRole("combobox", { name: "Search commands and files" }).fill(">Tip of the day");
-  await palette.getByRole("button", { name: "Tip of the day" }).click();
+  const command = async (label: string) => {
+    await page.getByRole("button", { name: "Command palette" }).click();
+    await palette.getByRole("combobox", { name: "Search commands and files" }).fill(`>${label}`);
+    return palette.getByRole("button", { name: `Help ${label}`, exact: true });
+  };
+  const disabledBack = await command("Previous step");
+  await expect(disabledBack).toBeDisabled();
+  await palette.getByRole("combobox").press("Escape");
+  await (await command("Next step")).click();
+  await expect(tutorial.getByRole("heading", { name: "Step 2 of 9: Find Game and Files" })).toBeFocused();
+  await (await command("Previous step")).click();
+  await expect(tutorial.getByRole("heading", { name: "Step 1 of 9: Create a project" })).toBeVisible();
+  await (await command("Next step")).click();
+  await expect(tutorial.getByRole("heading", { name: /^Step 2 of 9/ })).toBeVisible();
+  await (await command("Restart tutorial")).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("tkr.setting.onboarding.firstBoard.step"))).toBe("1");
+  await (await command("Close help")).click();
+  await expect(helpPanel).toBeHidden();
+  await expect(await command("Next step")).toHaveCount(0);
+  await palette.getByRole("combobox").press("Escape");
+
+  await (await command("Tip of the day")).click();
   await expect(tip).toBeVisible();
-  await expect(tip.getByLabel("Show a tip when the editor opens")).not.toBeChecked();
+  await expect(tipsToggle).not.toBeChecked();
+  await (await command("Show a tip when the editor opens")).click();
+  await expect(tipsToggle).toBeChecked();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("tkr.setting.editor.showTips"))).toBe("true");
 });
 
 test("editor-web exposes a first-board progress write refusal without advancing", async ({ page }) => {

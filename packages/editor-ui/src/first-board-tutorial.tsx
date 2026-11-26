@@ -1,4 +1,4 @@
-import { createCommandRegistry, type WorkbenchCommand } from "@tk-reawakened/editor-model";
+import type { CommandRegistry, WorkbenchCommand } from "@tk-reawakened/editor-model";
 import type { SettingsService, SettingValue } from "@tk-reawakened/platform-services";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
 
@@ -8,6 +8,7 @@ export interface FirstBoardTutorialProps {
   readonly host: "browser" | "vscode";
   readonly surface: FirstBoardHelpSurface;
   readonly settings: Pick<SettingsService, "get" | "set">;
+  readonly commandRegistry: CommandRegistry;
   readonly canWrite: boolean;
   readonly canRun: boolean;
   readonly onClose: () => void;
@@ -17,6 +18,15 @@ export interface FirstBoardTutorialProps {
 
 const STEP = "onboarding.firstBoard.step";
 const TIPS = "editor.showTips";
+
+const BACK = { id: "help.firstBoard.back", label: "Previous step" } as const;
+const NEXT = { id: "help.firstBoard.next", label: "Next step" } as const;
+const RESTART = { id: "help.firstBoard.restart", label: "Restart tutorial" } as const;
+const CLOSE = { id: "help.firstBoard.close", label: "Close help" } as const;
+const TOGGLE_TIP = { id: "help.dailyTip.toggle", label: "Show a tip when the editor opens" } as const;
+
+export const FIRST_BOARD_ACTIONS = [BACK, NEXT, RESTART, CLOSE, TOGGLE_TIP] as const;
+export type FirstBoardActionId = (typeof FIRST_BOARD_ACTIONS)[number]["id"];
 
 export function firstBoardHelpCommands(open: (surface: FirstBoardHelpSurface) => void): readonly WorkbenchCommand[] {
   return [
@@ -107,14 +117,22 @@ const STEPS: readonly Step[] = [
 ];
 
 const DAY_MS = 86_400_000;
+
+export function firstBoardTipOfTheDay(): string {
+  return STEPS[Math.floor(Date.now() / DAY_MS) % STEPS.length]!.tip;
+}
+
+function action(definition: (typeof FIRST_BOARD_ACTIONS)[number], run: WorkbenchCommand["run"], disabled = false): WorkbenchCommand {
+  return { ...definition, category: "Help", run, disabled };
+}
 const readingError = "Could not read your tutorial preferences. Close and reopen the help to try again.";
 
-export function FirstBoardTutorial({ host, surface, settings, canWrite, canRun, onClose, autofocus = true }: FirstBoardTutorialProps) {
+export function FirstBoardTutorial({ host, surface, settings, commandRegistry, canWrite, canRun, onClose, autofocus = true }: FirstBoardTutorialProps) {
   const guide = surface === "guide";
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const [step, setStep] = useState(1);
-  const [tip] = useState(() => STEPS[Math.floor(Date.now() / DAY_MS) % STEPS.length]!.tip);
+  const [tip] = useState(firstBoardTipOfTheDay);
   const [tipsEnabled, setTipsEnabled] = useState(true);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
@@ -166,24 +184,24 @@ export function FirstBoardTutorial({ host, surface, settings, canWrite, canRun, 
     setStep(next);
   });
   const disabled = !ready || pending;
-  const commands = createCommandRegistry([
-    { id: "help.firstBoard.back", category: "Help", label: "Previous step", disabled: disabled || step === 1, run: () => move(step - 1) },
-    { id: "help.firstBoard.next", category: "Help", label: "Next step", disabled: disabled || step === STEPS.length, run: () => move(step + 1) },
-    { id: "help.firstBoard.restart", category: "Help", label: "Restart tutorial", disabled: disabled || step === 1, run: () => move(1) },
-    { id: "help.firstBoard.close", category: "Help", label: "Close help", run: onClose },
-    { id: "help.dailyTip.toggle", category: "Help", label: "Show a tip when the editor opens", disabled, run: () => write(TIPS, !tipsEnabled, () => setTipsEnabled(!tipsEnabled)) },
-  ]);
+  useLayoutEffect(() => commandRegistry.registerMany([
+    action(BACK, () => move(step - 1), !guide || disabled || step === 1),
+    action(NEXT, () => move(step + 1), !guide || disabled || step === STEPS.length),
+    action(RESTART, () => move(1), !guide || disabled || step === 1),
+    action(CLOSE, onClose),
+    action(TOGGLE_TIP, () => write(TIPS, !tipsEnabled, () => setTipsEnabled(!tipsEnabled)), guide || disabled),
+  ]), [commandRegistry, guide, disabled, step, tipsEnabled, settings, onClose]);
   const info = STEPS[step - 1]!;
 
   return (
-    <section class="tkr-first-board-help" aria-labelledby={headingId} data-editor-commands="exclude" onKeyDown={(event) => {
+    <section class="tkr-first-board-help" aria-labelledby={headingId} onKeyDown={(event) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.stopPropagation();
-        commands.execute("help.firstBoard.close");
+        commandRegistry.execute(CLOSE.id);
       }
     }}>
       <header><strong>{guide ? "First board tutorial" : "Tip of the day"}</strong>
-        <button type="button" onClick={() => commands.execute("help.firstBoard.close")}>Close help</button>
+        <button type="button" onClick={() => commandRegistry.execute(CLOSE.id)}>{CLOSE.label}</button>
       </header>
       {error !== "" && <p role="alert">{error}</p>}
       {!ready && error === "" && <p role="status">Reading your tutorial preferences…</p>}
@@ -195,17 +213,17 @@ export function FirstBoardTutorial({ host, surface, settings, canWrite, canRun, 
         {info.needs === "write" && !canWrite && <p role="status">This step needs a writable project folder. Choose or open one before making project changes.</p>}
         {info.needs === "run" && !canRun && <p role="status">No player is available in this editor session. Open a supported browser editor or VS Code project to compare the runs.</p>}
         <nav aria-label="Tutorial steps">
-          <button type="button" disabled={disabled || step === 1} onClick={() => commands.execute("help.firstBoard.back")}>Previous step</button>
-          <button type="button" disabled={disabled || step === STEPS.length} onClick={() => commands.execute("help.firstBoard.next")}>Next step</button>
-          <button type="button" disabled={disabled || step === 1} onClick={() => commands.execute("help.firstBoard.restart")}>Restart tutorial</button>
+          <button type="button" disabled={disabled || step === 1} onClick={() => commandRegistry.execute(BACK.id)}>{BACK.label}</button>
+          <button type="button" disabled={disabled || step === STEPS.length} onClick={() => commandRegistry.execute(NEXT.id)}>{NEXT.label}</button>
+          <button type="button" disabled={disabled || step === 1} onClick={() => commandRegistry.execute(RESTART.id)}>{RESTART.label}</button>
         </nav>
       </> : <>
         <h2 id={headingId} tabIndex={-1} ref={heading}>A tip for today</h2>
         <p>{tip}</p>
         <label><input type="checkbox" checked={tipsEnabled} disabled={disabled} onChange={(event) => {
           event.currentTarget.checked = tipsEnabled;
-          commands.execute("help.dailyTip.toggle");
-        }} />Show a tip when the editor opens</label>
+          commandRegistry.execute(TOGGLE_TIP.id);
+        }} />{TOGGLE_TIP.label}</label>
       </>}
     </section>
   );
