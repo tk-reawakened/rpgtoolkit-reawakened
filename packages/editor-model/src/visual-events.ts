@@ -221,7 +221,8 @@ function classifyLines(tokens: readonly Token[], lines: readonly string[]): Line
     const start = statement.line - 1;
     let end = (boundaries.find((line) => line > start) ?? lines.length) - 1;
     while (end > start && !terminal[end]) end -= 1;
-    statements.set(start, { kind: statement.kind, end, otherwise: statement.kind === "if" && statement.elseBody !== null });
+    const chain = statement.kind === "if" && (statement.branches.length > 1 || statement.elseBody !== null);
+    statements.set(start, { kind: statement.kind, end, otherwise: chain });
   }
   return { names, statements };
 }
@@ -380,7 +381,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     const block = statement(line, "if");
     if (block !== null) {
       if (block.otherwise) continue;
-      const card = conditionCard(source, lines, starts, line, block.end, identify(`condition:${lines[line]!.trim()}`));
+      const card = conditionCard(source, lines, starts, line, block.end, identify("condition"));
       if (card !== null) {
         flushOpaque(card.from, card.line);
         regions.push(card);
@@ -400,7 +401,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
         const message = MESSAGE_LINE.exec(lines[line]!)![1]!;
         const to = lineTo(line + 2);
         flushOpaque(starts[line]!, line + 1);
-        regions.push({ type: "show-message", id: identify(`message:${message}`), message, from: starts[line]!, to, line: line + 1 });
+        regions.push({ type: "show-message", id: identify("message"), message, from: starts[line]!, to, line: line + 1 });
         opaqueStart = to;
         opaqueLine = line + 4;
         line += 2;
@@ -427,7 +428,7 @@ export function projectVisualProgram(source: string, compiled = false): VisualPr
     const to = lineTo(line);
     flushOpaque(from, line + 1);
     regions.push({
-      type: "event", id: identify(`event:${template.id}:${lines[line]!.trim()}`), templateId: template.id, values,
+      type: "event", id: identify(`event:${template.id}`), templateId: template.id, values,
       from, to, line: line + 1, source: lines[line]!,
     });
     opaqueStart = to;
@@ -681,6 +682,7 @@ export function nudgeVisualEvent(projection: VisualProgramProjection, from: numb
 function coveredLines(region: EditableVisualEvent): number {
   if (region.type === "show-message") return 3;
   if (region.type !== "condition") return 1;
+  if (region.body === "") return 2;
   return 2 + region.body.split("\n").length - (region.body.endsWith("\n") ? 1 : 0);
 }
 

@@ -473,13 +473,13 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
 function useDispatch(source: string, error: string | null, onAction: Dispatch): Dispatch {
   const latest = useRef({ source, onAction });
   latest.current = { source, onAction };
-  const state = useRef<{ inflight: string | null; queued: { readonly from: number; readonly line: number; readonly templateId: string; readonly dx: number; readonly dy: number } | null; timer: ReturnType<typeof setTimeout> | undefined }>({
+  const state = useRef<{ inflight: string | null; queued: { readonly id: string; readonly from: number; readonly dx: number; readonly dy: number } | null; timer: ReturnType<typeof setTimeout> | undefined }>({
     inflight: null, queued: null, timer: undefined,
   });
-  /** The card a gesture was made on, by offset, line and command: its own value edits keep all three, a swap does not. */
-  const cardAt = (text: string, from: number): { readonly line: number; readonly templateId: string } | null => {
+  /** The placed card a gesture was made on: its identity, which its own value edits keep and a swap or removal does not. */
+  const cardAt = (text: string, from: number): { readonly id: string } | null => {
     const region = projectVisualProgram(text).regions.find((item): item is EditableVisualEvent => item.type !== "opaque" && item.from === from);
-    return region !== undefined && region.type === "event" ? { line: region.line, templateId: region.templateId } : null;
+    return region !== undefined && region.type === "event" ? { id: region.id } : null;
   };
   const send = (action: VisualEventAction, to: Dispatch, from: string): void => {
     const current = state.current;
@@ -496,9 +496,10 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     const queued = current.queued;
     current.queued = null;
     if (queued === null) return;
-    // The gesture belongs to the card it was made on: a card that swapped places, changed command or went away drops it.
+    // The gesture belongs to the card it was made on: a card that swapped places or went away drops it, even when a
+    // neighbour of the same command now sits at the old offset.
     const region = projectVisualProgram(latest.current.source).regions.find((item): item is EditableVisualEvent =>
-      item.type === "event" && item.from === queued.from && item.line === queued.line && item.templateId === queued.templateId);
+      item.type === "event" && item.id === queued.id);
     if (region === undefined) return;
     send({ type: "nudge", from: region.from, dx: queued.dx, dy: queued.dy }, latest.current.onAction, latest.current.source);
   };
@@ -513,10 +514,10 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     const card = cardAt(latest.current.source, action.from);
     if (card === null) return;
     const queued = current.queued;
-    const same = queued !== null && queued.from === action.from && queued.line === card.line && queued.templateId === card.templateId;
+    const same = queued !== null && queued.id === card.id;
     current.queued = same
       ? { ...queued, dx: queued.dx + action.dx, dy: queued.dy + action.dy }
-      : { from: action.from, line: card.line, templateId: card.templateId, dx: action.dx, dy: action.dy };
+      : { id: card.id, from: action.from, dx: action.dx, dy: action.dy };
   };
 }
 

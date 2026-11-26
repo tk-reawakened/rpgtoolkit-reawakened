@@ -271,6 +271,53 @@ test("reorder swaps adjacent cards, keeps the last line unterminated, and never 
   equal(applied(equalLines.source, reorderVisualEvent(equalLines, 0, "down")), "getgp(gold)\ndelay(1)\n");
 });
 
+test("a card keeps its identity when its own values change, and loses it when a sibling decides its slot", () => {
+  const id = (source: string, index = 0): string => {
+    const region = projectVisualProgram(source).regions.filter((item) => item.type === "event")[index];
+    if (region === undefined) throw new Error(`expected a card in ${JSON.stringify(source)}`);
+    return region.id;
+  };
+  equal(id('text(2, 2, "A")\n'), id('text(3, 2, "A")\n'), "the card's own placement edit keeps its identity");
+  equal(id('text(2, 2, "A")\n'), id('text(2, 2, "Z")\n'), "so does its own text edit");
+  const single = id('text(2, 2, "A")\n');
+  const pair = id('text(2, 2, "A")\ntext(2, 2, "A")\n');
+  equal(pair === single, false, "an identical neighbour changes the count, so the survivor is a new card");
+  equal(id('text(2, 2, "A")\ntext(9, 9, "B")\n').endsWith("/2"), true, "same-command cards are counted together, so a slot change is visible");
+});
+
+test("an elseif chain is never one card: removing it must not delete another branch", () => {
+  const chain = 'if (a == 1) {\n    one()\n}\nelseif (b == 2) {\n    two()\n}\n';
+  equal(projectVisualProgram(chain).regions.some((region) => region.type === "condition"), false);
+  const braced = 'if (a == 1) {\n    one()\n}\nelse {\n    two()\n}\n';
+  equal(projectVisualProgram(braced).regions.some((region) => region.type === "condition"), false);
+  const lone = projectVisualProgram('if (a == 1) {\n    one()\n}\n');
+  equal(lone.regions.some((region) => region.type === "condition"), true, "a lone if is still a card");
+});
+
+test("an empty condition body covers two lines, so an unequal swap with it is refused", () => {
+  const empty = projectVisualProgram('if (a == 1) {\n}\ndelay(1)\n');
+  const card = empty.regions.find((region) => region.type === "condition");
+  if (card === undefined || card.type !== "condition") throw new Error("expected a condition card");
+  equal(reorderVisualEvent(empty, card.from, "down").ok, false, "two lines cannot swap with one");
+  const withMessage = projectVisualProgram('if (a == 1) {\n}\nmwin("x")\nwait()\nmwincls()\n');
+  const block = withMessage.regions.find((region) => region.type === "condition");
+  if (block === undefined) throw new Error("expected a condition card");
+  equal(reorderVisualEvent(withMessage, block.from, "down").ok, false, "an empty body is two lines, not three");
+  const pair = 'if (a == 1) {\r\n}\r\nif (b == 2) {\r\n}\r\n';
+  const read = programCodec.read(bytes(pair), "Prg/blocks.prg");
+  ok(read.ok);
+  if (!read.ok) return;
+  const projection = projectVisualProgram(read.value.text);
+  const first = projection.regions.find((region) => region.type === "condition");
+  if (first === undefined) throw new Error("expected two condition cards");
+  const swap = reorderVisualEvent(projection, first.from, "down");
+  ok(swap.ok, swap.ok ? "" : swap.reason);
+  if (!swap.ok) return;
+  const written = programCodec.write(programCodec.apply(read.value, { type: "edit-text", edits: [swap.edit] }));
+  ok(written.ok);
+  if (written.ok) equal(new TextDecoder("windows-1252").decode(written.value), 'if (b == 2) {\r\n}\r\nif (a == 1) {\r\n}\r\n', "equal line counts keep every line ending");
+});
+
 test("a statement that continues from the line above never owns a card", () => {
   // The parser owns "\`gold = …\`" as one statement, so its second line is not a card of its own.
   const continued = 'gold =\n  getgp(gold)\ndelay(1)\n';
