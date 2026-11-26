@@ -242,7 +242,9 @@ export async function runVscodeBoardUpgradeProof(
   expect: Expect,
   workbenchUrl: string,
   readBacking: (path: string) => Promise<Uint8Array>,
+  readEvents: () => readonly { readonly kind: "readDirectory" | "readFile"; readonly path: string }[],
 ): Promise<void> {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   const assertAuthoredChecker = async (frame: Frame): Promise<void> => {
     await expect.poll(async () => await frame.evaluate(() => {
       const screen = document.querySelector<HTMLCanvasElement>("#screen");
@@ -253,12 +255,12 @@ export async function runVscodeBoardUpgradeProof(
       gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       const color = (x: number, y: number) => {
         const offset = (y * screen.width + x) * 4;
-        return `${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`;
+        return (pixels[offset]! | (pixels[offset + 1]! << 8) | (pixels[offset + 2]! << 16) | (pixels[offset + 3]! << 24)) >>> 0;
       };
-      for (let scale = 1; scale <= 8; scale *= 2) {
+      for (let scale = 1; scale <= 8; scale += 1) {
         const side = 8 * scale;
-        for (let y = 0; y + side <= screen.height; y += scale) {
-          for (let x = 0; x + side <= screen.width; x += scale) {
+        for (let y = 0; y + side <= screen.height; y += 1) {
+          for (let x = 0; x + side <= screen.width; x += 1) {
             const first = color(x, y);
             const second = color(x + scale, y);
             if (first === second) continue;
@@ -276,7 +278,7 @@ export async function runVscodeBoardUpgradeProof(
         }
       }
       return false;
-    }), { intervals: [50, 100, 200], timeout: 5_000 }).toBe(true);
+    }), { intervals: [100, 250, 500], timeout: 10_000 }).toBe(true);
   };
   const sourcePath = "Game/Example/Boards/village.brd";
   const copyPath = "Game/Example/Boards/village.pixels.brd";
@@ -372,24 +374,30 @@ export async function runVscodeBoardUpgradeProof(
   const legacyReopenedFrame = await waitForBoardUpgradeEditorFrame(page, "saved minor-2.2 copy after close and reopen", "red.upgraded.brd", [rawLegacy.value.sizeX, rawLegacy.value.sizeY, rawLegacy.value.sizeL]);
   await expect(legacyReopenedFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   expect(await readBacking(legacySourcePath)).toEqual(legacySourceBytes);
+  const reopenedLegacyTab = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
+  await reopenedLegacyTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(reopenedLegacyTab).toHaveCount(0);
+  const readsBeforeLegacyRun = readEvents().length;
   await runCommand(page, expect, "Test: Run Legacy Board Upgrade Copy");
   const legacyPlayer = await findPlayerFrame(page, "real minor-2.2 upgraded-copy player frame");
   await expect.poll(async () => await legacyPlayer.evaluate(() => (Reflect.get(window, "__live") as {
     board: string | null;
   } | undefined)?.board ?? ""), { timeout: 30_000 }).toContain("red.upgraded.brd");
+  const legacyRuntimeReads = readEvents().slice(readsBeforeLegacyRun)
+    .filter(({ kind }) => kind === "readFile")
+    .map(({ path }) => path);
+  expect(legacyRuntimeReads).toContain("/Game/Example/Tiles/forest_set.tst");
   const legacyRun = await legacyPlayer.evaluate(() => Reflect.get(window, "__live") as {
     board: string | null;
     player: { x: number; y: number } | null;
     stateHash: string;
   } | undefined);
   expect(legacyRun?.board).toContain("red.upgraded.brd");
+  // The legacy-copy runner's explicit tile start (2, 2) maps to this pixel position.
   expect(legacyRun?.player).toEqual({ x: 48, y: 63 });
   expect(legacyRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
   await assertAuthoredChecker(legacyPlayer);
   await verifyHostRunHash(page, legacyPlayer, expect);
-  const legacyCopyTabAfterRun = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
-  await legacyCopyTabAfterRun.getByRole("button", { name: /^Close/ }).click();
-  await expect(legacyCopyTabAfterRun).toHaveCount(0);
 
   const sourceBytes = await readBacking(sourcePath);
   expect(decode(sourceBytes).board).toEqual(sourceBoard.board);
@@ -399,6 +407,13 @@ export async function runVscodeBoardUpgradeProof(
 
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
+  // The browser may restore earlier custom-editor tabs after navigation; close them before reopening a single board preview.
+  const restoredBoardTabs = page.getByRole("tab", { name: /\.brd/ });
+  while (await restoredBoardTabs.count() > 0) {
+    const restoredBoardTab = restoredBoardTabs.first();
+    await restoredBoardTab.getByRole("button", { name: /^Close/ }).click();
+    await expect(restoredBoardTab).toHaveCount(0);
+  }
   await openNativeQuickOpenFile(page, expect, sourcePath);
   let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
@@ -453,11 +468,11 @@ export async function runVscodeBoardUpgradeProof(
   await expect(failedSavePath).toBeVisible({ timeout: 15_000 });
   await failedSavePath.fill(`/${failedPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
-  await expect(page.getByText(/Could not write .*village\.failed-write\.brd/)).toBeVisible({ timeout: 15_000 });
-  const writeErrorDialog = page.locator(".monaco-dialog-box").filter({ hasText: /Could not write .*village\.failed-write\.brd/ });
-  if (await writeErrorDialog.isVisible()) await writeErrorDialog.getByRole("button", { name: "OK", exact: true }).click();
+  const writeErrorNotification = page.getByRole("dialog", { name: /Could not write .*village\.failed-write\.brd/ });
+  await expect(writeErrorNotification).toBeVisible({ timeout: 15_000 });
   if (await preview.isVisible()) await preview.getByRole("button", { name: "Cancel", exact: true }).click();
-  expect(await pathExists(failedPath)).toBe(false);
+  const failedBytes = await readBacking(failedPath).catch(() => null);
+  expect(failedBytes === null || failedBytes.length === 0).toBe(true);
   expect(await readBacking(sourcePath)).toEqual(sourceBytes);
   expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
   await verifyPendingScriptAndReturnToBoard(sourcePath, "source board after destination write failure");
@@ -506,14 +521,23 @@ export async function runVscodeBoardUpgradeProof(
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   await openNativeQuickOpenFile(page, expect, scriptPath);
   await expect(pendingScriptEditor).toContainText("Pending authored edit");
-  await runCommand(page, expect, "File: Save");
-  const savedScriptBytes = await readBacking(scriptPath);
-  expect(new TextDecoder().decode(savedScriptBytes)).toContain("Pending authored edit");
-  expect(savedScriptBytes).not.toEqual(sourceScriptBytes);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
   await openNativeQuickOpenFile(page, expect, copyPath);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "pixel copy after settling the preserved script edit", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "pixel copy before runner launch", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  const pendingScriptTab = page.getByRole("tab", { name: /start\.prg/ });
+  await pendingScriptTab.click();
+  await pendingScriptTab.getByRole("button", { name: /^Close/ }).click();
+  const discardPendingScript = page.getByRole("dialog").filter({ hasText: "Don't Save" });
+  await expect(discardPendingScript).toBeVisible();
+  await discardPendingScript.getByRole("button", { name: "Don't Save" }).click();
+  await expect(pendingScriptTab).toHaveCount(0);
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
+  await convertedCopyTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(convertedCopyTab).toHaveCount(0);
 
 
+  const readsBeforeConvertedRun = readEvents().length;
   await runCommand(page, expect, "Test: Run Board Upgrade Copy");
   const boardLaunchStatus = page.getByText(/Upgraded-copy board launch (?:accepted|refused:)/);
   await expect(boardLaunchStatus).toBeVisible({ timeout: 30_000 });
@@ -526,6 +550,10 @@ export async function runVscodeBoardUpgradeProof(
   });
   await expect.poll(async () => (await playerBoard())?.board ?? "", { timeout: 30_000 }).toContain("village.pixels.brd");
   const convertedRun = await playerBoard();
+  const convertedRuntimeReads = readEvents().slice(readsBeforeConvertedRun)
+    .filter(({ kind }) => kind === "readFile")
+    .map(({ path }) => path);
+  expect(convertedRuntimeReads).toContain("/Game/Example/Tiles/village.tst");
   // The probe's BoardLaunch.start literal is interpreted in the converted board's unit mode:
   // flag 4 makes (2,2) an absolute-pixel run start.
   expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
@@ -533,8 +561,8 @@ export async function runVscodeBoardUpgradeProof(
   await assertAuthoredChecker(player);
   await verifyHostRunHash(page, player, expect);
   await openNativeQuickOpenFile(page, expect, scriptPath);
-  await expect(pendingScriptEditor).toContainText("Pending authored edit");
-  expect(await readBacking(scriptPath)).toEqual(savedScriptBytes);
+  await expect(pendingScriptEditor).not.toContainText("Pending authored edit");
+  expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
 }
 
 

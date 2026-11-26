@@ -124,6 +124,7 @@ const fullProofChoices = game === "Main/example.gam" && workspace === resolve(ro
 for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
+  let boardUpgradeAssets = [];
   if (visualEventsProof) {
     const fixture = resolve(root, "docs/spec/examples/game/Game/Example");
     const project = resolve(proofWorkspace, "Game/Example");
@@ -182,7 +183,24 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     for (let tile = 0; tile < 218; tile += 1) {
       for (let y = 0; y < 32; y += 1) {
         for (let x = 0; x < 32; x += 1) {
-          tileset[6 + tile * 1024 + y * 32 + x] = (x + y) % 2 === 0 ? 42 : 43;
+          tileset[6 + tile * 1024 + y * 32 + x] = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213;
+        }
+      }
+    }
+    // The vector example board uses a 32×32 type-1 24-bit tileset; author checker art in that format for the reopened pixel-copy run.
+    const villageTileset = new Uint8Array(6 + 22 * 3072);
+    const villageHeader = new DataView(villageTileset.buffer);
+    villageHeader.setUint16(0, 20, true);
+    villageHeader.setUint16(2, 22, true);
+    villageHeader.setUint16(4, 1, true);
+    for (let tile = 0; tile < 22; tile += 1) {
+      for (let y = 0; y < 32; y += 1) {
+        for (let x = 0; x < 32; x += 1) {
+          const offset = 6 + tile * 3072 + (y * 32 + x) * 3;
+          const shade = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 42 : 213;
+          villageTileset[offset] = shade;
+          villageTileset[offset + 1] = shade;
+          villageTileset[offset + 2] = shade;
         }
       }
     }
@@ -191,16 +209,13 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     const itemBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/versions/item/item_minor7.itm")));
     const boardAssets = [
       { path: "Game/Example/Tiles/forest_set.tst", bytes: tileset },
+      { path: "Game/Example/Tiles/village.tst", bytes: villageTileset },
       { path: "Game/Example/Bitmap/background.JPG", bytes: encodeScenePng({ w: 2, h: 2, rgba: new Uint8Array([42, 42, 42, 255, 42, 42, 42, 255, 42, 42, 42, 255, 42, 42, 42, 255]) }) },
       { path: "Game/Example/Music/Town.mid", bytes: new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0]) },
       ...programFiles,
       ...["gem.itm", "red.itm"].map((file) => ({ path: `Game/Example/Item/${file}`, bytes: itemBytes })),
     ];
-    for (const file of boardAssets) {
-      const target = resolve(proofWorkspace, file.path);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, file.bytes);
-    }
+    boardUpgradeAssets = boardAssets;
   }
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
@@ -281,6 +296,13 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     }
     if (launchProof || boardProof || boardUpgradeProof || programProof || guardProof || historyProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+      if (boardUpgradeProof) {
+        for (const file of boardUpgradeAssets) {
+          const target = resolve(proofWorkspace, file.path);
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, file.bytes);
+        }
+      }
       if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
       const startProgram = boardProof || programProof || guardProof
         ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
@@ -594,7 +616,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
       console.log("vscode.dev save and concurrent-edit guard proof passed");
     } else if (boardUpgradeProof) {
-      await runVscodeBoardUpgradeProof(page, expect, workbenchUrl, readBacking);
+      await runVscodeBoardUpgradeProof(page, expect, workbenchUrl, readBacking, persistentFs.readEvents);
       console.log("vscode.dev board coordinate conversion, workbench save, native undo, close/reopen and runner output proof passed");
     } else if (boardProof) {
       await runVscodeRunAndDebugProof(page, expect, workbenchUrl);
