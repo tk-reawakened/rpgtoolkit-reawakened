@@ -14,6 +14,11 @@ before(async () => {
 });
 after(() => GlobalRegistrator.unregister());
 
+/** The picker handler has finished when the view no longer says it is choosing, so an assertion after it is not early. */
+async function untilChosen(root: HTMLElement): Promise<void> {
+  await settleUntil(() => !(root.textContent ?? "").includes("Choosing image…"));
+}
+
 /** Flush every pending turn of the view's reads; the memory host answers on the task queue, not only microtasks. */
 async function settleUntil(done: () => boolean): Promise<void> {
   for (let turn = 0; turn < 100 && !done(); turn += 1) {
@@ -262,6 +267,7 @@ test("a cancelled pick still re-resolves the folders (#3536)", async () => {
     reads.length = 0;
     const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
     await act(() => { choose.click(); });
+    await untilChosen(root);
     await settleUntil(() => reads.includes("Game/New/Bitmap/window.png"));
     equal(opened.document.getSnapshot().dirty, false, "a cancelled pick changes nothing");
   } finally {
@@ -291,6 +297,7 @@ test("choosing the picture already named is a successful no-edit that adopts the
     reads.length = 0;
     const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
     await act(() => { choose.click(); });
+    await untilChosen(root);
     await settleUntil(() => reads.includes("Game/New/Bitmap/window.png"));
     equal(opened.document.getSnapshot().dirty, false, "the same picture is not an edit");
     equal(opened.document.getSnapshot().edits.length, 0);
@@ -328,6 +335,7 @@ test("a late refresh answer cannot overwrite the folders a newer pick confirmed 
     reads.length = 0;
     const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
     await act(() => { choose.click(); });
+    await untilChosen(root);
     await settleUntil(() => reads.includes("Game/Third/Bitmap/window.png"));
     // The refresh finally answers with the folders it read before the pick. It must not win.
     releaseRefresh({ projectFolder: "Game/Stale" });
@@ -375,11 +383,57 @@ test("the unchanged check asks the document at completion, not the render that o
     // ...and while the picker is open that edit is undone, so the document names the picture the picker will return.
     ok(opened.document.undo(firstId).ok);
     answer({ chosen: true, reference: "window.png" });
+    await untilChosen(root);
     await settleUntil(() => root.querySelectorAll("canvas").length === 2);
     equal(opened.document.getSnapshot().skin.windowImage, "bitmap/window.png");
     equal(opened.document.getSnapshot().edits.length, 0, "the picture the document already names is no edit");
     const spoken = [...root.querySelectorAll("main > p[role='status']")].map((node) => node.textContent ?? "");
     equal(spoken.some((text) => /did not change|invalid/i.test(text)), false, `no refusal is shown: ${spoken.join(" | ")}`);
+  } finally {
+    handle.dispose();
+    root.remove();
+  }
+});
+
+test("a refresh that lands while the picker is open wins over the folders it read (#3536)", async () => {
+  const path = "Misc/stone.tkrskin";
+  const source = "contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png\n";
+  const pictures = Object.fromEntries(["Game/Picked", "Game/Refreshed"].flatMap((folder) => ["window.png", "button.png"].map((name) => [`${folder}/Bitmap/${name}`, BMP_1X1])));
+  const host = createMemoryPlatformServices({ files: { [path]: new TextEncoder().encode(source), ...pictures } });
+  const opened = await openNativeSkinDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const reads: string[] = [];
+  let owner = { projectFolder: "Game/Start" };
+  let answer!: (outcome: { chosen: true; reference: string; layout: { projectFolder: string } }) => void;
+  // The picker read Game/Picked before it was answered; the refresh below finds Game/Refreshed while it is still open.
+  const picked = new Promise<{ chosen: true; reference: string; layout: { projectFolder: string } }>((resolve) => { answer = resolve; });
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: recordingReader(host, reads) },
+    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Start" } },
+    navigation: { pickAsset: () => picked },
+    resolveLayout: async () => owner,
+  });
+  try {
+    await settleUntil(() => reads.includes("Game/Start/Bitmap/window.png"));
+    const choose = [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("window graphic"))!;
+    await act(() => { choose.click(); });
+    // A tab activation finds newer folders while the picker is open.
+    owner = { projectFolder: "Game/Refreshed" };
+    reads.length = 0;
+    await act(() => { handle.refreshAssets?.(); });
+    await settleUntil(() => reads.includes("Game/Refreshed/Bitmap/window.png"));
+    // The picker now confirms with the folders it read before that refresh; they must not win.
+    answer({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/Picked" } });
+    await untilChosen(root);
+    equal(reads.some((read) => read.startsWith("Game/Picked/")), false, `the picker's older folders are never read: ${reads.join(", ")}`);
+    // The refresh's folders still stand after the pick: one more refresh reads only them.
+    reads.length = 0;
+    await act(() => { handle.refreshAssets?.(); });
+    await settleUntil(() => reads.includes("Game/Refreshed/Bitmap/window.png"));
+    equal(reads.some((read) => /Game\/(Start|Picked)\//.test(read)), false, `the refresh's folders still stand: ${reads.join(", ")}`);
   } finally {
     handle.dispose();
     root.remove();

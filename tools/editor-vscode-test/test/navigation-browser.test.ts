@@ -359,3 +359,67 @@ test("a game added after mounting owns its folders at once for the picker and th
     bench.dispose();
   }
 });
+
+// #3536: when the fresh scan finds no game declaring a path, the startup layout must not be restored. A skin whose game
+// was removed is loose: its folders are the project root, and the picker and the preview must say the same thing.
+test("a game leaving ownership makes its skin loose, at the root for the picker and the preview", async () => {
+  const bmp = (width: number, height: number): Uint8Array => {
+    const row = Math.ceil(width * 3 / 4) * 4;
+    const bytes = new Uint8Array(54 + row * height);
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x42, 0x4d]);
+    view.setUint32(2, bytes.length, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, width, true);
+    view.setInt32(22, height, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, row * height, true);
+    return bytes;
+  };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put("Main/example.gam", gam);
+  root.put("Game/Example/Bitmap/game.png", bmp(1, 1));
+  root.put("Game/Example/Misc/loose.tkrskin", new TextEncoder().encode("contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/window.png\n"));
+  // The root folders the skin must fall back to, and the picture they hold.
+  root.put("Bitmap/root.png", bmp(1, 1));
+  root.put("Bitmap/window.png", bmp(2, 1));
+  const dialogs = new ScriptedDialogs();
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:loose", name: "Loose" }, { dialogs, userSettings: userStorage() });
+  document.body.replaceChildren();
+  const element = document.createElement("div");
+  document.body.append(element);
+  // The launch the real host makes: the running game names Game/Example as the project's folders.
+  let made!: ReturnType<typeof createWorkbench>;
+  await act(() => { made = createWorkbench(web, element, { projectLayout: { projectFolder: "Game/Example" }, main: "Main/example.gam" }); });
+  await settle(act);
+  const bench = made;
+  try {
+    const listed = async (pending: Promise<unknown>): Promise<string[]> => {
+      await until(() => element.querySelectorAll('[role="option"]').length > 0, "the picker lists something");
+      const options = [...element.querySelectorAll('[role="option"]')].map((node) => node.textContent ?? "");
+      dialogs.answers.push("cancel");
+      await click(button(element, "Cancel"));
+      await completed(pending, "cancelling finishes the picker");
+      return options;
+    };
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Misc/loose.tkrskin")), ["game.png"], "the game owns the folder first");
+
+    // The game file goes away: nothing declares Game/Example any more.
+    root.put("Main/example.gam", null);
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Misc/loose.tkrskin")), ["root.png", "window.png"], "the loose skin's picker reads the root folders, not the startup layout's");
+
+    // The mounted skin previews the same root folders: its 2 × 1 root picture, not the game's 1 × 1 one.
+    const openSkin = async (): Promise<void> => {
+      for (const folder of ["Game", "Example", "Misc"]) await key(row(element, folder), "ArrowRight");
+      await key(row(element, "loose.tkrskin"), "Enter");
+    };
+    const skin = () => element.querySelector('.tkr-editor-slot [aria-label="Native skin authoring"]');
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("2 × 1 pixels"), `the preview reads the root picture: ${skin()?.textContent ?? "no skin"}`);
+  } finally {
+    bench.dispose();
+  }
+});

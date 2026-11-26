@@ -272,7 +272,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
    */
   const freshOwnerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
     const owner = projectLayoutOwnerForDocumentPath(path, await refreshLayouts());
-    return owner ?? fallbackOwnerForPath(path);
+    // No game declares this path any more, so it is loose and its folders are the project root. The startup layout is
+    // deliberately not restored here: a skin whose game went away must read the root folders, and the picker with it.
+    return owner ?? { mainPath: null, layout: { projectFolder: "" } };
   };
   /** The audition controls of the board tab in front, or none when the front tab is not a board. */
   const activeAudition = (): AuditionControls | null => {

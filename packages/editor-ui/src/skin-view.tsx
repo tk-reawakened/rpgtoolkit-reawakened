@@ -152,18 +152,24 @@ export function NativeSkinView({ doc, capabilities, pendingEdits, onEdited, fs, 
     if (pickAsset === undefined || disabled || picking !== null) return;
     setPicking(field);
     try {
+      // Where ownership stood when the picker opened. Its answer is older than anything a refresh finds meanwhile.
+      const openedAt = layoutTicket.current;
       const outcome: PickOutcome = await pickAsset({
         kind: "bitmaps",
         extensions: IMAGE_EXTENSIONS,
         field: field === "windowImage" ? "the skin's window graphic" : "the skin's button graphic",
       });
-      // The picker names the folders it read, and those are newer than any refresh still in flight.
       if (!outcome.chosen) {
         await resolveOwnership();
         return;
       }
-      layoutTicket.current += 1;
-      adopt(outcome.layout);
+      if (layoutTicket.current !== openedAt) {
+        // A refresh found newer folders while the picker was open; they win over the folders it read.
+        await resolveOwnership();
+      } else {
+        layoutTicket.current += 1;
+        adopt(outcome.layout);
+      }
       const reference = `bitmap/${outcome.reference.replaceAll("\\", "/")}`.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
       // Choosing the picture the document already names is a successful no-edit: no command, no refusal, the draft as it
       // is. The document is asked now, not at the render that opened the picker: an edit may have landed meanwhile.
