@@ -1,4 +1,4 @@
-import { createTileSourcePreviewer, kindForPath, listCandidates, type AssetCandidate, type ProjectLayout, type TilePreviewPixels } from "@tk-reawakened/editor-model";
+import { autotileSource, createTileSourcePreviewer, kindForPath, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, listCandidates, type AssetCandidate, type ProjectLayout, type TilePreviewPixels } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserSession, BrowserAssetKind, BrowserSelection } from "./brush.ts";
@@ -61,6 +61,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const [menu, setMenu] = useState<string | null>(null);
   const [brush, setBrush] = useState<BrowserSelection | null>(initial.selection);
   const list = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuInvoker = useRef<HTMLElement | null>(null);
   const request = useRef(0);
@@ -122,6 +123,19 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     }
   }, [items, previews]);
   useEffect(() => {
+    for (const canvas of root.current?.querySelectorAll<HTMLCanvasElement>("canvas[data-autotile-slot]") ?? []) {
+      const set = items[0]?.reference.replace(/\d+$/, "");
+      const preview = set === undefined ? undefined : previews.get(`${set}${canvas.dataset.autotileSlot}`);
+      const context2d = canvas.getContext("2d");
+      if (preview === undefined || context2d === null || context2d === undefined) continue;
+      canvas.width = preview.width;
+      canvas.height = preview.height;
+      const image = context2d.createImageData(preview.width, preview.height);
+      image.data.set(preview.pixels);
+      context2d.putImageData(image, 0, 0);
+    }
+  }, [items, previews, brush]);
+  useEffect(() => {
     if (list.current !== null && loadedPath === path) list.current.scrollTop = session.getSnapshot().scrollTop;
   }, [loadedPath, path, session]);
 
@@ -157,10 +171,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       const reference = source.reference.replaceAll("/", "\\");
       if (rendered.value.kind === "tileset") {
         const nextItems: BrowserRow[] = [];
+        const tileCount = rendered.value.tiles.length;
         const nextPreviews = new Map<string, TilePreviewPixels>();
         rendered.value.tiles.forEach((preview, index) => {
           const tileReference = `${reference}${index + 1}`;
-          nextItems.push({ kind: "tiles", path: source.path, reference: tileReference, label: `${source.name} tile ${index + 1}`, boardTile: tileReference, stamp: null, tile: index + 1 });
+          nextItems.push({ kind: "tiles", path: source.path, reference: tileReference, label: `${source.name} tile ${index + 1}`, boardTile: tileReference, stamp: null, tile: index + 1, autotileTileCount: tileCount });
           nextPreviews.set(tileReference, preview);
         });
         setItems(nextItems);
@@ -211,9 +226,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     setMenu(null);
     if (invoker !== null) queueMicrotask(() => invoker.isConnected && invoker.focus());
   };
-  const choose = (item: BrowserSelection): void => {
+  const choose = (item: BrowserSelection, autotile?: "legacy-52" | "none"): void => {
     // The retained selection is the shared brush contract; the row's own tile number stays with the row.
-    session.update({ selection: { kind: item.kind, path: item.path, reference: item.reference, label: item.label, boardTile: item.boardTile, stamp: item.stamp } });
+    // A mark follows the brush within its source, and "none" is the author clearing it.
+    const marked = autotile === "none" ? undefined : autotile ?? (brush?.path === item.path ? brush.autotile : undefined);
+    session.update({ selection: { kind: item.kind, path: item.path, reference: item.reference, label: item.label, boardTile: item.boardTile, stamp: item.stamp, ...(item.autotileTileCount === undefined ? {} : { autotileTileCount: item.autotileTileCount }), ...(marked === undefined ? {} : { autotile: marked }) } });
     closeMenu();
   };
 
@@ -262,8 +279,13 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     closeMenu();
   };
 
+  const tilesLoaded = loadedPath !== null && items.length > 0 && items.every((row) => row.kind === "tiles" && row.tile !== null);
+  const setReference = tilesLoaded ? items[0]!.reference.replace(/\d+$/, "") : null;
+  const recognizedByName = tilesLoaded && autotileSource(items[0]!.reference) !== null;
+  const markedHere = tilesLoaded && brush?.path === loadedPath && brush.autotile === "legacy-52";
+
   return (
-    <section class="tkr-tileset-browser" aria-label="Tileset browser" onKeyDown={keyboard}>
+    <section class="tkr-tileset-browser" aria-label="Tileset browser" ref={root} onKeyDown={keyboard}>
       <h2 class="tkr-tileset-browser-heading">Tileset browser</h2>
       <label for={`${ids}-source`}>Source</label>
       <select id={`${ids}-source`} value={path ?? ""} onChange={(event) => {
@@ -330,6 +352,27 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         })}
       </div>
 
+      {setReference === null ? null : <section class="tkr-tileset-browser-autotile" aria-label="Legacy autotile set" data-autotile-set={setReference}>
+        <p role="status">{recognizedByName
+          ? "Original autotile set, recognised by its AUTOTILES_ file name. Tiles use the 52-slot shape table."
+          : markedHere ? "Marked as a legacy 52-slot autotile set. Tiles use the 52-slot shape table." : "Ordinary tileset."}</p>
+        <label><input type="checkbox" checked={recognizedByName || markedHere} disabled={recognizedByName || items.length === 0}
+          onChange={(event) => { const row = items.find((candidate) => candidate.reference === brush?.reference) ?? items[0]; if (row !== undefined) choose(row, event.currentTarget.checked ? "legacy-52" : "none"); }} />
+          Use this set's tiles in the legacy 52-slot order{recognizedByName ? " (from its name)" : ""}</label>
+        {recognizedByName || markedHere ? <>
+          {legacyAutotileGaps(items.length).length > 0
+            ? <p role="note">This set has {items.length} tiles, fewer than 52. Missing shapes, drawn as gaps below: {legacyAutotileGaps(items.length).map((slot) => `${slot} (${legacyAutotileShape(slot)})`).join("; ")}. The original drew these as blank tiles without a warning.</p>
+            : null}
+          <ol class="tkr-tileset-browser-autotile-shapes" aria-label="The 47 autotile shapes drawn from this set">
+            {LEGACY_AUTOTILE_SLOTS.map((slot) => <li key={slot} data-autotile-slot-item={slot}
+              aria-label={slot > items.length ? `Slot ${slot}: missing, ${legacyAutotileShape(slot)}` : `Slot ${slot}: ${legacyAutotileShape(slot)}`}>
+              {slot > items.length ? <span class="tkr-tileset-browser-autotile-gap">gap</span> : <canvas data-autotile-slot={slot} role="img" aria-label={`Tile ${slot} of this set`} />}
+              <span>{slot}</span>
+            </li>)}
+          </ol>
+          <p class="tkr-tileset-browser-note">Each tile is drawn in the slot the table gives it. If the art does not form edges and corners here, the set is in a different order; nothing can check this automatically.</p>
+        </> : null}
+      </section>}
       <p id={`${ids}-source-edit-unavailable`} class="tkr-tileset-browser-note" role="note">
         Edit tile artwork opens a regular .tst in the tileset editor at the tile you chose; tile bitmaps open in the tile bitmap editor. Animated tiles, single pictures and isometric tilesets have no editor yet. Browsing and brush selection do not change source files or paint a board.
       </p>

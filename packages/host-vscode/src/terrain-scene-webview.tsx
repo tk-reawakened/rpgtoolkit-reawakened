@@ -1,5 +1,5 @@
 import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
-import type { BoardPicture, Scene, SceneTerrainCellTile, TerrainScenePack } from "@tk-reawakened/editor-model";
+import type { BoardPicture, Scene, SceneTerrainCellTile, TerrainScenePack, TerrainSceneTileset } from "@tk-reawakened/editor-model";
 
 declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
 const api = acquireVsCodeApi();
@@ -12,7 +12,7 @@ content.setAttribute("aria-label", "Native scene");
 root.append(status, content);
 let view: ViewHandle | undefined;
 let snapshot: { readonly scene: Scene } | undefined;
-let tilesets: readonly { readonly path: string; readonly terrains: readonly { readonly id: string; readonly label?: string }[] }[] = [];
+let tilesets: readonly TerrainSceneTileset[] = [];
 let assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[] = [];
 let packs: readonly TerrainScenePack[] = [];
 const listeners = new Set<() => void>();

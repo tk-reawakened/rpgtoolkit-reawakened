@@ -110,6 +110,7 @@ export {
   type Pixel,
   type Viewport,
 } from "./board-geometry.ts";
+export { autotileAssignments, autotileSource, autotileSourceForSelection, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, paintAutotileStroke } from "./board-autotile.ts";
 export {
   BOARD_TOOLS,
   cellRect,
@@ -328,7 +329,8 @@ export {
   nextScenePackPlacementId, placeScenePackAsset, placementPointForCell, removeScenePackPlacement,
   scenePackPlacementMissing, type TerrainScenePack, type TerrainScenePackAsset,
 } from "./scene-pack-placements.ts";
-export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
+export { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
+export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, terrainSceneTilesets, type TerrainSceneTileset, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
 export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
 export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";
 export { registerTerrainSceneConflictReview } from "./terrain-scene-save.ts";

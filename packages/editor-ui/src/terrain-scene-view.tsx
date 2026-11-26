@@ -1,11 +1,11 @@
-import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack } from "@tk-reawakened/editor-model";
+import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ScenePackPlacementEditor } from "./scene-pack-placement.tsx";
 type SceneTerrainRegion = NonNullable<Scene["terrainRegions"]>[number];
 
 export interface TerrainSceneViewProps {
   readonly scene: Scene;
-  readonly tilesets: readonly { readonly path: string; readonly terrains: readonly { readonly id: string; readonly label?: string }[] }[];
+  readonly tilesets: readonly TerrainSceneTileset[];
   readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
   /** The scene game's asset packs, whose assets can be placed and whose owner documents can be opened. */
   readonly packs?: readonly TerrainScenePack[];
@@ -153,10 +153,25 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
       setTilesetPath(path);
       setTerrainId(tilesets.find((entry) => entry.path === path)?.terrains[0]?.id ?? "");
       setAnchor(null);
-    }}><option value="">Choose tileset</option>{tilesets.map((entry) => <option key={entry.path} value={entry.path}>{entry.path}</option>)}</select></label>
+    }}>
+      <option value="">Choose tileset</option>{tilesets.map((entry) => <option key={entry.path} value={entry.path}>{entry.path}</option>)}
+    </select></label>
     <label>Terrain <select value={terrainId} disabled={disabled || tileset === undefined} onChange={(event) => { setTerrainId(event.currentTarget.value); setAnchor(null); }}>
       <option value="">Choose terrain</option>{tileset?.terrains.map((entry) => <option key={entry.id} value={entry.id}>{entry.label ?? entry.id}</option>)}
     </select></label>
+    {terrain !== undefined ? <section aria-label="Native terrain roles" data-tkr-terrain-roles={terrain.id}>
+      <h3>Native terrain rules: {terrain.label}</h3>
+      <p>{terrain.roles.neighbours === "blob-8" ? "Eight neighbours" : "Four neighbours"}, {terrain.roles.coverage} coverage: {terrain.roles.situations - terrain.roles.missing.length} of {terrain.roles.situations} neighbourhoods have a tile. Native roles are these rules; they are not the legacy 52-slot order, and this terrain is not an original-format set.</p>
+      <ul aria-label="Terrain rules">{terrain.roles.rules.map((rule) => <li key={rule.id}>
+        {rule.id}: {rule.when} uses {rule.tiles.join(", ")} ({rule.situations} {rule.situations === 1 ? "neighbourhood" : "neighbourhoods"})
+      </li>)}</ul>
+      {terrain.roles.problems.length > 0
+        ? <ul role="alert" aria-label="Terrain rule problems">{terrain.roles.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>
+        : null}
+      {terrain.roles.missing.length > 0
+        ? <p role="note">Missing role assignments: {terrain.roles.missing.join("; ")}. Painting these neighbourhoods is reported when the scene is built; nothing is replaced.</p>
+        : <p>Every neighbourhood has a tile.</p>}
+    </section> : null}
     <label>Region <select value={selected?.id ?? ""} disabled={disabled} onChange={(event) => { setSelectedId(event.currentTarget.value); setAnchor(null); }}>
       <option value="">No region selected</option>{regions.filter((region) => region.floor === activeFloor).map((region) => <option key={region.id} value={region.id}>{region.label ?? region.id}</option>)}
     </select></label>

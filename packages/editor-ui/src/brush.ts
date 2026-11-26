@@ -16,6 +16,10 @@ export interface BrowserSelection {
   readonly boardTile: string | null;
   /** A tile bitmap is a whole stamp brush: its size in tiles. `null` for a source that is not a stamp. `path` names the `.tbm`, which a placing tool reads. */
   readonly stamp: BrowserStamp | null;
+  /** Loaded source tile count, used to identify unassigned legacy shape slots. */
+  readonly autotileTileCount?: number;
+  /** Explicit author mark for a non-conventionally named set using the legacy shape table. */
+  readonly autotile?: "legacy-52";
 }
 
 export interface BrowserState {

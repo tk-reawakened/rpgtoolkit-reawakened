@@ -8,6 +8,7 @@ import type { SceneTileCrop } from "./scene-tile-slots.ts";
 import type { SceneBuildCheck, SceneBuildOutput, SceneBuildWriteResult } from "./scene-build-ownership.ts";
 import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
 import type { TerrainScenePack } from "./scene-pack-placements.ts";
+import { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
 
 type ProjectFs = Pick<FileSystemService, "list" | "read">;
 type Ownership = {
@@ -24,6 +25,20 @@ type InventoryWithFiles = {
   readonly nativeTiles: ReadonlyMap<string, NativeTile>;
 };
 type InventoryFailure = Extract<TerrainSceneProjectInventory, { readonly ok: false }>;
+
+/** The tilesets the scene view offers: each native terrain with the rule coverage its own matcher reports. */
+export type TerrainSceneTileset = {
+  readonly path: string;
+  readonly terrains: readonly { readonly id: string; readonly label: string; readonly roles: TerrainRoleReport }[];
+};
+
+/** Describe each tileset's terrains for the scene view, reading the same recipes the build resolves. */
+export function terrainSceneTilesets(tilesets: ReadonlyMap<string, Tileset>): readonly TerrainSceneTileset[] {
+  return [...tilesets].map(([path, tileset]) => ({
+    path,
+    terrains: (tileset.terrains ?? []).map((terrain) => ({ id: terrain.id, label: terrain.name, roles: inspectTerrainRoles(terrain) })),
+  }));
+}
 
 export type TerrainSceneProjectInventory =
   | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[] }

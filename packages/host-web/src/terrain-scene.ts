@@ -1,4 +1,4 @@
-import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
+import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneTilesets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
 import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { WebProject } from "./index.ts";
 
@@ -68,7 +68,7 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
     const owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
     mounted = mountTerrainScene(content, {
       document,
-      tilesets: [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })),
+      tilesets: terrainSceneTilesets(inventory.tilesets),
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
       packs: inventory.packs,
       ...(openSource === undefined ? {} : { onOpenAsset: (path: string) => {

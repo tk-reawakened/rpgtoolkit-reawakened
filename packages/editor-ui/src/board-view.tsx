@@ -3,6 +3,8 @@ import {
     BOARD_TOOLS,
     DEFAULT_EDITOR_PREFERENCES,
     ZOOM_STEPS,
+    autotileSource,
+    autotileSourceForSelection,
     boardTileAt,
     cellOnBoard,
     createBoardEditor,
@@ -29,6 +31,7 @@ import {
     type BoardPreviewRequest,
     boardExtent,
     encodeScenePng,
+    legacyAutotileGaps,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, ClipboardService, DocumentEdited, ImageExportService } from "@tk-reawakened/platform-services";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
@@ -153,7 +156,7 @@ function textEntry(target: EventTarget | null): boolean {
 /** The brush the retained selection makes: a tile or animation, or a loaded tile bitmap stamp. */
 function brushFor(selection: BrowserSelection | null, stamp: { readonly path: string; readonly value: Stamp } | null): Brush | null {
   if (selection === null) return null;
-  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label };
+  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label, ...(autotileSourceForSelection(selection) === null ? {} : { autotileSource: autotileSourceForSelection(selection)! }) };
   if (selection.kind === "bitmaps" && stamp !== null && stamp.path === selection.path) return { kind: "stamp", stamp: stamp.value };
   return null;
 }
@@ -185,6 +188,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [brushSelection, setBrushSelection] = useState<BrowserSelection | null>(browser?.session.getSnapshot().selection ?? null);
+  const [autoTiling, setAutoTiling] = useState(false);
+  const [shiftHeld, setShiftHeld] = useState(false);
   const [stamp, setStamp] = useState<{ readonly path: string; readonly value: Stamp } | null>(null);
   const [stampError, setStampError] = useState<string | null>(null);
   const [historyNote, setHistoryNote] = useState<string | null>(null);
@@ -217,11 +222,32 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const focusCell = useRef(false);
   const [, setPreferenceRevision] = useState(0);
   useEffect(() => preferences?.subscribe(() => setPreferenceRevision((value) => value + 1)) ?? undefined, [preferences]);
+  // Shift decides what an autotile stroke reshapes, so the note about it follows the key, wherever the pointer is.
+  useEffect(() => {
+    const track = (event: KeyboardEvent | PointerEvent): void => setShiftHeld(event.shiftKey);
+    const release = (): void => setShiftHeld(false);
+    window.addEventListener("keydown", track);
+    window.addEventListener("keyup", track);
+    window.addEventListener("pointermove", track);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", track);
+      window.removeEventListener("keyup", track);
+      window.removeEventListener("pointermove", track);
+      window.removeEventListener("blur", release);
+    };
+  }, []);
 
   // What the editor reads each time it acts is kept in refs, so one editor lives as long as the view.
-  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited });
+  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling });
   const brush = brushFor(brushSelection, stamp);
-  latest.current = { snapshot, brush, preferences, browser, doc, onEdited };
+  const autotileBrushSource = brush?.kind === "tile"
+    ? autotileSourceForSelection(brushSelection === null ? null : {
+      reference: brush.tile,
+      ...(brushSelection.autotile === undefined ? {} : { autotile: brushSelection.autotile }),
+    })
+    : null;
+  latest.current = { snapshot, brush, preferences, browser, doc, onEdited, autoTiling };
 
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
   const applyAndReport = (command: Parameters<BoardViewDocument["apply"]>[0]): ApplyResult | Promise<ApplyResult> => {
@@ -287,6 +313,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       // Read from the source when the gesture happens, so a preference changed since the last render is the one used.
       preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
       ...(clipboard === undefined ? {} : { clipboard }),
+      autotileEnabled: () => latest.current.autoTiling,
       lightsActive: () => lightsOn.current,
       objectBounds: (kind, index) => {
         const current = pictureRef.current;
@@ -510,6 +537,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     } else if (event.key === "-") {
       event.preventDefault();
       editor.zoomOut();
+    } else if (event.key.toLowerCase() === "a" && state.mode === "tiles") {
+      event.preventDefault();
+      setAutoTiling((enabled) => !enabled);
     } else if (event.key.toLowerCase() === "g") {
       event.preventDefault();
       editor.toggleGrid();
@@ -769,6 +799,25 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           />
         ))}
       </div>
+      {state.mode === "tiles" ? <>
+        <button type="button" class="tkr-board-autotile-toggle" aria-keyshortcuts="A" aria-pressed={autoTiling}
+          disabled={readOnly || state.busy} onClick={() => setAutoTiling((enabled) => !enabled)}>
+          Autotile (A): {autoTiling ? "on" : "off"}
+        </button>
+        {autoTiling ? <p role="status" class="tkr-board-note tkr-board-autotile-note">
+          Autotiling is on for Draw and Erase, Fill and Rectangle on this board only. Each edit reshapes the 3 × 3 cells around it on the current layer{(snapshot.coordType & 1) !== 0 ? " (5 rows × 3 columns on a stacked isometric board)" : ""}, and one Undo takes it all back.
+          {shiftHeld ? " Shift is held: only cells of the set you are painting reshape, and erasing or painting an ordinary tile reshapes nothing." : " Hold Shift to reshape only the set you are painting."}
+        </p> : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource === null
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">Autotiling is on, but the chosen tileset is not an autotile set (its file name does not start with AUTOTILES_ and it is not marked in the tileset browser). Draw paints it as an ordinary tile; nearby autotile sets still reshape around it.</p>
+          : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource !== null && (/\.iso\d+$/i.test(brush.tile) !== ((snapshot.coordType & 3) !== 0))
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">This {/\.iso\d+$/i.test(brush.tile) ? "isometric" : "square"} autotile set is on a {(snapshot.coordType & 3) !== 0 ? "isometric" : "square"} board. Painting still works, but the set's edges were drawn for the other tile shape.</p>
+          : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource !== null && brushSelection?.autotileTileCount !== undefined && legacyAutotileGaps(brushSelection.autotileTileCount).length > 0
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">This set has {brushSelection.autotileTileCount} tiles, fewer than 52, so shapes {legacyAutotileGaps(brushSelection.autotileTileCount).join(", ")} have no tile and will draw as gaps. The tileset browser shows which shapes are missing.</p>
+          : null}
+      </> : null}
       <div class="tkr-board-toolbar tkr-board-toolbar-view" role="toolbar" aria-label="Board view">
         {canHistory ? (
           <>
