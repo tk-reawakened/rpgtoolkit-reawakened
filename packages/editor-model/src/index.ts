@@ -245,6 +245,20 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
 export { asNativeGeometryDocument } from "./kinds.ts";
+export { asBattleBackgroundDocument } from "./kinds.ts";
+export {
+  BATTLE_BACKGROUND_TEXT_FIELDS,
+  battleBackgroundCodec,
+  createBattleBackgroundDocument,
+  openBattleBackgroundDocument,
+  type BattleBackgroundCommand,
+  type BattleBackgroundDocument,
+  type BattleBackgroundDocumentFields,
+  type BattleBackgroundDocumentSnapshot,
+  type BattleBackgroundFieldCommand,
+  type BattleBackgroundOpenResult,
+  type BattleBackgroundTextField,
+} from "./battle-background-document.ts";
 export { asSpecialMoveDocument, asStatusEffectDocument } from "./kinds.ts";
 export {
   createSpecialMoveDocument,

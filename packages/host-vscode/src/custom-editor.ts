@@ -2,7 +2,7 @@ import { boardPreviewRootForLayout, projectLayoutOwnerForDocumentPath, resolveRe
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { encodeBackup, recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
-import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
+import { handleEditorHostRequest, isEditorHostRequest, scopeEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
 /**
@@ -31,6 +31,7 @@ export async function owningProjectLayout(fs: FileSystemService, projectId: stri
 }
 /** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
 const SAVE_ROUNDS = 3;
+let nextWebviewEditScope = 0;
 
 /** How long a save waits for a webview to hand over edits it has accepted before it refuses to save (see `GameDocument.settleViews`). */
 const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
@@ -136,7 +137,7 @@ export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
   "tkr.tileBitmap": ["tile-bitmap"],
   "tkr.font": ["font"],
   "tkr.animation": ["animation"],
-  "tkr.battleData": ["special-move", "status-effect"],
+  "tkr.battleData": ["special-move", "status-effect", "battle-background"],
 } as const;
 
 /** What a webview panel gives the provider. */
@@ -755,7 +756,24 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const folder = folderOfDocument(origin);
       const project = projectIn(folder, origin.uri);
       const kind = kindForPath(path);
-      if (kind === null) return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
+      if (kind === null) {
+        const nativeAsset = [".bmp", ".gif", ".jpg", ".jpeg", ".png", ".wav", ".mid", ".midi"].some((extension) => path.toLowerCase().endsWith(extension));
+        if (!reference && nativeAsset) {
+          const resolved = await resolveDocumentPath(project.fs, path);
+          if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
+          if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to visit.` };
+          const separator = resolved.path.lastIndexOf("/");
+          const parent = separator < 0 ? "" : resolved.path.slice(0, separator);
+          const name = separator < 0 ? resolved.path : resolved.path.slice(separator + 1);
+          const listing = await project.fs.list(parent);
+          if (!listing.ok) return { ok: false, message: `Could not check ${resolved.path}: ${listing.error.message}` };
+          if (!listing.value.some((entry) => entry.name === name && entry.kind === "file")) {
+            return { ok: false, message: `${resolved.path} is not a file, so there is nothing to visit.` };
+          }
+          return openVisited(origin, project, folder, resolved.path, null);
+        }
+        return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
+      }
       let target = path;
       if (reference) {
         if (kind.id !== "board" && kind.id !== "program" && kind.id !== "item" && kind.id !== "character" && kind.id !== "tile-bitmap") {
@@ -1017,6 +1035,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       return openDocuments.get(createDocumentIdentity(folder.key, path).key);
     },
     resolveCustomEditor(document, webview) {
+      const coalesceScope = `webview:${++nextWebviewEditScope}`;
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);
       const browserSubscription = document.browserSession.subscribe((changes) => {
@@ -1033,10 +1052,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
+        const scopedMessage = scopeEditorHostRequest(message, coalesceScope);
         if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {
           // Order the operations at the shared document, not in an iframe awaiting replies. A history call must
           // complete in VS Code before the next stroke is registered, even if either webview receives its reply late.
-          const apply = () => handleEditorHostRequest(document, message, (reply) => { void webview.postMessage(reply); });
+          const apply = () => handleEditorHostRequest(document, scopedMessage, (reply) => { void webview.postMessage(reply); });
           const previous = fontOperations.get(document);
           const operation = previous === undefined ? apply() : previous.then(apply, apply);
           fontOperations.set(document, operation);
@@ -1047,7 +1067,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
           }
           return;
         }
-        await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
+        await handleEditorHostRequest(document, scopedMessage, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {
         subscription();

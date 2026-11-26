@@ -4,5 +4,6 @@
 # ID 24 maps issue #3342 (the missing-ticket rule).
 # ID 25 maps issue #2169; ID 26 maps #2721; ID 27 maps #3306; ID 28 maps #3322.
 # ID 29 maps issue #3335; ID 30 maps #3331. ID 15 already carries #3257 on `docs/3257-history-frame-detach`, so this branch does not allocate a second ticket for it.
-# ID 31 maps issue #3354 (host-web project errors).
-next_id = 32
+# ID 31 maps issue #3354 (host-web project errors); ID 32 maps issue #3146.
+# ID 33 maps issue #3507 (BKG Stop proof); ID 34 maps #3508 (VS Code BKG CI fixture).
+next_id = 35

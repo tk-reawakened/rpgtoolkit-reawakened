@@ -5,19 +5,40 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
 import { readFileSync } from "node:fs";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, createPendingEdits, openSpecialMoveDocument, openStatusEffectDocument, type SpecialMoveDocument } from "@tk-reawakened/editor-model";
+import { createCommandRegistry, createDocumentIdentity, createPendingEdits, openBattleBackgroundDocument, openSpecialMoveDocument, openStatusEffectDocument, type SpecialMoveDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { mount as mountEditor } from "../src/index.ts";
-
+import type { AuditionPanel } from "../src/board-audition.ts";
+import type { createBattleBackgroundAuditionCommands as BattleBackgroundCommandsFactory } from "../src/board-audition.ts";
 let mount: typeof mountEditor;
+let createBattleBackgroundAuditionCommands: typeof BattleBackgroundCommandsFactory;
 let act: (callback: () => void | Promise<void>) => void | Promise<void>;
 before(async () => {
   // The UI reads browser globals at module initialization, so register the DOM before loading it.
   GlobalRegistrator.register();
+  ({ mount, createBattleBackgroundAuditionCommands } = await import("@tk-reawakened/editor-ui"));
   ({ act } = await import("preact/test-utils"));
-  ({ mount } = await import("@tk-reawakened/editor-ui"));
 });
 after(() => GlobalRegistrator.unregister());
+function caseSensitiveFs(host: ReturnType<typeof createMemoryPlatformServices>, files: Record<string, Uint8Array>) {
+  return {
+    ...host.fs,
+    readProject: (projectId: string, path: string) => Object.hasOwn(files, path)
+      ? host.fs.readProject(projectId, path)
+      : Promise.resolve({ ok: false as const, error: { code: "not-found" as const, message: `${path} is not in the case-sensitive fixture` } }),
+    list: async (path: string) => {
+      const entries = new Map<string, { readonly name: string; readonly kind: "directory" | "file" }>();
+      for (const filePath of Object.keys(files)) {
+        const prefix = path === "" ? "" : `${path}/`;
+        if (prefix !== "" && !filePath.startsWith(prefix)) continue;
+        const tail = prefix === "" ? filePath : filePath.slice(prefix.length);
+        const [name, ...rest] = tail.split("/");
+        if (name !== undefined) entries.set(name, { name, kind: rest.length === 0 ? "file" : "directory" });
+      }
+      return { ok: true as const, value: [...entries.values()] };
+    },
+  };
+}
 
 const SPC = "SpcMove/fireball.spc";
 const STE = "StatusE/burn.ste";
@@ -90,6 +111,158 @@ async function mountMove(files: Record<string, Uint8Array> = { [SPC]: fireball, 
   await settle();
   return { root, host, opened, doc: doc.document, dispose: () => { handle.dispose(); root.remove(); } };
 }
+test("fight-background view keeps picker cancellation inert and exposes all six references", async () => {
+  const path = "Bkrounds/forest.bkg";
+  const source = example(path);
+  const host = createMemoryPlatformServices({ files: { [path]: source } });
+  const opened = await openBattleBackgroundDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const root = document.createElement("div");
+  document.body.append(root);
+  let choose = false;
+  const view = mount(root, {
+    document: opened.document,
+    services: host,
+    navigation: {
+      pickAsset: async () => choose ? { chosen: true as const, reference: "new-battle.mid" } : { chosen: false as const },
+    },
+  });
+  try {
+    await settle();
+    for (const label of ["Background picture file", "Battle music file", "Menu cursor sound file", "Menu choice sound file", "Fighter ready sound file", "Action unavailable sound file"]) {
+      ok(root.querySelector(`input[aria-label="${label}"]`), `missing ${label}`);
+    }
+    ok(root.textContent?.includes("Audio audition is unavailable in this host."));
+    await act(() => button(root, "Choose battle music").click());
+    await settle();
+    equal(opened.document.getSnapshot().music, "battle.mid", "cancelling the picker does not change the stored value");
+    choose = true;
+    await act(() => button(root, "Choose battle music").click());
+    await settle();
+    equal(opened.document.getSnapshot().music, "new-battle.mid", "the chosen reference reaches the document command");
+  } finally {
+    view.dispose();
+    root.remove();
+  }
+});
+
+test("fight-background audition uses case-resolved linked paths and releases controls on view disposal", async () => {
+  const path = "Bkrounds/forest.bkg";
+  const values = { music: "battle.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav" } as const;
+  const diskNames = { "battle.wav": "Battle.WAV", "cursor.wav": "Cursor.WAV", "choose.wav": "Choose.WAV", "ready.mid": "Ready.MID", "nope.wav": "Nope.WAV" } as const;
+  const files = Object.fromEntries([
+    [path, example(path)],
+    ...Object.values(diskNames).map((name) => [`Media/${name}`, new Uint8Array([1])]),
+  ]);
+  const host = createMemoryPlatformServices({ files });
+  const opened = await openBattleBackgroundDocument(host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  for (const [field, value] of Object.entries(values) as [keyof typeof values, string][]) {
+    ok(opened.document.apply({ type: "set-battle-background-text", field, value }).ok);
+  }
+  const references: { readonly reference: string; readonly resolvedPath: string | undefined }[] = [];
+  let disposed = 0;
+  let stops = 0;
+  let generation = 0;
+  let note: string | null = null;
+  const controls = {
+    subscribe: () => () => {},
+    getSnapshot: () => ({ loop: false, note }),
+    beginPlay: () => { generation += 1; return generation; },
+    isPlayCurrent: (token: number) => token === generation,
+    setNote: (value: string | null, token?: number) => { if (token === undefined || token === generation) note = value; },
+    setReference: (reference: string, resolvedPath?: string) => { references.push({ reference, resolvedPath }); },
+    setLoop: () => {},
+    play: async () => {},
+    stop: () => { generation += 1; stops++; },
+    dispose: () => { disposed++; },
+  };
+  const commands = createCommandRegistry(createBattleBackgroundAuditionCommands(() => ({
+    controls,
+    reference: (field) => opened.document.getSnapshot()[field],
+    resolvePath: async (reference) => ({ ok: true, path: `Media/${diskNames[reference as keyof typeof diskNames]}` }),
+  })));
+  const audition = { controls, commands } as unknown as AuditionPanel;
+  const root = document.createElement("div");
+  document.body.append(root);
+  const view = mount(root, { document: opened.document, services: host, audition });
+  await settle();
+  try {
+    await until(() => ["battle music", "menu cursor sound", "menu choice sound", "fighter ready sound", "action unavailable sound"].every((label) => !button(root, `Play ${label}`).disabled), "all case-different BKG references resolve before audition");
+    for (const label of ["battle music", "menu cursor sound", "menu choice sound", "fighter ready sound", "action unavailable sound"]) {
+      const play = button(root, `Play ${label}`);
+      equal(play.disabled, false, `${label} resolves a case-different filename`);
+      await act(() => play.click());
+    }
+    await until(() => references.length === 5, "each registered cue resolves its media path before play");
+    deepEqual(references, Object.values(values).map((reference) => ({
+      reference,
+      resolvedPath: `Media/${diskNames[reference as keyof typeof diskNames]}`,
+    })), "each audition reads the exact file spelling found in the owner's Media folder");
+    const cleared = await opened.document.apply({ type: "set-battle-background-text", field: "music", value: "" });
+    ok(cleared.ok);
+    await settle();
+    ok(button(root, "Stop battle-background audition"), "Stop remains reachable after clearing the last playable link");
+    await act(() => button(root, "Stop battle-background audition").click());
+    equal(stops, 1, "the visible stop action uses this background document's own registered command");
+  } finally {
+    view.dispose();
+    root.remove();
+  }
+  equal(disposed, 1, "disposing the mounted view releases its audition controls");
+});
+test("an ambiguous BKG audio reference is reported and cannot be auditioned", async () => {
+  const path = "Bkrounds/forest.bkg";
+  const files = {
+    [path]: example(path),
+    "Media/battle.wav": new Uint8Array([1]),
+    "Media/Battle.wav": new Uint8Array([2]),
+  };
+  const host = createMemoryPlatformServices({ files });
+  const fs = caseSensitiveFs(host, files);
+  const services = { ...host, fs };
+  const opened = await openBattleBackgroundDocument(fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  ok(opened.document.apply({ type: "set-battle-background-text", field: "music", value: "battle.wav" }).ok);
+  const audition = {
+    controls: { subscribe: () => () => {}, getSnapshot: () => ({ loop: false, note: null }), setReference: () => {}, setLoop: () => {}, play: async () => {}, stop: () => {}, dispose: () => {} },
+    commands: { execute: async () => ({ ok: true as const, value: undefined }) },
+  } as unknown as AuditionPanel;
+  const root = document.createElement("div");
+  document.body.append(root);
+  const view = mount(root, { document: opened.document, services, audition });
+  await settle();
+  try {
+    await until(() => root.textContent?.includes("differ only in case") === true, "the colliding Media names are detected");
+    equal(button(root, "Play battle music").disabled, true, "an ambiguous reference cannot play an arbitrary file");
+  } finally {
+    view.dispose();
+    root.remove();
+  }
+});
+
+test("same-field gestures in separate views remain separate Undo steps", async () => {
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball, [STE]: burn } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const firstRoot = document.createElement("div");
+  const secondRoot = document.createElement("div");
+  document.body.append(firstRoot, secondRoot);
+  const first = mount(firstRoot, { document: opened.document, services: host });
+  const second = mount(secondRoot, { document: opened.document, services: host });
+  try {
+    await type(field(firstRoot, "Name"), "First view");
+    await type(field(secondRoot, "Name"), "Second view");
+    equal(opened.document.getSnapshot().name, "Second view");
+    ok(opened.document.undo().ok);
+    equal(opened.document.getSnapshot().name, "First view", "Undo reverses the latest view's edit without skipping the other view");
+  } finally {
+    first.dispose();
+    second.dispose();
+    firstRoot.remove();
+    secondRoot.remove();
+  }
+});
 
 test("the special move form shows each stored field, with the usable boxes inverted from the stored bytes", async () => {
   const view = await mountMove();

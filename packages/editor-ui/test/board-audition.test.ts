@@ -1,11 +1,11 @@
 // The background-music audition's source: the format a reference plays as, and the message each refusal shows the author.
 import { test } from "node:test";
 import { equal, ok, deepEqual } from "node:assert/strict";
-import type { AudioOutputService } from "@tk-reawakened/platform-services";
+import type { AudioOutputService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { applyMainSettings, createCommandRegistry } from "@tk-reawakened/editor-model";
 import { decodeMidi, newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
-import { auditionFormatOf, createAuditionCommands, createAuditionControls, loadAuditionInput, type AuditionOutcome, type BoardAudition } from "../src/board-audition.ts";
+import { auditionFormatOf, createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, loadAuditionInput, type AuditionControls, type AuditionOutcome, type AuditionPathResolution, type BattleBackgroundAuditionTarget, type BoardAudition } from "../src/board-audition.ts";
 
 // The host must never be reached by these paths: the source is judged before any playback starts.
 const unreachableAudio: AudioOutputService = {
@@ -125,6 +125,163 @@ test("with no board active, every audition command is disabled and does not run"
   equal(registry.execute("board.audition.stop"), false);
   equal(registry.execute("board.audition.loop"), false);
 });
+test("the fight-background palette registers per-cue Play plus owned Stop and Loop commands", async () => {
+  const references = { music: "battle.wav", selectSound: "move.wav", chooseSound: "", readySound: "", cantDoSound: "" };
+  const played: string[] = [];
+  const paths: string[] = [];
+  let loop = false;
+  let note: string | null = null;
+  let generation = 0;
+  let stops = 0;
+  const controls = {
+    subscribe: () => () => {},
+    getSnapshot: () => ({ loop, note }),
+    beginPlay: () => { generation += 1; return generation; },
+    isPlayCurrent: (token: number) => token === generation,
+    setNote: (next: string | null, token?: number) => { if (token === undefined || token === generation) note = next; },
+    setReference: (reference: string, path?: string) => { paths.push(`${reference}:${path}`); },
+    setLoop: (next: boolean) => { loop = next; },
+    play: async () => { played.push("play"); },
+    stop: () => { generation += 1; stops++; },
+    dispose: () => {},
+  };
+  const registry = createCommandRegistry(createBattleBackgroundAuditionCommands(() => ({
+    controls,
+    reference: (field) => references[field],
+    resolvePath: async (reference) => ({ ok: true, path: `Media/${reference}` }),
+  })));
+  deepEqual(registry.getCommands().map((command) => command.id), [
+    "battle-background.audition.play.music",
+    "battle-background.audition.play.selectSound",
+    "battle-background.audition.play.chooseSound",
+    "battle-background.audition.play.readySound",
+    "battle-background.audition.play.cantDoSound",
+    "battle-background.audition.stop",
+    "battle-background.audition.loop",
+  ]);
+  equal(registry.execute("battle-background.audition.play.selectSound"), true);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  deepEqual(paths, ["move.wav:Media/move.wav"]);
+  deepEqual(played, ["play"]);
+  equal(registry.execute("battle-background.audition.loop"), true);
+  equal(loop, true);
+  equal(registry.execute("battle-background.audition.stop"), true);
+  equal(stops, 1);
+});
+test("Stop cancels a BKG command while its path lookup is pending", async () => {
+  const played: Uint8Array[] = [];
+  let stops = 0;
+  const host = createMemoryPlatformServices({ files: { "Media/old.wav": new Uint8Array([6]), "Media/battle.wav": new Uint8Array([7]) } });
+  const controls = createAuditionControls({
+    audioOutput: {
+      play: async (bytes) => { played.push(bytes); return { ok: true, value: undefined }; },
+      stop: async () => { stops += 1; return { ok: true, value: undefined }; },
+    },
+    fs: host.fs,
+    projectId: "memory-project",
+    layout: { projectFolder: "" },
+    main: null,
+  });
+  controls.setReference("old.wav");
+  await controls.play();
+  let started!: () => void;
+  const resolving = new Promise<void>((resolve) => { started = resolve; });
+  let finish!: (result: { readonly ok: true; readonly path: string } | { readonly ok: false; readonly message: string }) => void;
+  const gate = new Promise<{ readonly ok: true; readonly path: string } | { readonly ok: false; readonly message: string }>((resolve) => { finish = resolve; });
+  const commands = createBattleBackgroundAuditionCommands(() => ({
+    controls,
+    reference: () => "battle.wav",
+    resolvePath: async () => { started(); return await gate; },
+  }));
+  const play = commands.find((command) => command.id === "battle-background.audition.play.music")!;
+  const stop = commands.find((command) => command.id === "battle-background.audition.stop")!;
+  const pending = play.run();
+  await resolving;
+  stop.run();
+  finish({ ok: true, path: "Media/battle.wav" });
+  await pending;
+  equal(played.length, 1, "the stopped view's pending path resolution cannot start a second sound");
+  equal(stops, 1, "Stop silences this view's existing playback while cancelling its pending lookup");
+});
+test("a fast play from a later view wins over an earlier slow BKG path lookup", async () => {
+  const firstBytes = new Uint8Array([11]);
+  const laterBytes = new Uint8Array([12]);
+  const host = createMemoryPlatformServices({ files: { "Media/first.wav": firstBytes, "Media/later.wav": laterBytes } });
+  const played: Uint8Array[] = [];
+  const output: AudioOutputService = {
+    play: async (bytes) => { played.push(bytes); return { ok: true, value: undefined }; },
+    stop: async () => ({ ok: true, value: undefined }),
+  };
+  let started!: () => void;
+  const lookupStarted = new Promise<void>((resolve) => { started = resolve; });
+  let release!: (result: AuditionPathResolution) => void;
+  const gate = new Promise<AuditionPathResolution>((resolve) => { release = resolve; });
+  const controls = () => createAuditionControls({
+    audioOutput: output,
+    fs: host.fs,
+    projectId: "memory-project",
+    layout: { projectFolder: "" },
+    main: null,
+  });
+  const firstControls = controls();
+  const laterControls = controls();
+  const playFor = (current: AuditionControls, reference: string, resolvePath: BattleBackgroundAuditionTarget["resolvePath"]) => {
+    const command = createBattleBackgroundAuditionCommands(() => ({
+      controls: current,
+      reference: () => reference,
+      resolvePath,
+    })).find(({ id }) => id === "battle-background.audition.play.music")!;
+    return command.run();
+  };
+  const slowFirst = playFor(firstControls, "first.wav", async () => {
+    started();
+    return await gate;
+  });
+  await lookupStarted;
+  await playFor(laterControls, "later.wav", async () => ({ ok: true, path: "Media/later.wav" }));
+  release({ ok: true, path: "Media/first.wav" });
+  await slowFirst;
+  deepEqual(played, [laterBytes], "the earlier lookup cannot supersede a newer view's playback");
+});
+test("BKG command lookup preserves exact text and reports unresolved links", async () => {
+  const reference = " battle.wav ";
+  const path = "Media/ battle.wav ";
+  const bytes = new Uint8Array([8]);
+  const readPaths: string[] = [];
+  const played: Uint8Array[] = [];
+  let failLookup = false;
+  const controls = createAuditionControls({
+    audioOutput: {
+      play: async (input) => { played.push(input); return { ok: true, value: undefined }; },
+      stop: async () => ({ ok: true, value: undefined }),
+    },
+    fs: {
+      readProject: async (_projectId, requested) => {
+        readPaths.push(requested);
+        return requested === path ? { ok: true, value: bytes } : { ok: false, error: { code: "not-found", message: requested } };
+      },
+    },
+    projectId: "memory-project",
+    layout: { projectFolder: "" },
+    main: null,
+  });
+  const commands = createBattleBackgroundAuditionCommands(() => ({
+    controls,
+    reference: () => failLookup ? "missing.wav" : reference,
+    resolvePath: async (stored) => {
+      equal(stored, failLookup ? "missing.wav" : reference, "resolution receives exactly the value stored in the form");
+      return failLookup ? { ok: false, message: "Media/missing.wav is not in the project." } : { ok: true, path };
+    },
+  }));
+  await commands.find((command) => command.id === "battle-background.audition.play.music")!.run();
+  deepEqual(readPaths, [path]);
+  deepEqual(played, [bytes]);
+  failLookup = true;
+  await commands.find((command) => command.id === "battle-background.audition.play.music")!.run();
+  equal(controls.getSnapshot().note, "Media/missing.wav is not in the project.", "lookup failure is shown to the author instead of silently ignored");
+  deepEqual(readPaths, [path], "a missing link is never read");
+});
+
 
 test("play from the palette starts the active board's reference through the output", async () => {
   const played: Array<{ bytes: Uint8Array; format: string }> = [];
@@ -168,4 +325,94 @@ test("play with a missing project SoundFont plays the bundled bank and shows why
   equal(plays.length, 1);
   equal(plays[0]?.soundFont, null);
   equal(controls.getSnapshot().note, 'The project\'s default SoundFont "missing.sf2" could not be read, so the bundled bank plays instead.');
+});
+test("disposing the current audition does not cancel a newer view's pending play", async () => {
+  const oldBytes = new Uint8Array([1]);
+  const newBytes = new Uint8Array([2]);
+  const base = createMemoryPlatformServices({ files: { "Media/old.wav": oldBytes, "Media/new.wav": newBytes } });
+  const played: Uint8Array[] = [];
+  let stops = 0;
+  const output: AudioOutputService = {
+    play: async (bytes) => { played.push(bytes); return { ok: true, value: undefined }; },
+    stop: async () => { stops++; return { ok: true, value: undefined }; },
+  };
+  let startedRead!: () => void;
+  const readStarted = new Promise<void>((resolve) => { startedRead = resolve; });
+  const readGate = (() => {
+    let release!: (result: PlatformResult<Uint8Array>) => void;
+    const promise = new Promise<PlatformResult<Uint8Array>>((resolve) => { release = resolve; });
+    return { promise, release: (result: PlatformResult<Uint8Array>) => release(result) };
+  })();
+  const fs = {
+    readProject: async (_projectId: string, path: string): Promise<PlatformResult<Uint8Array>> => {
+      if (path === "Media/new.wav") {
+        startedRead();
+        return await readGate.promise;
+      }
+      return base.fs.readProject("memory-project", path);
+    },
+  };
+  const makeControls = (reference: string, files: typeof base.fs) => {
+    const controls = createAuditionControls({ audioOutput: output, fs: files, projectId: "memory-project", layout: { projectFolder: "" }, main: null });
+    controls.setReference(reference);
+    return controls;
+  };
+  const first = makeControls("old.wav", base.fs);
+  const second = createAuditionControls({ audioOutput: output, fs, projectId: "memory-project", layout: { projectFolder: "" }, main: null });
+  second.setReference("new.wav");
+  await first.play();
+  equal(played.length, 1);
+  const pendingPlay = second.play();
+  await readStarted;
+  first.dispose();
+  equal(stops, 1, "disposing the old owner stops its playback without advancing the shared cancellation generation");
+  readGate.release({ ok: true, value: newBytes });
+  await pendingPlay;
+  equal(played.length, 2, "the newer pending play reaches the shared output");
+  deepEqual(played[1], newBytes);
+});
+void test("stopping one view never stops another view's playback or cancels its pending play", async () => {
+  const oldBytes = new Uint8Array([3]);
+  const newBytes = new Uint8Array([4]);
+  const host = createMemoryPlatformServices({ files: { "Media/old.wav": oldBytes, "Media/new.wav": newBytes } });
+  const played: Uint8Array[] = [];
+  let stops = 0;
+  const output: AudioOutputService = {
+    play: async (bytes) => { played.push(bytes); return { ok: true, value: undefined }; },
+    stop: async () => { stops += 1; return { ok: true, value: undefined }; },
+  };
+  const unrelated = createAuditionControls({ audioOutput: output, fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: null });
+  const owner = createAuditionControls({ audioOutput: output, fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: null });
+  owner.setReference("old.wav");
+  await owner.play();
+  unrelated.stop();
+  equal(stops, 0, "an unrelated view cannot stop playback it does not own");
+
+  let startedRead!: () => void;
+  const readStarted = new Promise<void>((resolve) => { startedRead = resolve; });
+  const readGate = (() => {
+    let release!: (result: PlatformResult<Uint8Array>) => void;
+    const promise = new Promise<PlatformResult<Uint8Array>>((resolve) => { release = resolve; });
+    return { promise, release: (result: PlatformResult<Uint8Array>) => release(result) };
+  })();
+  const delayedFs = {
+    readProject: async (_projectId: string, path: string): Promise<PlatformResult<Uint8Array>> => {
+      if (path === "Media/new.wav") {
+        startedRead();
+        return await readGate.promise;
+      }
+      return host.fs.readProject("memory-project", path);
+    },
+  };
+  const pending = createAuditionControls({ audioOutput: output, fs: delayedFs, projectId: "memory-project", layout: { projectFolder: "" }, main: null });
+  pending.setReference("new.wav");
+  const play = pending.play();
+  await readStarted;
+  owner.stop();
+  equal(stops, 1, "the existing owner stops its current output without canceling the newer pending play");
+  readGate.release({ ok: true, value: newBytes });
+  await play;
+  deepEqual(played, [oldBytes, newBytes]);
+  unrelated.stop();
+  equal(stops, 1, "an unrelated view still cannot stop the newer view's playback");
 });
