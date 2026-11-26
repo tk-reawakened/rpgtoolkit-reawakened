@@ -1,5 +1,5 @@
-import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
-import type { BoardPicture, Scene, SceneTerrainCellTile, TerrainScenePack, TerrainSceneTileset } from "@tk-reawakened/editor-model";
+import { createTerrainSceneAssets, mountTerrainScene, type TerrainSceneAssets, type ViewHandle } from "@tk-reawakened/editor-ui";
+import type { BoardPicture, Scene } from "@tk-reawakened/editor-model";
 
 declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
 const api = acquireVsCodeApi();
@@ -12,9 +12,8 @@ content.setAttribute("aria-label", "Native scene");
 root.append(status, content);
 let view: ViewHandle | undefined;
 let snapshot: { readonly scene: Scene } | undefined;
-let tilesets: readonly TerrainSceneTileset[] = [];
-let assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[] = [];
-let packs: readonly TerrainScenePack[] = [];
+// The scene's tilesets and packs, re-read by the extension when a recipe changes; an identical read notifies nobody.
+const assets = createTerrainSceneAssets({ tilesets: [], assetTiles: [], packs: [] });
 const listeners = new Set<() => void>();
 let generation = 0;
 let previewsMade = 0;
@@ -41,9 +40,8 @@ function mount(): void {
       getSnapshot: () => snapshot!,
       subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     },
-    tilesets,
-    assetTiles,
-    packs,
+    assets: assets.source,
+    onRefreshAssets: () => api.postMessage({ type: "reload-assets" }),
     onOpenAsset: (path: string) => api.postMessage({ type: "open-owner", path }),
     onChange: (scene) => api.postMessage({
       type: "edit",
@@ -73,12 +71,14 @@ window.addEventListener("message", (event: MessageEvent) => {
     else for (const listener of listeners) listener();
     return;
   }
+  if (message.type === "assets") {
+    assets.set(message.assets as TerrainSceneAssets);
+    return;
+  }
   if (message.type !== "initialize") return;
   advanceGeneration();
   snapshot = message.snapshot as { readonly scene: Scene };
-  tilesets = message.tilesets as typeof tilesets;
-  assetTiles = message.assetTiles as typeof assetTiles;
-  packs = message.packs as typeof packs;
+  assets.set(message.assets as TerrainSceneAssets);
   mount();
 });
 api.postMessage({ type: "ready" });

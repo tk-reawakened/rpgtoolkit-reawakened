@@ -1,5 +1,5 @@
 import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneTilesets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
-import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createTerrainSceneAssets, mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { WebProject } from "./index.ts";
 
 /**
@@ -61,16 +61,31 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
     finally { busy = false; }
   };
   const run = project.services.run;
-  void loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text).then((inventory) => {
-    if (disposed) return;
-    if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return; }
+  const assets = createTerrainSceneAssets({ tilesets: [], assetTiles: [], packs: [] });
+  let owners = new Set<string>();
+  /** Reads in flight are numbered: a slower, older read never replaces the tilesets a newer one already showed. */
+  let read = 0;
+  const load = async (): Promise<boolean> => {
+    const mine = ++read;
+    const inventory = await loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text);
+    if (disposed || mine !== read) return false;
+    if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return false; }
     report(inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
-    const owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
-    mounted = mountTerrainScene(content, {
-      document,
+    owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
+    // A no-op when no recipe changed, so an edit or a reactivation never resets the view's selected terrain or tool.
+    assets.set({
       tilesets: terrainSceneTilesets(inventory.tilesets),
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
       packs: inventory.packs,
+    });
+    return true;
+  };
+  const start = async (): Promise<void> => {
+    if (!await load() || disposed) return;
+    mounted = mountTerrainScene(content, {
+      document,
+      assets: assets.source,
+      onRefreshAssets: () => { void load(); },
       ...(openSource === undefined ? {} : { onOpenAsset: (path: string) => {
         if (!owners.has(path)) { report(`${path} is not a native tile or pack in this project's scene inventory.`); return; }
         void openSource(path).then((message) => { if (message !== null) report(message); }).catch((error: unknown) => report(String(error)));
@@ -114,6 +129,11 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
         })().catch((error: unknown) => report(String(error)));
       } }),
     });
-  }).catch((error: unknown) => report(String(error)));
-  return { dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); } };
+  };
+  void start().catch((error: unknown) => report(String(error)));
+  return {
+    dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); },
+    /** The workbench re-shows a retained view here: re-read the tilesets so its rules are never the ones from before a recipe edit. */
+    refreshAssets() { void load(); },
+  };
 }

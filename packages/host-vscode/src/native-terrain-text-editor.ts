@@ -11,6 +11,9 @@ type Panel = { readonly panel: vscode.WebviewPanel; initialized: boolean };
 /** A scene's TextDocument is authoritative; every save builds derived board outputs through ownership review. */
 export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionContext, html: (webview: vscode.Webview, context: vscode.ExtensionContext) => string, historyFor: (folder: vscode.WorkspaceFolder) => DocumentHistoryStore, runForProject: (root: vscode.Uri) => RunService): vscode.CustomTextEditorProvider {
   const panels = new Map<string, Set<Panel>>();
+  /** Each open scene's asset re-read, called when a tileset document changes; a scene's own edits are not asset changes. */
+  const assetReloads = new Set<() => Promise<void>>();
+  let tilesetChangeTimer: ReturnType<typeof setTimeout> | undefined;
   const builds = new Map<string, { readonly version: number; readonly promise: Promise<string | null> }>();
   const buildSavedRevision = (document: vscode.TextDocument): Promise<string | null> => {
     const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -73,7 +76,18 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       else sendStatus(target, `The native scene is invalid; repair it in the text editor before terrain editing. ${parsed.problems.map(({ message }) => message).join("; ")}`);
     }
   };
-  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(({ document }) => refresh(document)));
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(({ document }) => {
+    refresh(document);
+    // A recipe update changes the roles the scene view reports, so re-read the tilesets (bounded, once per burst).
+    const path = document.uri.path.toLowerCase();
+    if (!path.endsWith(".tkrtst") && !path.endsWith(".tkrtle")) return;
+    if (tilesetChangeTimer !== undefined) clearTimeout(tilesetChangeTimer);
+    tilesetChangeTimer = setTimeout(() => {
+      tilesetChangeTimer = undefined;
+      for (const reload of [...assetReloads]) void reload();
+    }, 250);
+  }));
+  context.subscriptions.push({ dispose: () => { if (tilesetChangeTimer !== undefined) clearTimeout(tilesetChangeTimer); } });
   return {
     async resolveCustomTextEditor(document, panel): Promise<void> {
       const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -87,7 +101,22 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       const tilesets = inventory?.ok ? terrainSceneTilesets(inventory.tilesets) : [];
       const assetTiles = inventory?.ok ? inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })) : [];
       const packs = inventory?.ok ? inventory.packs : [];
-      const ownerPaths = new Set([...(inventory?.ok === true ? inventory.tiles : []), ...packs.map(({ path }) => path)]);
+      let ownerPaths = new Set([...(inventory?.ok === true ? inventory.tiles : []), ...packs.map(({ path }) => path)]);
+      /** Reads in flight are numbered per panel: a slower, older read never replaces the tilesets a newer one showed. */
+      let reads = 0;
+      const postAssets = async (): Promise<void> => {
+        if (disposed || folder === undefined || projectPath === undefined) return;
+        const mine = ++reads;
+        const fresh = await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
+        if (disposed || mine !== reads || !fresh.ok) return;
+        ownerPaths = new Set([...fresh.tiles, ...fresh.packs.map(({ path }) => path)]);
+        await panel.webview.postMessage({ type: "assets", assets: {
+          tilesets: terrainSceneTilesets(fresh.tilesets),
+          assetTiles: fresh.tiles.map((tile) => ({ label: tile, tile: { tile } })),
+          packs: fresh.packs,
+        } });
+      };
+      assetReloads.add(postAssets);
       panel.webview.onDidReceiveMessage(async (value: unknown) => {
         if (typeof value !== "object" || value === null || !("type" in value)) return;
         if (value.type === "ready") {
@@ -97,7 +126,9 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
           else if (inventory.packProblems.length > 0) sendStatus(target, inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
           const current = readScene(document.getText());
           if (!current.ok) { sendStatus(target, `The native scene is invalid; repair it in the text editor before terrain editing. ${current.problems.map(({ message }) => message).join("; ")}`); return; }
-          void panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, tilesets, assetTiles, packs });
+          void panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, assets: { tilesets, assetTiles, packs } });
+        } else if (value.type === "reload-assets") {
+          await postAssets();
         } else if (value.type === "edit" && "terrain" in value) {
           const currentText = document.getText();
           const result = applyTerrainSceneEdit(currentText, {
@@ -151,7 +182,7 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
           } catch (error) { sendStatus(target, `Play failed: ${String(error)}`); }
         }
       });
-      panel.onDidDispose(() => { disposed = true; set.delete(target); if (set.size === 0) panels.delete(key); });
+      panel.onDidDispose(() => { disposed = true; assetReloads.delete(postAssets); set.delete(target); if (set.size === 0) panels.delete(key); });
       panel.webview.html = html(panel.webview, context);
     },
   };

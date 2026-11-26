@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import { equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { inspectTerrainRoles, type Scene, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
+import { createTerrainSceneAssets, type MutableTerrainSceneAssets } from "../src/terrain-assets.ts";
 
 let mountTerrainScene: typeof import("@tk-reawakened/editor-ui").mountTerrainScene;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -17,11 +18,17 @@ after(() => GlobalRegistrator.unregister());
 
 const scene = { contract: "scene", version: "1.0.0-pre.2", name: "Pond", projection: "2d", size: { width: 4, height: 3 }, floors: [{ id: "ground" }] } as unknown as Scene;
 
-async function show(tilesets: readonly TerrainSceneTileset[]): Promise<HTMLElement> {
+async function show(tilesets: readonly TerrainSceneTileset[], assets?: MutableTerrainSceneAssets): Promise<HTMLElement> {
   const el = document.createElement("div");
   document.body.append(el);
+  const source = assets ?? createTerrainSceneAssets({ tilesets, assetTiles: [], packs: [] });
   await act(() => {
-    mountTerrainScene(el, { document: { getSnapshot: () => ({ scene }), subscribe: () => () => undefined }, tilesets, assetTiles: [], onChange: () => undefined } as never);
+    mountTerrainScene(el, {
+      document: { getSnapshot: () => ({ scene }), subscribe: () => () => undefined },
+      assets: source.source,
+      onRefreshAssets: () => undefined,
+      onChange: () => undefined,
+    } as never);
   });
   return el;
 }
@@ -56,4 +63,40 @@ test("a terrain with every neighbourhood covered says so", async () => {
   const text = el.querySelector('[data-tkr-terrain-roles="water"]')?.textContent ?? "";
   match(text, /16 of 16 neighbourhoods have a tile/);
   match(text, /Every neighbourhood has a tile/);
+});
+
+test("a refreshed recipe updates the rules in place, and an identical read is a no-op that keeps the chosen terrain and tool", async () => {
+  const partial = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
+  const assets = createTerrainSceneAssets({ tilesets: [partial], assetTiles: [], packs: [] });
+  let notified = 0;
+  assets.source.subscribe(() => { notified += 1; });
+  const el = await show([partial], assets);
+  // The author's choice: the terrain stays selected and the paint tool stays checked across a refresh.
+  const paint = el.querySelector<HTMLInputElement>('[data-tkr-tool="paint"]')!;
+  await act(() => { paint.click(); });
+  equal(paint.checked, true);
+
+  equal(assets.set({ tilesets: [partial], assetTiles: [], packs: [] }), false, "the same recipes are a no-op");
+  equal(notified, 0, "and notify nobody, so nothing is re-rendered or reset");
+
+  const complete = entry("complete", [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }]);
+  await act(async () => {
+    equal(assets.set({ tilesets: [complete], assetTiles: [], packs: [] }), true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+  equal(notified, 1);
+  const text = el.querySelector('[data-tkr-terrain-roles="water"]')?.textContent ?? "";
+  match(text, /16 of 16 neighbourhoods have a tile/, "the panel shows the recipe as it is now");
+  match(text, /Every neighbourhood has a tile/);
+  equal(el.querySelector<HTMLInputElement>('[data-tkr-tool="paint"]')!.checked, true, "the open view kept its tool");
+  equal(el.querySelector<HTMLSelectElement>("select")?.value ?? "", "ground", "and its floor");
+});
+
+test("a terrain that a refresh removes falls back to the first one instead of keeping a stale selection", async () => {
+  const shore = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
+  const assets = createTerrainSceneAssets({ tilesets: [shore], assetTiles: [], packs: [] });
+  const el = await show([shore], assets);
+  const renamed: TerrainSceneTileset = { path: "Tiles/Pond.tkrtst", terrains: [{ id: "river", label: "River", roles: inspectTerrainRoles({ neighbours: "cardinal-4", coverage: "complete", rules: [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }] }) }] };
+  await act(async () => { assets.set({ tilesets: [renamed], assetTiles: [], packs: [] }); await new Promise<void>((resolve) => setImmediate(resolve)); });
+  match(el.textContent ?? "", /Native terrain rules: River/);
 });

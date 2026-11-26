@@ -291,6 +291,27 @@ test("native terrain: the scene editor lists each terrain's rules, names the nei
   await editor.getByRole("button", { name: /^Cell 1, 0:/ }).click();
   await editor.getByRole("button", { name: "Preview build", exact: true }).click();
   await expect(editor.getByRole("status").filter({ hasText: "No tile rule matches ground at (1, 0)" })).toBeVisible();
-  // The diagnostic changed nothing: the scene is still the unsaved edit, and the tileset file is as authored.
+  // The edit while the panel was open did not reset it: the same terrain and its rules are still shown.
+  await expect(roles).toContainText("Native terrain rules: Shore");
+
+  // A recipe edited behind the open scene is read again on refresh, and the panel shows the recipe as it is now.
+  await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const handle = await (await root.getDirectoryHandle("Tiles")).getFileHandle("pond.tkrtst");
+    const text = await (await handle.getFile()).text();
+    const next = text
+      .replace("coverage: partial", "coverage: complete")
+      .replace("{id: east, when: {e: same}, use: {tile: Tiles/water.tkrtle}}", "{id: any, when: {}, use: {tile: Tiles/water.tkrtle}}");
+    const writable = await handle.createWritable();
+    await writable.write(next);
+    await writable.close();
+  });
+  await editor.getByRole("button", { name: "Refresh terrain rules", exact: true }).click();
+  await expect(roles).toContainText("Four neighbours, complete coverage: 16 of 16 neighbourhoods have a tile");
+  await expect(roles).toContainText("Every neighbourhood has a tile");
+  await expect(roles).not.toContainText("Missing role assignments");
+  // The refresh is a no-op for the view itself: the same terrain stays chosen, and the diagnostic still changes nothing.
+  await editor.getByRole("button", { name: "Refresh terrain rules", exact: true }).click();
+  await expect(roles).toContainText("Native terrain rules: Shore");
   await expect(page.getByRole("tab", { name: /pond\.tkrscn, unsaved changes/ })).toBeVisible();
 });

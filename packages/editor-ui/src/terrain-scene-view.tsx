@@ -1,14 +1,16 @@
 import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ScenePackPlacementEditor } from "./scene-pack-placement.tsx";
+import type { TerrainSceneAssetSource } from "./terrain-assets.ts";
+import { useDocumentSnapshot } from "./use-document.ts";
 type SceneTerrainRegion = NonNullable<Scene["terrainRegions"]>[number];
 
 export interface TerrainSceneViewProps {
   readonly scene: Scene;
-  readonly tilesets: readonly TerrainSceneTileset[];
-  readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
-  /** The scene game's asset packs, whose assets can be placed and whose owner documents can be opened. */
-  readonly packs?: readonly TerrainScenePack[];
+  /** The tilesets, terrains and packs, re-read by the host after a recipe changes; the view keeps its selection on a no-op. */
+  readonly assets: TerrainSceneAssetSource;
+  /** Ask the host to re-read its tilesets; the panel reports what it shows, so a stale recipe is never presented as current. */
+  readonly onRefreshAssets?: () => void;
   /** Open a native owner document by its canonical inventory path; the picker never invents a path. */
   readonly onOpenAsset?: (path: string) => void;
   readonly onChange: (scene: Scene) => void;
@@ -44,7 +46,8 @@ function newRegionId(regions: readonly SceneTerrainRegion[]): string {
   return `region-${n}`;
 }
 
-export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOpenAsset, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+export function TerrainSceneView({ scene, assets, onRefreshAssets, onOpenAsset, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+  const { tilesets, assetTiles, packs } = useDocumentSnapshot(assets);
   const compatiblePacks = packs.filter((entry) => entry.external !== true && entry.projection === scene.projection);
   const [floorId, setFloorId] = useState(scene.floors[0]?.id ?? "");
   const [tilesetPath, setTilesetPath] = useState(tilesets[0]?.path ?? "");
@@ -79,6 +82,13 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
   const activeFloor = floor?.id ?? "";
   const selected = regions.find((region) => region.id === selectedId && region.floor === activeFloor);
   const tileset = tilesets.find((entry) => entry.path === tilesetPath);
+  useEffect(() => {
+    if (tilesets.length === 0) return;
+    const chosen = tilesets.find((entry) => entry.path === tilesetPath) ?? tilesets[0]!;
+    if (chosen.path !== tilesetPath) { setTilesetPath(chosen.path); setSelectedId(""); setAnchor(null); }
+    if (!chosen.terrains.some((entry) => entry.id === terrainId)) { setTerrainId(chosen.terrains[0]?.id ?? ""); setAnchor(null); }
+    if (tileIndex >= assetTiles.length) setTileIndex(0);
+  }, [tilesets, assetTiles, tilesetPath, terrainId, tileIndex]);
   const terrain = tileset?.terrains.find((entry) => entry.id === terrainId);
   const rotated = scene.projection === "iso-rotated";
   const width = rotated ? scene.size.width + scene.size.height : scene.size.width;
@@ -161,6 +171,7 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
     </select></label>
     {terrain !== undefined ? <section aria-label="Native terrain roles" data-tkr-terrain-roles={terrain.id}>
       <h3>Native terrain rules: {terrain.label}</h3>
+      {onRefreshAssets === undefined ? null : <button type="button" data-tkr-terrain-rules-refresh="true" disabled={disabled} onClick={onRefreshAssets}>Refresh terrain rules</button>}
       <p>{terrain.roles.neighbours === "blob-8" ? "Eight neighbours" : "Four neighbours"}, {terrain.roles.coverage} coverage: {terrain.roles.situations - terrain.roles.missing.length} of {terrain.roles.situations} neighbourhoods have a tile. Native roles are these rules; they are not the legacy 52-slot order, and this terrain is not an original-format set.</p>
       <ul aria-label="Terrain rules">{terrain.roles.rules.map((rule) => <li key={rule.id}>
         {rule.id}: {rule.when} uses {rule.tiles.join(", ")} ({rule.situations} {rule.situations === 1 ? "neighbourhood" : "neighbourhoods"})
