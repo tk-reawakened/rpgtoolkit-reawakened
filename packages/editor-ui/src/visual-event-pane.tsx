@@ -482,18 +482,20 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
       readonly line: number;
       readonly templateId: string;
       readonly values: readonly VisualEventValue[];
-      readonly dx: number;
-      readonly dy: number;
+      /** Presses not yet dispatched. */
+      dx: number;
+      dy: number;
+      /** The delta already dispatched for this gesture, which the card itself now carries. */
+      appliedX: number;
+      appliedY: number;
     } | null;
     timer: ReturnType<typeof setTimeout> | undefined;
-  }>({
-    inflight: null, queued: null, timer: undefined,
-  });
+  }>({ inflight: null, queued: null, timer: undefined });
   /** The placed card a gesture was made on, with what it looked like: a swap or removal must not pass for it. */
-  const cardAt = (text: string, from: number): { readonly id: string; readonly line: number; readonly templateId: string; readonly values: readonly VisualEventValue[] } | null => {
+  const cardAt = (text: string, from: number): { readonly id: string; readonly from: number; readonly line: number; readonly templateId: string; readonly values: readonly VisualEventValue[] } | null => {
     const region = projectVisualProgram(text).regions.find((item): item is EditableVisualEvent => item.type !== "opaque" && item.from === from);
     return region !== undefined && region.type === "event"
-      ? { id: region.id, line: region.line, templateId: region.templateId, values: region.values } : null;
+      ? { id: region.id, from: region.from, line: region.line, templateId: region.templateId, values: region.values } : null;
   };
   const send = (action: VisualEventAction, to: Dispatch, from: string): void => {
     const current = state.current;
@@ -502,35 +504,50 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
     current.timer = setTimeout(settle, SETTLE_MS);
     to(action);
   };
+  /** Dispatch the presses waiting on this gesture, remembering the delta so the card's own values can be recognised. */
+  const flushQueued = (): void => {
+    const current = state.current;
+    const queued = current.queued;
+    if (queued === null || (queued.dx === 0 && queued.dy === 0)) return;
+    // The gesture belongs to the card it was made on: a card that swapped places or went away drops it, even when a
+    // neighbour of the same command now sits at the old offset.
+    const card = resolveQueued(projectVisualProgram(latest.current.source).regions, queued);
+    const dx = queued.dx, dy = queued.dy;
+    // The entry stays for the presses that arrive before the text catches up, carrying what was already dispatched.
+    queued.dx = 0;
+    queued.dy = 0;
+    queued.appliedX += dx;
+    queued.appliedY += dy;
+    if (card === null) return;
+    send({ type: "nudge", from: card.from, dx, dy }, latest.current.onAction, latest.current.source);
+  };
   const settle = (): void => {
     const current = state.current;
     clearTimeout(current.timer);
     current.timer = undefined;
     current.inflight = null;
-    const queued = current.queued;
+    flushQueued();
     current.queued = null;
-    if (queued === null) return;
-    // The gesture belongs to the card it was made on: a card that swapped places or went away drops it, even when a
-    // neighbour of the same command now sits at the old offset.
-    const card = resolveQueued(projectVisualProgram(latest.current.source).regions, queued);
-    if (card === null) return;
-    send({ type: "nudge", from: card.from, dx: queued.dx, dy: queued.dy }, latest.current.onAction, latest.current.source);
   };
   useEffect(settle, [source, error]);
   useEffect(() => () => clearTimeout(state.current.timer), []);
   return (action) => {
     const current = state.current;
-    if (action.type !== "nudge" || current.inflight !== latest.current.source) {
+    if (action.type !== "nudge") {
       send(action, onAction, source);
       return;
     }
     const card = cardAt(latest.current.source, action.from);
     if (card === null) return;
-    const queued = current.queued;
-    const same = queued !== null && queued.id === card.id;
-    current.queued = same
-      ? { ...queued, dx: queued.dx + action.dx, dy: queued.dy + action.dy }
-      : { ...card, from: action.from, dx: action.dx, dy: action.dy };
+    const previous = current.queued;
+    // Inside one gesture the card's text changes under it, so the window is identified by its offset, line and command.
+    const same = previous !== null && previous.from === action.from && previous.line === card.line && previous.templateId === card.templateId;
+    const entry = same
+      ? { ...previous, dx: previous.dx + action.dx, dy: previous.dy + action.dy }
+      : { ...card, dx: action.dx, dy: action.dy, appliedX: 0, appliedY: 0 };
+    current.queued = entry;
+    // The first press of a gesture is applied at once; the rest wait for the text it was made from.
+    if (current.inflight !== latest.current.source) flushQueued();
   };
 }
 
@@ -539,13 +556,30 @@ function useDispatch(source: string, error: string | null, onAction: Dispatch): 
  * after its identity no longer matches, the same offset, line and command with every other value unchanged is still
  * that card; a swapped-in neighbour of the same command differs outside the placement fields and drops the gesture.
  */
-function resolveQueued(regions: readonly VisualProgramRegion[], queued: { readonly id: string; readonly from: number; readonly line: number; readonly templateId: string; readonly values: readonly VisualEventValue[] }): VisualEventCard | null {
+function resolveQueued(
+  regions: readonly VisualProgramRegion[],
+  queued: {
+    readonly id: string;
+    readonly from: number;
+    readonly line: number;
+    readonly templateId: string;
+    readonly values: readonly VisualEventValue[];
+    readonly appliedX: number;
+    readonly appliedY: number;
+  },
+): VisualEventCard | null {
   const card = regions.find((item): item is VisualEventCard => item.type === "event" && item.from === queued.from);
   if (card === undefined) return null;
   if (card.id === queued.id) return card;
   if (card.line !== queued.line || card.templateId !== queued.templateId) return null;
-  const { placement } = VISUAL_EVENT_TEMPLATES.find((template) => template.id === queued.templateId) ?? {};
+  const placement = VISUAL_EVENT_TEMPLATES.find((template) => template.id === queued.templateId)?.placement;
   if (placement === undefined || card.values.length !== queued.values.length) return null;
+  // The card must carry exactly the delta this gesture already dispatched: an identical twin that differs only in its
+  // placement does not, so it never receives the gesture.
+  const placed =
+    Number(card.values[placement.xField]) === Number(queued.values[placement.xField]) + queued.appliedX &&
+    Number(card.values[placement.yField]) === Number(queued.values[placement.yField]) + queued.appliedY;
+  if (!placed) return null;
   const unchanged = card.values.every((value, index) => index === placement.xField || index === placement.yField || value === queued.values[index]);
   return unchanged ? card : null;
 }

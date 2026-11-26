@@ -1136,6 +1136,30 @@ test("a queued nudge is dropped when two same-command cards swap before it is ap
   equal(textOf(s), 'text(9, 9, "B")\ntext(2, 2, "A")\n', "the swap applies and neither card takes the other's gesture");
 });
 
+test("identical-text twins that differ only in placement never take each other's queued nudge", async () => {
+  // Two `text` cards with the same string: the only difference is X, so identity text cannot tell them apart.
+  const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 2, "A")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(9, 2, "A")\ntext(2, 2, "A")\n', "the twins swap and neither takes the other's gesture");
+});
+
 test("a queued nudge never lands on a same-command neighbour that inherits its slot", async () => {
   const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 9, "B")\n' });
   const gate = deferred();
