@@ -34,7 +34,7 @@ Drag a light's numbered dots on the board after choosing **Move lights on the bo
 
 Exactly how it is worked out: each board cell is tested at its top-left corner, `((column − 1) × 32, (row − 1) × 32)` on a normal board and at the centre of its diamond on an isometric one. The light's value there is added to the cell's painted shade, and the sum is rounded toward zero once per light. Overlapping lights add. Nothing is capped at 255 while it is stored; the picture clamps the final colour.
 
-**Convert to shading** adds one light into the board's shading and removes the light. It is one edit, so one Undo brings the editable light back. Convert needs a board with at most one shading layer.
+**Convert to shading…** first shows what it would do and changes nothing: how many shade cells the light would change and where, a small picture of the shade it adds (grey where it adds nothing, lighter where it adds shade), whether the board has no shading yet, and how many cells would total more than 255 (the picture draws those clamped). Press **Apply conversion** to add the light into the board's shading and remove the light. That is one edit, so one Undo brings the editable light back. Press **Cancel**, or Escape, to close the review: the light, the shading and the board's saved state stay exactly as they were. While a review is open the other lighting controls are paused, and if the light changes underneath it the review closes without converting anything. Convert needs a board with at most one shading layer, and refuses (changing nothing) a total no stored shade can hold.
 
 ## Seeing the result
 
