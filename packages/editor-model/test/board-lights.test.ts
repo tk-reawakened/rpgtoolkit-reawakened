@@ -3,7 +3,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { BinaryReader, readBoard, type Board } from "@tk-reawakened/core";
-import { addLight, convertLightToShading, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, removeLight, setLightColour, setLightType } from "../src/index.ts";
+import { addLight, convertLightToShading, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, previewLightConversion, removeLight, setLightColour, setLightType } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const PATH = "Boards/village.brd";
@@ -112,4 +112,53 @@ test("painting shade cells is one edit; out-of-range channels and cells are refu
   const reopened = await openBoardDocument(host.fs, identity);
   ok(reopened.ok);
   equal(modelOf(reopened.document).shadeLayers.length, 1);
+});
+
+test("previewLightConversion reports the cells a light changes without changing anything, and Apply's arrays match convert", async () => {
+  const { doc } = await open();
+  const base = doc.getSnapshot();
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  const withLight = { ...base, lights: [light], shadeLayers: [] };
+  const before = JSON.stringify(withLight);
+  const preview = previewLightConversion(withLight, 0);
+  ok(preview.ok);
+  equal(JSON.stringify(withLight), before, "the board is not touched by looking");
+  equal(preview.width * preview.height * 3, preview.added.length);
+  ok(preview.cellsChanged > 0);
+  ok(preview.bounds !== null && preview.bounds.column0 >= 1 && preview.bounds.column1 <= preview.width && preview.bounds.row1 <= preview.height);
+  equal(preview.createsShadingLayer, true);
+  equal(preview.lights.length, 0);
+  equal(preview.light, light, "the reviewed light is the stored one");
+  const converted = convertLightToShading(withLight, 0);
+  ok(converted.ok);
+  deepEqual(converted.shadeLayers, preview.shadeLayers);
+  deepEqual(converted.lights, preview.lights);
+});
+
+test("previewLightConversion counts cells past the draw range, a light that adds nothing, and refuses a stored overflow", async () => {
+  const { doc } = await open();
+  const base = doc.getSnapshot();
+  const hot = newLight(1, { x: 0, y: 0 }, { r: 200, g: 0, b: 0 });
+  const dims = previewLightConversion({ ...base, lights: [hot] }, 0);
+  ok(dims.ok);
+  const cells = dims.width * dims.height;
+  const everywhere = (r: number) => [{ castLayer: base.layers, records: [{ runCount: cells, r, g: 0, b: 0 }] }];
+  const past = previewLightConversion({ ...base, lights: [hot], shadeLayers: everywhere(250) }, 0);
+  ok(past.ok);
+  equal(past.cellsPastDrawRange, dims.cellsChanged, "every cell the light adds red to now totals more than 255");
+  ok(past.cellsPastDrawRange > 0);
+  equal(past.createsShadingLayer, false);
+  const dark = newLight(1, { x: 0, y: 0 }, { r: 0, g: 0, b: 0 });
+  const nothing = previewLightConversion({ ...base, lights: [dark] }, 0);
+  ok(nothing.ok);
+  equal(nothing.cellsChanged, 0);
+  equal(nothing.bounds, null);
+  // A stored channel at the i16 limit cannot take any more: the whole conversion is refused, naming a cell, and nothing changes.
+  const full = { ...base, lights: [hot], shadeLayers: everywhere(32_767) };
+  const before = JSON.stringify(full);
+  const refused = previewLightConversion(full, 0);
+  equal(refused.ok, false);
+  ok(!refused.ok && /column \d+, row \d+ red/.test(refused.message) && /Nothing was changed/.test(refused.message));
+  equal(JSON.stringify(full), before);
+  equal(previewLightConversion(base, 4).ok, false);
 });

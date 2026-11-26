@@ -1,5 +1,5 @@
-import { addLight, convertLightToShading, moveLightNode, newLight, removeLight, setLightColour, setLightType, SHADE_TOOLS, type LightType, type LightEdit, type SetBoardFieldsCommand, type ShadeTool } from "@tk-reawakened/editor-model";
-import { useState } from "preact/hooks";
+import { addLight, moveLightNode, newLight, previewLightConversion, removeLight, setLightColour, setLightType, SHADE_TOOLS, type LightConversionPreview, type LightType, type LightEdit, type SetBoardFieldsCommand, type ShadeTool } from "@tk-reawakened/editor-model";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { BoardSubmit } from "./use-board-submit.ts";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -45,6 +45,40 @@ const CHANNELS = [["r", "Red"], ["g", "Green"], ["b", "Blue"]] as const;
 
 const clamp = (value: number): number => Math.max(-255, Math.min(255, Math.trunc(value)));
 
+/** One light's conversion under review: nothing is stored until Apply, so a cancelled review leaves the light exactly as it was. */
+interface ConversionReview {
+  readonly index: number;
+  readonly preview: LightConversionPreview;
+}
+
+const sameData = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+const STALE_REVIEW = "The light or the shading changed while you were reviewing the conversion, so nothing was converted. Review it again.";
+
+/** A neutral grey where the light adds nothing, lighter where it adds shade and darker where it takes it away. */
+function drawConversion(canvas: HTMLCanvasElement, preview: LightConversionPreview): void {
+  const context = canvas.getContext("2d");
+  if (context === null || context === undefined) return;
+  const image = context.createImageData(preview.width, preview.height);
+  for (let cell = 0; cell < preview.width * preview.height; cell += 1) {
+    for (let channel = 0; channel < 3; channel += 1) {
+      image.data[cell * 4 + channel] = Math.max(0, Math.min(255, 128 + Math.round((preview.added[cell * 3 + channel] ?? 0) / 2)));
+    }
+    image.data[cell * 4 + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
+function describeConversion(name: string, preview: LightConversionPreview): string {
+  const cells = preview.width * preview.height;
+  const spread = preview.bounds === null
+    ? `${name} adds nothing to any of the ${cells} shade cells (it lies off the board or its colours are zero), so converting only removes the light.`
+    : `${name} adds shade to ${preview.cellsChanged} of the ${cells} shade cells, in columns ${preview.bounds.column0} to ${preview.bounds.column1} and rows ${preview.bounds.row0} to ${preview.bounds.row1}.`;
+  const layer = preview.createsShadingLayer ? " The board has no shading yet, so this creates its shading layer." : " This adds to the shading the board already has.";
+  const past = preview.cellsPastDrawRange === 0 ? "" : ` ${preview.cellsPastDrawRange} cell${preview.cellsPastDrawRange === 1 ? "" : "s"} would total more than 255 either way, and the picture draws those clamped.`;
+  return `${spread}${layer}${past}`;
+}
+
 /**
  * Lights and shading beside the board (T-23 Shading and Lighting, T-26). Every control has a numeric field and an accessible
  * name; each change is one command, so one undo takes it back. Lights stay editable until Convert, which adds one light into
@@ -58,7 +92,63 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
   const [column, setColumn] = useState(1);
   const [row, setRow] = useState(1);
   const { message, setMessage, busy, submit } = board;
-  const locked = disabled || busy;
+  const [review, setReview] = useState<ConversionReview | null>(null);
+  const panel = useRef<HTMLDetailsElement>(null);
+  const lightsGroup = useRef<HTMLFieldSetElement>(null);
+  const previewCanvas = useRef<HTMLCanvasElement>(null);
+  // Where focus goes when the review closes: the light's Convert button, or the lights list once the light is gone.
+  const returnFocus = useRef<number | "list" | null>(null);
+  const locked = disabled || busy || review !== null;
+  const reviewLocked = disabled || busy;
+
+  const closeReview = (focus: number | "list" | null): void => {
+    returnFocus.current = focus;
+    setReview(null);
+  };
+  /** Show what converting a light would do. Nothing is stored: this only reads the board. */
+  const startConvert = (index: number): void => {
+    const preview = previewLightConversion(snapshot, index);
+    if (!preview.ok) { setMessage(preview.message); return; }
+    setMessage(null);
+    setReview({ index, preview });
+  };
+  const cancelConvert = (): void => {
+    if (review === null || reviewLocked) return;
+    closeReview(review.index);
+  };
+  /** The one place a light is baked: the board is worked out again, and only the conversion that was shown is stored, in one command. */
+  const applyConvert = (): void => {
+    if (review === null || reviewLocked) return;
+    const fresh = previewLightConversion(snapshot, review.index);
+    if (!fresh.ok) { closeReview(review.index); setMessage(fresh.message); return; }
+    if (!sameData(fresh.light, review.preview.light) || !sameData(fresh.shadeLayers, review.preview.shadeLayers) || !sameData(fresh.lights, review.preview.lights)) {
+      closeReview(review.index);
+      setMessage(STALE_REVIEW);
+      return;
+    }
+    closeReview("list");
+    void submitFields({ lights: fresh.lights, shadeLayers: fresh.shadeLayers });
+  };
+
+  useEffect(() => {
+    if (review === null) return;
+    const current = snapshot.lights[review.index];
+    if (current === undefined || !sameData(current, review.preview.light)) {
+      closeReview(null);
+      setMessage(STALE_REVIEW);
+    }
+  }, [snapshot, review]);
+  useEffect(() => {
+    if (review === null) {
+      const target = returnFocus.current;
+      returnFocus.current = null;
+      if (target === null) return;
+      (target === "list" ? lightsGroup.current : panel.current?.querySelector<HTMLElement>(`[data-light-convert="${target}"]`) ?? null)?.focus();
+      return;
+    }
+    panel.current?.querySelector<HTMLElement>("[data-light-review-cancel]")?.focus();
+    if (previewCanvas.current !== null) drawConversion(previewCanvas.current, review.preview);
+  }, [review]);
 
   const submitFields = (fields: SetBoardFieldsCommand["fields"]): Promise<boolean> => submit({ type: "set-board-fields", fields });
   const editLights = (edit: LightEdit): void => {
@@ -76,7 +166,7 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
   const addNew = (type: LightType): void => { void submitFields({ lights: addLight(snapshot, newLight(type, centre, brush)) }); };
 
   return (
-    <details class="tkr-board-lighting" open data-editor-commands="include">
+    <details class="tkr-board-lighting" open data-editor-commands="include" ref={panel}>
       <summary>Lights and shading</summary>
       <fieldset class="tkr-board-canvas-tools">
         <legend>On the board</legend>
@@ -100,7 +190,7 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
         {number("Shade row", row, setRow, 1, grid.height)}
         <button type="button" disabled={locked} onClick={() => { void submit({ type: "set-shade-cells", cells: [{ x: column - 1, y: row - 1, ...brush }] }); }}>Shade cell</button>
       </fieldset>
-      <fieldset class="tkr-board-lights">
+      <fieldset class="tkr-board-lights" ref={lightsGroup} tabIndex={-1}>
         <legend>Lights</legend>
         <button type="button" disabled={locked} onClick={() => addNew(0)}>Add spotlight</button>
         <button type="button" disabled={locked} onClick={() => addNew(1)}>Add gradient</button>
@@ -129,14 +219,21 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
                     (next) => editLights(setLightColour(snapshot, index, at as 0 | 1, { ...colour, [channel]: next })), -255, 255))}
                 </div>
               ))}
-              <button type="button" disabled={locked} aria-label={`Convert ${name} to shading`}
-                title="Adds this light into the board's shading and removes the light. One undo brings it back."
-                onClick={() => {
-                  const converted = convertLightToShading(snapshot, index);
-                  if (!converted.ok) { setMessage(converted.message); return; }
-                  void submitFields({ lights: converted.lights, shadeLayers: converted.shadeLayers });
-                }}>Convert to shading</button>
+              <button type="button" disabled={locked} aria-label={`Convert ${name} to shading…`} data-light-convert={index}
+                title="Shows what converting this light would do. Nothing changes until you press Apply; Cancel keeps the light as it is."
+                onClick={() => startConvert(index)}>Convert to shading…</button>
               <button type="button" disabled={locked} aria-label={`Remove ${name}`} onClick={() => editLights(removeLight(snapshot, index))}>Remove</button>
+              {review !== null && review.index === index ? (
+                <div class="tkr-board-light-review" role="group" aria-labelledby={`tkr-light-review-${index}`}
+                  onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelConvert(); } }}>
+                  <h3 id={`tkr-light-review-${index}`}>Convert {name} to shading?</h3>
+                  <p class="tkr-board-note">{describeConversion(name, review.preview)}</p>
+                  <p class="tkr-board-note">Apply adds this into the board's shading and removes the light, in one step that Undo takes back. Cancel, or Escape, changes nothing and keeps the light editable.</p>
+                  <canvas ref={previewCanvas} class="tkr-board-light-preview" aria-hidden="true" width={review.preview.width} height={review.preview.height} />
+                  <button type="button" disabled={reviewLocked} data-light-review-cancel aria-label={`Cancel converting ${name}`} onClick={cancelConvert}>Cancel</button>
+                  <button type="button" disabled={reviewLocked} aria-label={`Apply conversion of ${name} to shading`} onClick={applyConvert}>Apply conversion</button>
+                </div>
+              ) : null}
             </fieldset>
           );
         })}

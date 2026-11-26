@@ -35,6 +35,7 @@ before(async () => {
 after(() => GlobalRegistrator.unregister());
 
 interface Setup {
+  readonly host: ReturnType<typeof createMemoryPlatformServices>;
   readonly doc: BoardDocument;
   readonly root: HTMLElement;
   renderView(): void;
@@ -76,7 +77,7 @@ async function setup(): Promise<Setup> {
     render(createElement(Harness, {}), root);
   };
   await act(() => renderView());
-  return { doc, root, renderView };
+  return { host, doc, root, renderView };
 }
 
 function input(root: HTMLElement, label: string): HTMLInputElement {
@@ -113,6 +114,28 @@ async function change(root: HTMLElement, label: string, value: string): Promise<
   });
 }
 
+const CONVERT = "Convert to shading…";
+
+function review(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".tkr-board-light-review");
+}
+
+async function press(root: HTMLElement, label: string): Promise<void> {
+  await act(async () => {
+    const button = [...root.querySelectorAll("button")].find((candidate) => candidate.getAttribute("aria-label") === label || candidate.textContent?.trim() === label);
+    if (button === undefined) throw new Error(`missing button ${label}`);
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+/** What a cancelled review must leave exactly as it was: the saved-format bytes, the stored light and shading, the unsaved flag and the undo stack. */
+function fingerprint(doc: BoardDocument): string {
+  const snapshot = doc.getSnapshot();
+  return JSON.stringify({ bytes: Array.from(doc.serialize()), lights: snapshot.lights, shadeLayers: snapshot.shadeLayers, dirty: snapshot.dirty, edits: snapshot.edits.length });
+}
+
 test("adding a spotlight, moving its centre and converting it to shading are each one undoable edit", async () => {
   const s = await setup();
   await click(s.root, "Add spotlight");
@@ -120,12 +143,96 @@ test("adding a spotlight, moving its centre and converting it to shading are eac
   deepEqual(s.doc.getSnapshot().lights[0]?.nodes[1], { x: 64, y: 48 });
   await change(s.root, "Light 1 Centre X (pixels)", "80");
   deepEqual(s.doc.getSnapshot().lights[0]?.nodes[1], { x: 80, y: 48 });
-  await click(s.root, "Convert to shading");
+  const before = s.doc.getSnapshot();
+  await click(s.root, CONVERT);
+  await click(s.root, "Apply conversion");
   equal(s.doc.getSnapshot().lights.length, 0);
   ok(s.doc.getSnapshot().shadeLayers.length >= 1);
+  equal(s.doc.getSnapshot().edits.length, before.edits.length + 1, "Apply is exactly one edit");
   ok(s.doc.undo().ok);
   equal(s.doc.getSnapshot().lights.length, 1, "one undo brings the editable light back");
-  equal(s.doc.getSnapshot().shadeLayers.length, 0);
+  deepEqual(s.doc.getSnapshot().lights, before.lights, "exactly the light that was reviewed");
+  deepEqual(s.doc.getSnapshot().shadeLayers, before.shadeLayers);
+});
+
+test("Convert only opens a review: nothing is stored, the other controls pause, and the review names what Apply would do", async () => {
+  const s = await setup();
+  await click(s.root, "Add spotlight");
+  const before = fingerprint(s.doc);
+  await click(s.root, CONVERT);
+  const open = review(s.root);
+  ok(open !== null, "a review step is shown");
+  equal(open.getAttribute("role"), "group");
+  equal(open.querySelector("h3")?.textContent, "Convert Light 1 to shading?");
+  ok(/adds shade to \d+ of the 12 shade cells/.test(open.textContent ?? ""), "the review counts the cells it changes");
+  ok(/Cancel, or Escape, changes nothing/.test(open.textContent ?? ""));
+  equal(fingerprint(s.doc), before, "looking at the conversion stores nothing");
+  equal(input(s.root, "Light 1 Centre X (pixels)").disabled, true, "other controls pause while reviewing");
+  const named = [...s.root.querySelectorAll("button")].filter((button) => button.closest(".tkr-board-light-review") !== null);
+  deepEqual(named.map((button) => button.getAttribute("aria-label")), ["Cancel converting Light 1", "Apply conversion of Light 1 to shading"]);
+  equal(document.activeElement, named[0], "focus starts on Cancel, the safe choice");
+});
+
+test("Cancel, Escape and a stale review change nothing and leave the editable light exactly as it was", async () => {
+  const s = await setup();
+  await click(s.root, "Add gradient");
+  await change(s.root, "Light 1 Shade at end Red", "120");
+  const before = fingerprint(s.doc);
+
+  await click(s.root, CONVERT);
+  await press(s.root, "Cancel converting Light 1");
+  equal(review(s.root), null);
+  equal(fingerprint(s.doc), before, "Cancel: bytes, light, shading, dirty state and undo stack are unchanged");
+  equal(document.activeElement?.getAttribute("data-light-convert"), "0", "focus returns to the Convert button");
+  equal(input(s.root, "Light 1 Start X (pixels)").disabled, false, "the controls work again");
+
+  await click(s.root, CONVERT);
+  await act(() => { review(s.root)!.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  equal(review(s.root), null, "Escape closes the review");
+  equal(fingerprint(s.doc), before, "Escape changes nothing");
+
+  // The light changes underneath the open review (an undo, a canvas drag): the review closes and converts nothing.
+  await click(s.root, CONVERT);
+  await act(async () => { ok((await s.doc.apply({ type: "set-board-fields", fields: { lights: [{ ...s.doc.getSnapshot().lights[0]!, colours: [{ r: 1, g: 2, b: 3 }, { r: 4, g: 5, b: 6 }] }] } })).ok); });
+  equal(review(s.root), null);
+  ok(/nothing was converted/.test(s.root.querySelector('[role="alert"]')?.textContent ?? ""));
+  equal(s.doc.getSnapshot().lights.length, 1, "the light is still there");
+  deepEqual(s.doc.getSnapshot().lights[0]?.colours, [{ r: 1, g: 2, b: 3 }, { r: 4, g: 5, b: 6 }], "the light is the externally edited one, not a baked one");
+});
+
+test("a refused Convert explains itself, opens no review and changes nothing", async () => {
+  const s = await setup();
+  await click(s.root, "Add spotlight");
+  const two = await s.doc.apply({ type: "set-board-fields", fields: { shadeLayers: [{ castLayer: 1, records: [{ runCount: 12, r: 0, g: 0, b: 0 }] }, { castLayer: 2, records: [{ runCount: 12, r: 0, g: 0, b: 0 }] }] } });
+  ok(two.ok, JSON.stringify(two));
+  await act(() => s.renderView());
+  const before = fingerprint(s.doc);
+  await click(s.root, CONVERT);
+  equal(review(s.root), null);
+  ok(/more than one shading layer/.test(s.root.querySelector('[role="alert"]')?.textContent ?? ""));
+  equal(fingerprint(s.doc), before);
+});
+
+test("Apply after a failed save keeps the applied conversion and its dirty state, and a later save writes it", async () => {
+  const s = await setup();
+  await click(s.root, "Add spotlight");
+  ok((await s.doc.save()).ok);
+  const saved = Array.from(s.host.bytesOf(PATH)!);
+  await click(s.root, CONVERT);
+  await click(s.root, "Apply conversion");
+  const converted = JSON.stringify(s.doc.getSnapshot().shadeLayers);
+  s.host.failWrites({ code: "io-error", message: "disk full" });
+  const failed = await s.doc.save();
+  equal(failed.ok, false);
+  equal(s.doc.getSnapshot().dirty, true, "the failed save leaves the edit unsaved");
+  equal(s.doc.getSnapshot().lights.length, 0);
+  equal(JSON.stringify(s.doc.getSnapshot().shadeLayers), converted, "the baked shading is retained");
+  deepEqual(Array.from(s.host.bytesOf(PATH)!), saved, "nothing partial reached the file");
+  s.host.failWrites(null);
+  ok((await s.doc.save()).ok);
+  equal(s.doc.getSnapshot().dirty, false);
+  ok(s.doc.undo().ok);
+  equal(s.doc.getSnapshot().lights.length, 1, "the light still comes back with one undo");
 });
 
 test("a shade cell is painted from the numeric fields and an off-board cell explains its refusal", async () => {
