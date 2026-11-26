@@ -1,5 +1,6 @@
 import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneTilesets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
 import { createTerrainSceneAssets, mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createTerrainSceneMount } from "./terrain-scene-mount.ts";
 import type { WebProject } from "./index.ts";
 
 /**
@@ -78,8 +79,6 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
       packs: inventory.packs,
     });
-    // Mounting belongs to the latest successful read, not to the first: a reactivation's refresh can supersede startup.
-    if (mounted === null) mount();
     return true;
   };
   const mount = (): void => {
@@ -131,10 +130,12 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       } }),
     });
   };
-  void load().catch((error: unknown) => report(String(error)));
+  // Mounting belongs to the latest successful read, not to the first: a reactivation's refresh can supersede startup.
+  const lifecycle = createTerrainSceneMount(load, mount);
+  void lifecycle.start().catch((error: unknown) => report(String(error)));
   return {
     dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); },
     /** The workbench re-shows a retained view here: re-read the tilesets so its rules are never the ones from before a recipe edit. */
-    refreshAssets() { void load(); },
+    refreshAssets() { void lifecycle.refresh(); },
   };
 }
