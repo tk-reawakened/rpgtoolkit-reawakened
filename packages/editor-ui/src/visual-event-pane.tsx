@@ -391,10 +391,13 @@ function LayoutCanvas({ placed, readOnly, dispatch, resetKey }: {
                 aria-label={`${item.label} "${item.text}" at ${item.x}, ${item.y}`}
                 aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
                 disabled={readOnly}
-                style={{
-                  left: `${at.left / VISUAL_PREVIEW_SCREEN.width * 100}%`,
-                  top: `${at.top / VISUAL_PREVIEW_SCREEN.height * 100}%`,
-                  fontSize: `${(item.unit === "cells" ? item.cell : 8) / VISUAL_PREVIEW_SCREEN.width * 100}cqw`,
+                // Placement is applied through the CSSOM: ADR 0025 decision 6 forbids a style attribute, which the
+                // strict webview CSP would refuse, and a CSSOM write carries the same layout without one.
+                ref={(node) => {
+                  if (node === null) return;
+                  node.style.left = `${at.left / VISUAL_PREVIEW_SCREEN.width * 100}%`;
+                  node.style.top = `${at.top / VISUAL_PREVIEW_SCREEN.height * 100}%`;
+                  node.style.fontSize = `${(item.unit === "cells" ? item.cell : 8) / VISUAL_PREVIEW_SCREEN.width * 100}cqw`;
                 }}
                 onFocus={() => select(item.line)}
                 onKeyDown={(event) => {
