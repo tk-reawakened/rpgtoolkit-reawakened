@@ -79,8 +79,12 @@ function shapeAt(board: ToolBoard, layer: number, cell: Cell, source: string, cu
   return SLOT_BY_MASK.get(mask) ?? 51;
 }
 
-/** Which cells of a stroke were painted with Shift held: a key is `y * grid.width + x`, as the stroke's overlay uses. */
-export type ShiftedCells = boolean | ReadonlySet<number>;
+/**
+ * Which cells of a stroke were painted with Shift held: one answer for the whole stroke, one per cell (`y * grid.width +
+ * x`, as the stroke's overlay uses), or one per visit, in the same order as `cells`, so a revisited cell keeps the
+ * modifier of the visit that reshaped it.
+ */
+export type ShiftedCells = boolean | ReadonlySet<number> | readonly boolean[];
 
 /**
  * Resolve each member of a Draw/Erase stroke in event order. The transient overlay means later cells in the same stroke
@@ -100,14 +104,16 @@ export function paintAutotileStroke(
   const stacked = layoutOf(board) === "iso-stacked";
   const paintSource = enabled && tile !== "" ? markedSource ?? autotileSource(tile) : null;
   // Shift is decided per cell: a drag can hold it over some cells and not others, and each cell reshapes by its own.
-  const wasShifted = (cell: Cell): boolean => typeof shift === "boolean" ? shift : shift.has(cell.y * board.grid.width + cell.x);
-  for (const cell of cells) {
+  const wasShifted = (cell: Cell, visit: number): boolean => Array.isArray(shift) ? shift[visit] === true
+    : typeof shift === "boolean" ? shift
+      : (shift as ReadonlySet<number>).has(cell.y * board.grid.width + cell.x);
+  for (const [visit, cell] of cells.entries()) {
     if (!cellOnBoard(board, cell.x, cell.y)) continue;
     const seed = paintSource === null ? tile : `${paintSource}51`;
     const seedKey = cell.y * board.grid.width + cell.x;
     overlay.set(seedKey, seed);
     writes.set(seedKey, { layer, ...cell, tile: seed });
-    const shifted = wasShifted(cell);
+    const shifted = wasShifted(cell, visit);
     if (!enabled || (shifted && paintSource === null)) continue;
     const isolated = shifted ? paintSource : null;
     const edited: Cell[] = [];

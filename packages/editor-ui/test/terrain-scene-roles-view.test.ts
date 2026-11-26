@@ -18,7 +18,7 @@ after(() => GlobalRegistrator.unregister());
 
 const scene = { contract: "scene", version: "1.0.0-pre.2", name: "Pond", projection: "2d", size: { width: 4, height: 3 }, floors: [{ id: "ground" }] } as unknown as Scene;
 
-async function show(tilesets: readonly TerrainSceneTileset[], assets?: MutableTerrainSceneAssets): Promise<HTMLElement> {
+async function show(tilesets: readonly TerrainSceneTileset[], assets?: MutableTerrainSceneAssets, extra: Record<string, unknown> = {}): Promise<HTMLElement> {
   const el = document.createElement("div");
   document.body.append(el);
   const source = assets ?? createTerrainSceneAssets({ tilesets, assetTiles: [], packs: [] });
@@ -28,6 +28,7 @@ async function show(tilesets: readonly TerrainSceneTileset[], assets?: MutableTe
       assets: source.source,
       onRefreshAssets: () => undefined,
       onChange: () => undefined,
+      ...extra,
     } as never);
   });
   return el;
@@ -99,4 +100,61 @@ test("a terrain that a refresh removes falls back to the first one instead of ke
   const renamed: TerrainSceneTileset = { path: "Tiles/Pond.tkrtst", terrains: [{ id: "river", label: "River", roles: inspectTerrainRoles({ neighbours: "cardinal-4", coverage: "complete", rules: [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }] }) }] };
   await act(async () => { assets.set({ tilesets: [renamed], assetTiles: [], packs: [] }); await new Promise<void>((resolve) => setImmediate(resolve)); });
   match(el.textContent ?? "", /Native terrain rules: River/);
+});
+
+test("a preview stops being shown as current when its recipes change, and a slow build of older inputs is discarded", async () => {
+  const shore = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
+  const assets = createTerrainSceneAssets({ tilesets: [shore], assetTiles: [], packs: [] });
+  let release: ((picture: unknown) => void) | undefined;
+  const el = await show([shore], assets, { onPreview: () => new Promise((resolve) => { release = resolve; }) });
+  await act(async () => { el.querySelector<HTMLButtonElement>("button")!.click(); await new Promise<void>((r) => setImmediate(r)); });
+  equal(el.querySelector("canvas[aria-label='Compiled scene preview']"), null, "nothing is shown while the build runs");
+  await act(async () => {
+    release?.({ ok: false, message: "No tile rule matches ground at (1, 0)." });
+    await new Promise<void>((r) => setImmediate(r));
+  });
+  match(el.textContent ?? "", /No tile rule matches ground at \(1, 0\)/);
+  // The recipe changes: the error belongs to the old rules and must not stay beside the new ones.
+  await act(async () => {
+    assets.set({ tilesets: [entry("complete", [{ id: "any", when: {}, use: { tile: "Tiles/water.tkrtle" } }])], assetTiles: [], packs: [] });
+    await new Promise<void>((r) => setImmediate(r));
+  });
+  ok(!(el.textContent ?? "").includes("No tile rule matches ground"), "the old build's message is gone");
+  match(el.textContent ?? "", /16 of 16 neighbourhoods have a tile/);
+});
+
+test("the manual tile is kept by its reference when a refresh reorders the list", async () => {
+  const shore = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
+  const water = { label: "Tiles/water.tkrtle", tile: { tile: "Tiles/water.tkrtle" } } as const;
+  const bank = { label: "Tiles/bank.tkrtle", tile: { tile: "Tiles/bank.tkrtle" } } as const;
+  const assets = createTerrainSceneAssets({ tilesets: [shore], assetTiles: [water, bank], packs: [] });
+  let last: Scene | null = null;
+  const el = await show([shore], assets, { onChange: (next: Scene) => { last = next; } });
+  const select = (): HTMLSelectElement => el.querySelector<HTMLSelectElement>("select[data-tkr-manual-tile]")!;
+  await act(() => { const control = select(); control.value = "1"; control.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(() => { el.querySelector<HTMLInputElement>('[data-tkr-tool="tile"]')!.click(); });
+  const place = async (x: number, y: number): Promise<string> => {
+    await act(() => { el.querySelector<HTMLButtonElement>(`button[aria-label^="Cell ${x}, ${y}:"]`)!.click(); });
+    const tile = last?.tileOverrides?.[0]?.tile;
+    return tile !== undefined && "tile" in tile && tile.tile !== undefined ? tile.tile : "";
+  };
+  equal(await place(0, 0), "Tiles/bank.tkrtle", "the picked tile is what a placement writes");
+  // The next read lists the same tiles in another order: the chosen reference must not follow the new positions.
+  await act(async () => { assets.set({ tilesets: [shore], assetTiles: [bank, water], packs: [] }); await new Promise<void>((r) => setImmediate(r)); });
+  last = null;
+  equal(await place(1, 0), "Tiles/bank.tkrtle", "still the same tile after the reorder");
+});
+
+test("a failed re-read is reported and no older rules are presented as current", async () => {
+  const shore = entry("partial", [{ id: "east", when: { e: "same" }, use: { tile: "Tiles/water.tkrtle" } }]);
+  const assets = createTerrainSceneAssets({ tilesets: [shore], assetTiles: [], packs: [] });
+  const el = await show([shore], assets);
+  await act(async () => {
+    assets.set({ tilesets: [], assetTiles: [], packs: [], problems: ["Tiles/Pond.tkrtst: rules[0] must name a palette member"] });
+    await new Promise<void>((r) => setImmediate(r));
+  });
+  const alert = el.querySelector('[aria-label="Terrain rules unavailable"]');
+  ok(alert !== null);
+  match(alert?.textContent ?? "", /could not be read, so none are shown as current.*rules\[0\] must name a palette member/);
+  equal(el.querySelector('[data-tkr-terrain-roles]'), null, "no stale role panel is left behind");
 });

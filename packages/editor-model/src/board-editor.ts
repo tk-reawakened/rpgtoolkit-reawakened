@@ -23,6 +23,7 @@ import {
   cellRect,
   cellsBetween,
   floodArea,
+  floodFill,
   moveCells,
   paintCells,
   rectContains,
@@ -274,8 +275,9 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   const view = options.viewSize ?? { width: 640, height: 384 };
   let lastPixel: Pixel | null = null;
   let strokeKeys = new Set<string>();
-  /** The stroke cells that were pressed or crossed with Shift held, so a drag reshapes each cell by its own modifier. */
-  let strokeShift = new Set<string>();
+  /** Every cell the stroke visited, in order, with the Shift of that visit; a revisit reshapes again with its own modifier. */
+  let strokeVisits: Cell[] = [];
+  let strokeShifts: boolean[] = [];
   let state: BoardEditorState = {
     tool: "draw",
     mode: "tiles",
@@ -377,7 +379,13 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     } else if (tool === "flood") {
       const tile = needTile();
       if (tile === null) return;
-      const area = floodArea(board, layer, cell, tile, options.preferences().recursiveFlood);
+      const recursive = options.preferences().recursiveFlood;
+      if (!enabled) {
+        const changed = await commit("flood", floodFill(board, layer, cell, tile, recursive));
+        if (changed && options.preferences().revertToDrawAfterFlood) publish({ tool: "draw" });
+        return;
+      }
+      const area = floodArea(board, layer, cell, tile, recursive);
       if (!area.ok) return void commit("flood", area);
       // Autotiling reshapes the click's own layer only; a fill that continues on another layer paints it as stored.
       const others = new Map<number, Cell[]>();
@@ -1008,12 +1016,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         if (brush === null) return error("Choose a tile in the tileset browser first.");
         if (brush.kind === "stamp") return publish({ pending: { kind: "stamp", at: cell }, message: null });
         strokeKeys = new Set([key(cell)]);
-        strokeShift = modifiers.shift === true ? new Set([key(cell)]) : new Set();
+        strokeVisits = [cell];
+        strokeShifts = [modifiers.shift === true];
         return publish({ pending: { kind: "stroke", cells: [cell] }, message: null });
       }
       if (tool === "erase") {
         strokeKeys = new Set([key(cell)]);
-        strokeShift = modifiers.shift === true ? new Set([key(cell)]) : new Set();
+        strokeVisits = [cell];
+        strokeShifts = [modifiers.shift === true];
         return publish({ pending: { kind: "stroke", cells: [cell] }, message: null });
       }
       if (tool === "flood" || tool === "dropper") return publish({ pending: { kind: "point", cell }, message: null });
@@ -1044,12 +1054,12 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         publish({ pending: { kind: "pan", from: screen } });
       } else if (pending.kind === "stroke") {
         const from = lastPixel ?? pixel;
-        const added = cellsBetween(options.board(), from, pixel).filter((crossed) => !strokeKeys.has(key(crossed)));
+        // The segment's first cell is where the stroke already was; only the cells it reaches are visits of their own.
+        const reached = cellsBetween(options.board(), from, pixel).slice(1);
         lastPixel = pixel;
-        for (const crossed of added) {
-          strokeKeys.add(key(crossed));
-          if (modifiers.shift === true) strokeShift.add(key(crossed));
-        }
+        for (const crossed of reached) { strokeVisits.push(crossed); strokeShifts.push(modifiers.shift === true); }
+        const added = reached.filter((crossed) => !strokeKeys.has(key(crossed)));
+        for (const crossed of added) strokeKeys.add(key(crossed));
         publish({ hover: cell, ...(added.length === 0 ? {} : { pending: { kind: "stroke", cells: [...pending.cells, ...added] } }) });
       } else if (cell !== null) {
         if (pending.kind === "stamp") publish({ hover: cell, pending: { kind: "stamp", at: cell } });
@@ -1079,12 +1089,13 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         const tile = tool === "erase" ? "" : needTile();
         if (tile === null) return void publish({ pending: null });
         // The release position counts even when the pointer did not move after its last move event.
-        const crossed = cellsBetween(board, lastPixel ?? pixel, pixel);
-        for (const released of crossed) if (modifiers.shift === true) strokeShift.add(key(released));
-        const stroke = [...pending.cells, ...crossed];
-        const shiftedCells = new Set(stroke.filter((painted) => strokeShift.has(key(painted))).map((painted) => painted.y * board.grid.width + painted.x));
-        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintAutotileStroke(board, layer, stroke, tile, options.autotileEnabled?.() === true, shiftedCells, brushAutotileSource()) });
-        strokeShift = new Set();
+        const released = cellsBetween(board, lastPixel ?? pixel, pixel).slice(1);
+        for (const last of released) { strokeVisits.push(last); strokeShifts.push(modifiers.shift === true); }
+        // The release position counts even when the pointer did not move after its last move event.
+        if (released.length === 0 && at !== null && !strokeKeys.has(key(at))) { strokeVisits.push(at); strokeShifts.push(modifiers.shift === true); }
+        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintAutotileStroke(board, layer, strokeVisits, tile, options.autotileEnabled?.() === true, strokeShifts, brushAutotileSource()) });
+        strokeVisits = [];
+        strokeShifts = [];
       } else if (pending.kind === "stamp") {
         const brush = options.brush();
         if (brush === null || brush.kind !== "stamp") return void publish({ pending: null });
@@ -1102,7 +1113,8 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     },
     pointerCancel() {
       lastPixel = null;
-      strokeShift = new Set();
+      strokeVisits = [];
+      strokeShifts = [];
       if (state.pending !== null) publish({ pending: null });
     },
     moveCursor(dx, dy) {

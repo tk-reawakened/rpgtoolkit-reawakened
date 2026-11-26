@@ -5,6 +5,7 @@ import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
 import { relativeToWorkspace } from "./launch-prompts.ts";
 import { applyNativeTextEdit } from "./native-text-edit.ts";
+import { createTilesetRefreshTrigger } from "./terrain-assets-trigger.ts";
 
 type Panel = { readonly panel: vscode.WebviewPanel; initialized: boolean };
 
@@ -13,7 +14,8 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
   const panels = new Map<string, Set<Panel>>();
   /** Each open scene's asset re-read, called when a tileset document changes; a scene's own edits are not asset changes. */
   const assetReloads = new Set<() => Promise<void>>();
-  let tilesetChangeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A debounced read must not beat a save: saving is when the new bytes reach disk, so a save reads at once. */
+  const tilesetRefresh = createTilesetRefreshTrigger(() => { for (const reload of [...assetReloads]) void reload(); });
   const builds = new Map<string, { readonly version: number; readonly promise: Promise<string | null> }>();
   const buildSavedRevision = (document: vscode.TextDocument): Promise<string | null> => {
     const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -79,15 +81,10 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(({ document }) => {
     refresh(document);
     // A recipe update changes the roles the scene view reports, so re-read the tilesets (bounded, once per burst).
-    const path = document.uri.path.toLowerCase();
-    if (!path.endsWith(".tkrtst") && !path.endsWith(".tkrtle")) return;
-    if (tilesetChangeTimer !== undefined) clearTimeout(tilesetChangeTimer);
-    tilesetChangeTimer = setTimeout(() => {
-      tilesetChangeTimer = undefined;
-      for (const reload of [...assetReloads]) void reload();
-    }, 250);
+    tilesetRefresh.edited(document.uri.path);
   }));
-  context.subscriptions.push({ dispose: () => { if (tilesetChangeTimer !== undefined) clearTimeout(tilesetChangeTimer); } });
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => tilesetRefresh.saved(document.uri.path)));
+  context.subscriptions.push({ dispose: () => tilesetRefresh.dispose() });
   return {
     async resolveCustomTextEditor(document, panel): Promise<void> {
       const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -108,12 +105,22 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
         if (disposed || folder === undefined || projectPath === undefined) return;
         const mine = ++reads;
         const fresh = await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
-        if (disposed || mine !== reads || !fresh.ok) return;
+        if (disposed || mine !== reads) return;
+        if (!fresh.ok) {
+          // Never leave the last good roles looking current: say the read failed and keep the tilesets but not as advice.
+          await panel.webview.postMessage({ type: "assets", assets: {
+            tilesets: [], assetTiles: [], packs: [],
+            problems: fresh.problems.map(({ path, message }) => `${path}: ${message}`),
+          } });
+          sendStatus(target, `Terrain roles could not be re-read: ${fresh.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`);
+          return;
+        }
         ownerPaths = new Set([...fresh.tiles, ...fresh.packs.map(({ path }) => path)]);
         await panel.webview.postMessage({ type: "assets", assets: {
           tilesets: terrainSceneTilesets(fresh.tilesets),
           assetTiles: fresh.tiles.map((tile) => ({ label: tile, tile: { tile } })),
           packs: fresh.packs,
+          problems: [],
         } });
       };
       assetReloads.add(postAssets);

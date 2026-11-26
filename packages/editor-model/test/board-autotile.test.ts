@@ -24,6 +24,7 @@ import {
   type BoardCoordSystem,
   type BoardDocument,
   type BoardEditor,
+  floodFill,
   type Brush,
   type Cell,
   type EditorPreferences,
@@ -388,8 +389,9 @@ test("keyboard activation carries its Shift: a keyed autotile placement reshapes
 test("a rectangle or fill over cells that already show the brush still reshapes the neighbourhood", async () => {
   const s = rig("2d");
   const c = centreOf(s);
-  // Three stale water tiles in a row, placed while autotiling was off.
+  // Three stale water tiles in a row, all in slot 51 — the slot the tested rectangle also paints, placed with autotiling off.
   s.autotile = false;
+  s.brush = { kind: "tile", tile: water(51), label: "water" };
   s.editor.setTool("rectangle");
   s.editor.pointerDown(at(s, { x: c.x - 1, y: c.y }), { ctrl: true });
   await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), { ctrl: true });
@@ -454,4 +456,53 @@ test("a right-button press on the tile canvas paints nothing: erase is the Erase
   equal(edits(s), before);
   equal(s.editor.getState().pending, null);
   equal(tile(s, c.x, c.y), "");
+});
+
+test("Shift at release does not reach back over cells the stroke crossed without it", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  for (const dx of [-1, 0, 1]) await click(s, { x: c.x + dx, y: c.y });
+  deepEqual([-1, 0, 1].map((dx) => tile(s, c.x + dx, c.y)), [water(48), water(37), water(50)]);
+  s.editor.setTool("erase");
+  // Crossed without Shift, released with it: both visits are unshifted, so the row closes instead of going stale.
+  s.editor.pointerDown(at(s, { x: c.x, y: c.y }), none);
+  s.editor.pointerMove(at(s, { x: c.x + 1, y: c.y }), none);
+  await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), { shift: true });
+  equal(tile(s, c.x, c.y), "");
+  equal(tile(s, c.x + 1, c.y), "");
+  equal(tile(s, c.x - 1, c.y), water(51), "the neighbour closed its edge");
+});
+
+test("a revisit reshapes with the modifier of that visit, not with the one the cell was first crossed with", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: c.x, y: c.y + 1 });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  // Out with Shift (the other set is left alone), back without it (the revisited cell reshapes everything).
+  s.editor.pointerDown(at(s, { x: c.x, y: c.y }), { shift: true });
+  s.editor.pointerMove(at(s, { x: c.x + 2, y: c.y }), { shift: true });
+  equal(tile(s, c.x, c.y + 1), `${sand}14`);
+  s.editor.pointerMove(at(s, { x: c.x, y: c.y }), none);
+  await s.editor.pointerUp(at(s, { x: c.x, y: c.y }), none);
+  equal(tile(s, c.x, c.y + 1), `${sand}51`, "the unshifted revisit reshaped it");
+});
+
+test("ordinary Fill keeps its early exit: a uniform region that already holds the tile is no edit at all", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: water(51), label: "water" };
+  await click(s, c);
+  const before = edits(s);
+  s.editor.setTool("flood");
+  await click(s, c);
+  equal(edits(s), before, "no command is submitted");
+  equal(s.editor.getState().pending, null);
+  equal(s.editor.getState().message?.kind, "info", "the same info the original path gave: nothing changed");
+  // The tool itself answers with nothing before the editor looks at layers, as it always did.
+  deepEqual(floodFill(s.doc.getSnapshot(), 0, c, water(51), true), { ok: true, cells: [] });
 });

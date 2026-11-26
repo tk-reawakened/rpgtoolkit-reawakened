@@ -5,6 +5,8 @@ export interface TerrainSceneAssets {
   readonly tilesets: readonly TerrainSceneTileset[];
   readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
   readonly packs: readonly TerrainScenePack[];
+  /** Why the newest read failed, when it did: the view says so instead of presenting older rules as current. */
+  readonly problems?: readonly string[];
 }
 
 /** A host-owned source of those assets: the view subscribes, the host re-reads after a recipe changes. */

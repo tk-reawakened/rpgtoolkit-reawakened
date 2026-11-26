@@ -78,10 +78,11 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
       packs: inventory.packs,
     });
+    // Mounting belongs to the latest successful read, not to the first: a reactivation's refresh can supersede startup.
+    if (mounted === null) mount();
     return true;
   };
-  const start = async (): Promise<void> => {
-    if (!await load() || disposed) return;
+  const mount = (): void => {
     mounted = mountTerrainScene(content, {
       document,
       assets: assets.source,
@@ -130,7 +131,7 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       } }),
     });
   };
-  void start().catch((error: unknown) => report(String(error)));
+  void load().catch((error: unknown) => report(String(error)));
   return {
     dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); },
     /** The workbench re-shows a retained view here: re-read the tilesets so its rules are never the ones from before a recipe edit. */
