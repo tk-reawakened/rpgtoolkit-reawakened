@@ -194,7 +194,9 @@ async function runStructuredAuthoring(
   await expect(lines).toContainText('text(2, 2, "Native canvas")');
 
   // One native undo step per card edit, from the same text document.
-  await card("Draw text").getByRole("button", { name: "Open in editor", exact: true }).click();
+  const handwrittenRegion = pane.locator("fieldset").filter({ hasText: "handwritten opaque line" });
+  await expect(handwrittenRegion).toHaveCount(1);
+  await handwrittenRegion.getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await command("Undo");
   await expect(lines).toContainText('text(5, 13, "Native canvas")');
