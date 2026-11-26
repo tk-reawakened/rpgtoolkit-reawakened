@@ -235,7 +235,7 @@ async function runStructuredAuthoring(
   await expect.poll(() => sourceEditor.evaluate((node) => node.contains(node.ownerDocument.activeElement))).toBe(true);
   await page.keyboard.press("ControlOrMeta+S");
   await expect.poll(async () => new TextDecoder().decode(await readBacking(VISUAL_EVENTS_PROOF_PATH)), { timeout: 20_000 }).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
-  await expect(pane.getByRole("group", { name: "Code the builder does not edit", exact: true })).toContainText("handwritten opaque line");
+  await expect(handwrittenRegion).toContainText("handwritten opaque line");
   return program;
 }
 
