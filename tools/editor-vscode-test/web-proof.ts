@@ -2,6 +2,7 @@ import { ANIMATION_PROOF_PATH, runAnimationAuthoringProof } from "./animation-pr
 import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-proof.ts";
 import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { BinaryReader, decodeBoard, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
@@ -3557,7 +3558,7 @@ const BATTLE_PROOF_MOVE = "SpcMove/fireball.spc";
  * in the document, so VS Code's own Save All, Close prompt, Undo/Redo and autosave handle a field nobody has left. Every
  * write is checked on disk.
  */
-export async function runVscodeBattleDataProof(page: Page, expect: Expect, workbenchUrl: string, host: Pick<ProofHost, "readBacking">): Promise<void> {
+export async function runVscodeBattleDataProof(page: Page, expect: Expect, workbenchUrl: string, host: Pick<ProofHost, "readBacking" | "writeBacking">): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   const original = await host.readBacking(BATTLE_PROOF_MOVE);
@@ -3691,4 +3692,66 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
     await runCommand(page, expect, "Test: Turn Autosave Off");
     await autosaved("off");
   }
+  // 8. The packaged custom editor writes every BKG reference through native Save All; the web host honestly has no audio output.
+  const backgroundPath = "Game/Example/Bkrounds/forest.bkg";
+  const ordinaryImagePath = "Game/Example/Bitmap/ordinary.png";
+  const ordinaryAudioPath = "Game/Example/Media/ordinary.wav";
+  const fixtureRoot = new URL("../../docs/spec/examples/game/Game/Example/", import.meta.url);
+  // CI flattens Game/Example into the workspace root; seed the nested project fixture the proof opens explicitly.
+  await host.writeBacking(backgroundPath, new Uint8Array(readFileSync(new URL("Bkrounds/forest.bkg", fixtureRoot))));
+  await host.writeBacking("Game/Example/Bitmap/forest.tbm", new Uint8Array(readFileSync(new URL("Bitmap/forest.tbm", fixtureRoot))));
+  await host.writeBacking(ordinaryImagePath, new Uint8Array(readFileSync(new URL("../../docs/spec/examples/versions/tileset/tileset_iso.png", import.meta.url))));
+  await host.writeBacking(ordinaryAudioPath, Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69));
+  const backgroundValues = {
+    image: "ordinary.png", music: "ordinary.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
+  } as const;
+  const backgroundFields = [
+    ["Background picture", backgroundValues.image],
+    ["Battle music", backgroundValues.music],
+    ["Menu cursor sound", backgroundValues.selectSound],
+    ["Menu choice sound", backgroundValues.chooseSound],
+    ["Fighter ready sound", backgroundValues.readySound],
+    ["Action unavailable sound", backgroundValues.cantDoSound],
+  ] as const;
+  const bkgText = (value: string): Uint8Array => new TextEncoder().encode(`${value}\0`);
+  const expectedBackgroundParts = [
+    new TextEncoder().encode("RPGTLKIT BKG\0"), Uint8Array.of(2, 0, 3, 0),
+    ...backgroundFields.map(([, value]) => bkgText(value)),
+  ];
+  const expectedBackground = new Uint8Array(expectedBackgroundParts.reduce((length, part) => length + part.length, 0));
+  let backgroundOffset = 0;
+  for (const part of expectedBackgroundParts) { expectedBackground.set(part, backgroundOffset); backgroundOffset += part.length; }
+  const backgroundBytesBefore = await host.readBacking(backgroundPath);
+  const backgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
+  const backgroundPanel = backgroundFrame.locator('[data-tkr-editor="Fight background"]');
+  await expect(backgroundPanel).toContainText("Audio audition is unavailable in this host.");
+  const openOriginalTileBitmap = backgroundPanel.getByRole("button", { name: "Open background picture", exact: true });
+  await expect(openOriginalTileBitmap).toBeEnabled();
+  await openOriginalTileBitmap.click();
+  const tileBitmapFrame = await waitForCustomEditorFrame(page, "Game/Example/Bitmap/forest.tbm", '[data-tkr-editor="Tile bitmap"]');
+  await expect(tileBitmapFrame.locator('[data-tkr-editor="Tile bitmap"]')).toBeVisible();
+  await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  for (const [label, value] of backgroundFields) await backgroundPanel.getByLabel(`${label} file`, { exact: true }).fill(value);
+  const openOrdinaryImage = backgroundPanel.getByRole("button", { name: "Open background picture", exact: true });
+  await expect(openOrdinaryImage).toBeEnabled();
+  await openOrdinaryImage.click();
+  await expect(page.getByRole("tab", { name: /ordinary\.png/ }).first()).toBeVisible();
+  await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  const openOrdinaryAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
+  await expect(openOrdinaryAudio).toBeEnabled();
+  await openOrdinaryAudio.click();
+  await expect(page.getByRole("tab", { name: /ordinary\.wav/ }).first()).toBeVisible();
+  await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await saveAllShortcut();
+  await expect.poll(async () => [...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
+  const backgroundTab = page.getByRole("tab", { name: /forest\.bkg/ }).first();
+  await expect(backgroundTab.evaluate((element) => element.classList.contains("dirty"))).resolves.toBe(false);
+  await backgroundTab.click({ button: "middle" });
+  await expect(backgroundTab).toHaveCount(0);
+  const reopenedBackgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
+  const reopenedBackground = reopenedBackgroundFrame.locator('[data-tkr-editor="Fight background"]');
+  for (const [label, value] of backgroundFields) await expect(reopenedBackground.getByLabel(`${label} file`, { exact: true })).toHaveValue(value);
+  expect([...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
+  expect(backgroundBytesBefore).not.toEqual(expectedBackground);
+  await expect(reopenedBackground).toContainText("Audio audition is unavailable in this host.");
 }

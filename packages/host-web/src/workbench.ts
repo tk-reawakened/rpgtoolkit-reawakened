@@ -35,6 +35,7 @@ import {
   linkFor,
   kindForPath,
   referencePath,
+  resolveDocumentPath,
   newBoardSettingsFrom,
   prepareGamePackage,
   programPreferencesFrom,
@@ -44,6 +45,7 @@ import {
   uniqueBoardName,
   importSavedBoardAsScene,
   type AnyDocument,
+  type BattleBackgroundDocument,
   type CreateBoardResult,
   type NewBoardSettings,
   type LayoutModel,
@@ -66,7 +68,7 @@ import {
   type ProjectLayoutOwner,
   foldPath,
 } from "@tk-reawakened/editor-model";
-import { createAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type BattleBackgroundAuditionTarget, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { rootFolderOf } from "./language.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
@@ -240,26 +242,71 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
+  const backgroundTarget = (document: BattleBackgroundDocument, controls: AuditionControls, layout: ProjectLayout): BattleBackgroundAuditionTarget => ({
+    controls,
+    reference: (field) => document.getSnapshot()[field],
+    resolvePath: async (reference) => {
+      const requested = referencePath(layout, "media", reference);
+      try {
+        const resolved = await resolveDocumentPath(services.fs, requested);
+        if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${requested}: ${resolved.error.message}` };
+        if (!resolved.exists) return { ok: false, message: `${requested} is not in the project, so there is nothing to audition.` };
+        const separator = resolved.path.lastIndexOf("/");
+        const parent = separator < 0 ? "" : resolved.path.slice(0, separator);
+        const name = separator < 0 ? resolved.path : resolved.path.slice(separator + 1);
+        const listed = await services.fs.list(parent);
+        if (!listed.ok) return { ok: false, message: `Could not check ${resolved.path}: ${listed.error.message}` };
+        if (!listed.value.some((entry) => entry.name === name && entry.kind === "file")) {
+          return { ok: false, message: `${resolved.path} is not a file, so there is nothing to audition.` };
+        }
+        return { ok: true, path: resolved.path };
+      } catch (error) {
+        return { ok: false, message: `Could not resolve "${reference}": ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
+  });
   /** The audition controls of the board tab in front, or none when the front tab is not a board. */
   const activeAudition = (): AuditionControls | null => {
     const active = tabs.getSnapshot().active;
-    return active === null ? null : views.get(active)?.view.audition?.controls ?? null;
+    const entry = active === null ? undefined : views.get(active);
+    return entry?.document.kind === "board" ? entry.view.audition?.controls ?? null : null;
   };
   const auditionCommands = createAuditionCommands(activeAudition);
   /** The registry the board buttons execute through. The palette receives the same commands via `extraCommands`. */
   const auditionRegistry = createCommandRegistry(auditionCommands);
-  /** A board's audition controls, which its view owns and disposes, and the registry its buttons execute through. Other documents have none. */
+  let focusedBackground: { readonly identityKey: string; readonly target: BattleBackgroundAuditionTarget; readonly controls: AuditionControls } | null = null;
+  const activeBackground = (): BattleBackgroundAuditionTarget | null => {
+    const active = tabs.getSnapshot().active;
+    if (focusedBackground?.identityKey === active) return focusedBackground.target;
+    const entry = active === null ? undefined : views.get(active);
+    if (entry?.document.kind !== "battle-background") return null;
+    const background = entry.document as BattleBackgroundDocument;
+    const controls = entry.view.audition?.controls;
+    if (controls === undefined) return null;
+    const owner = ownersByDocument.get(entry.document.identity.key) ?? fallbackOwnerForPath(entry.document.identity.path);
+    return backgroundTarget(background, controls, owner.layout);
+  };
+  const battleBackgroundCommands = createBattleBackgroundAuditionCommands(activeBackground);
+  /** An audition owned by a board or fight-background document. */
   const auditionFor = (document: AnyDocument): AuditionPanel | undefined => {
-    if (document.kind !== "board" || services.audioOutput === undefined) return undefined;
+    if ((document.kind !== "board" && document.kind !== "battle-background") || services.audioOutput === undefined) return undefined;
     const owner = ownersByDocument.get(document.identity.key) ?? fallbackOwnerForPath(document.identity.path);
+    const controls = createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, layout: owner.layout, main: owner.mainPath });
+    if (document.kind === "board") return { controls, commands: auditionRegistry };
+    const background = document as BattleBackgroundDocument;
+    const target = backgroundTarget(background, controls, owner.layout);
     return {
-      controls: createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, layout: owner.layout, main: owner.mainPath }),
-      commands: auditionRegistry,
+      controls,
+      commands: createCommandRegistry(createBattleBackgroundAuditionCommands(() => target)),
+      onFocus: () => { focusedBackground = { identityKey: document.identity.key, target, controls }; },
+      onDispose: () => {
+        if (focusedBackground?.controls === controls) focusedBackground = null;
+      },
     };
   };
   const auditionForDocument = (document: AnyDocument): AuditionPanel | undefined => {
     const panel = auditionFor(document);
-    if (panel === undefined) return undefined;
+    if (panel === undefined || document.kind === "battle-background") return panel;
     return { controls: panel.controls, commands: createCommandRegistry(createAuditionCommands(() => panel.controls)) };
   };
   let version = 0;
@@ -329,6 +376,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
             return null;
           }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
+            layout: owner.layout,
             open: async (path) => {
               const kind = kindForPath(path)?.id;
               const layout = document.kind === "main" ? projectLayout : owner.layout;
@@ -336,7 +384,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : kind === "special-move" ? "specialMoves" : kind === "status-effect" ? "statusEffects" : "animations";
               // The battle-data forms hand over the project-relative path of the file they checked; every other caller hands over the stored reference.
               const inFolder = path.toLowerCase().startsWith(referencePath(layout, folder, "").toLowerCase());
-              const target = kind === "animation" || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
+              const target = kind === "animation" || (kind === "tile-bitmap" && inFolder) || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
               await show(visited.document);
@@ -942,7 +990,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
-    extraCommands: [...auditionCommands, ...scriptCommands, ...boardUpgradeCommands],
+    extraCommands: [...auditionCommands, ...battleBackgroundCommands, ...scriptCommands, ...boardUpgradeCommands],
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {

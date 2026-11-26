@@ -392,6 +392,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
   }
 
   serialize(): Uint8Array {
+    if (this.#readOnly !== null) return this.#opened.slice();
     const encoded = this.#codec.write(this.#model);
     if (!encoded.ok) throw new Error(`Could not serialize ${this.identity.path}: ${encoded.error.message}`);
     return encoded.value.slice();
