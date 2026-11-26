@@ -176,21 +176,21 @@ id = 8
 tracker_id = "#1733"
 type = "story"
 title = "Neighbour aware auto tiling"
-description = "Implement T-25 sample-ordered legacy painting and approved native terrain rules using eight-neighbour corner gating, missing-role diagnostics and re-evaluation of affected neighbours through the existing board/scene commands."
-verify = "Legacy variants match independent approved samples, native role assignments match authored expected arrangements, and paint/erase across boundaries preserves adjacent cells, undo and source identity without claiming a universal variant order."
+description = "Implement T-25 painting from the normative tile table and reshape rules in docs/spec/editor/autotiling.md and from approved native terrain rules, using eight-neighbour corner gating, missing-role diagnostics and re-evaluation of affected neighbours through the existing board/scene commands. Import original AUTOTILES_ sets through the 52-slot table, including sets in sub-folders, and show what the original never did: an on-screen autotile state, a warning when the chosen set is not an autotile set, and warnings for short sets and square/isometric mismatches."
+verify = "Painting and erasing match the spec's tile table, corner rule, board-edge rule and 3 x 3 reshape (checked against hand-read cases and the spec example in docs/spec/editor/examples/autotiling); original AUTOTILES_ sets import, with the documented warnings for short, sub-folder and mismatched sets; native role assignments match authored expected arrangements; and paint/erase across boundaries preserves adjacent cells, undo and source identity."
 covers = ["CAP-16"]
 after = [1, "12.1", "12.2", 7, "27.13", "12.16"]
 hitl = false
 risk = "high"
-references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-neighbour-aware-auto-tiling-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+references = ["Normative autotiler behaviour: docs/spec/editor/autotiling.md", "Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-neighbour-aware-auto-tiling-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
 
 [[entry]]
 id = 27
 tracker_id = "#2326"
 type = "story"
 title = "Terrain recipe generation and painting sandbox"
-description = "Generate the approved native terrain variant set from editable base and edge recipes, with a sandbox for islands, corners, junctions and narrow passages that uses the actual terrain-painting provider."
-verify = "Generate all required variants, compare independent expected neighbourhoods in the sandbox and a saved scene, revise an input and preserve overrides, and distinguish native role order from sample-backed legacy order."
+description = "Generate the approved native terrain variant set from editable base and edge recipes, with a sandbox for islands, corners, junctions and narrow passages that uses the actual terrain-painting provider. Export a generated terrain as an original-format AUTOTILES_ 52-slot set (docs/spec/editor/autotiling.md), and import documented third-party 47-tile layouts by remapping them to shapes."
+verify = "Generate all required variants, compare independent expected neighbourhoods in the sandbox and a saved scene, revise an input and preserve overrides, export an AUTOTILES_ set whose slots match the spec's table, import a documented third-party layout, and keep native role order separate from the legacy 52-slot order."
 covers = ["CAP-16"]
 after = [26, 8, "12.17"]
 hitl = false

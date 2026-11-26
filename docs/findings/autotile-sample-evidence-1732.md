@@ -166,6 +166,12 @@ The current evidence answers: “What is one published, CC0 blob-mask convention
 
 A reviewer/owner must approve whether the pinned sample provenance and available permissions satisfy the acceptance requirement, and approve a complete independently established Toolkit index-to-neighbour mapping; alternatively, a rights-cleared sample with that evidence must be acquired. The fixture route permits functional observation but is not an artwork license. The generic diagram is complete only as a generic mask transcription; this report records no Toolkit mapping approval. Story 13.7 remains incomplete and 13.8 remains blocked.
 
+## Update 2026-11-26: specification and editor probe
+
+A clean-room behavioural description of the autotiler is now in [docs/spec/editor/autotiling.md](../spec/editor/autotiling.md). It gives the `AUTOTILES_` naming rule and a complete 52-slot tile table: 47 shapes, with slots 9, 18, 27, 36 and 45 unused. Checked: the table has 47 distinct corner-gated masks that together cover all 47 shapes.
+
+The black-box probe in [`tools/research/autotile-probe/`](../../tools/research/autotile-probe/README.md) verifies that table against the released Toolkit 3.1.0 editor. It paints a numbered set (`AUTOTILES_Probe.tst`, drawn procedurally, so no third-party art), covering all 47 shapes and 96 raw neighbour patterns, and the reader compares every observed tile with the spec. Running it is **optional**. The spec is normative (ADR 0007), and an original example set and board are now built from it ([docs/spec/editor/autotiling.md §6](../spec/editor/autotiling.md#6-example)), with no third-party art. That example resolves both of this story's gaps: the order (from the spec) and the rights-cleared sample (drawn by us). The probe remains available if anyone doubts the spec.
+
 ## References
 
 - `docs/editor-features.md` §3, T-25 (eight neighbours, gated corners, re-evaluation, sample-derived order).
