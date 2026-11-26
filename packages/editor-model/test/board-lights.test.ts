@@ -3,7 +3,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { BinaryReader, readBoard, type Board } from "@tk-reawakened/core";
-import { addLight, convertLightToShading, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, previewLightConversion, removeLight, setLightColour, setLightType } from "../src/index.ts";
+import { addLight, buildNewBoard, convertLightToShading, createBoardDocument, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, previewLightConversion, removeLight, setLightColour, setLightType } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const PATH = "Boards/village.brd";
@@ -197,4 +197,31 @@ test("Apply's command carries the reviewed lights and shading, and the document 
   equal(doc.getSnapshot().lights.length, 0);
   ok(doc.undo().ok);
   deepEqual(doc.getSnapshot().lights, [light]);
+});
+
+test("Apply refuses a board reloaded in place with another layout, even when its lights and shading are identical", async () => {
+  const open2 = (coordSystem: "2d" | "iso-stacked") => {
+    const built = buildNewBoard({ name: "lit", coordSystem, pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+    ok(built.ok);
+    const host = createMemoryPlatformServices({ files: { [PATH]: built.bytes } });
+    const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", PATH), built.bytes);
+    ok(opened.ok);
+    return opened.document;
+  };
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  const square = open2("2d");
+  const stacked = open2("iso-stacked");
+  for (const doc of [square, stacked]) ok(doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  deepEqual(square.getSnapshot().lights, stacked.getSnapshot().lights);
+  deepEqual(square.getSnapshot().shadeLayers, stacked.getSnapshot().shadeLayers);
+  ok(square.getSnapshot().coordType !== stacked.getSnapshot().coordType);
+  const reviewed = previewLightConversion(square.getSnapshot(), 0);
+  ok(reviewed.ok);
+  const apply = { type: "set-board-fields", precondition: reviewed.precondition, fields: { lights: reviewed.lights, shadeLayers: reviewed.shadeLayers } } as const;
+  const before = JSON.stringify([stacked.getSnapshot().lights, stacked.getSnapshot().shadeLayers]);
+  const refused = stacked.apply(apply);
+  equal(refused.ok, false);
+  ok(!refused.ok && /board changed since this edit was prepared/.test(refused.rejection.message));
+  equal(JSON.stringify([stacked.getSnapshot().lights, stacked.getSnapshot().shadeLayers]), before, "no wrong cells were baked");
+  ok(square.apply(apply).ok, "the layout it was reviewed for still accepts it");
 });

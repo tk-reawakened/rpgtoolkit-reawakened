@@ -69,13 +69,29 @@ function drawConversion(canvas: HTMLCanvasElement, preview: LightConversionPrevi
   context.putImageData(image, 0, 0);
 }
 
+/** An open conversion review, for Escape to tell which one it belongs to when two boards are open side by side. */
+interface OpenReview {
+  readonly root: () => HTMLElement | null;
+}
+
+/** Open reviews, oldest first: the last is the one most recently opened or focused. */
+const openReviews: OpenReview[] = [];
+
+const onScreen = (root: HTMLElement | null): root is HTMLElement => root !== null && root.isConnected && root.closest('[hidden], [inert], [aria-hidden="true"]') === null;
+
+/** The review an Escape belongs to: the one holding the key's target, else the most recent one still on screen. */
+function escapeOwner(target: Element | null): OpenReview | undefined {
+  const live = openReviews.filter((entry) => onScreen(entry.root()));
+  return (target === null ? undefined : live.find((entry) => entry.root()!.contains(target))) ?? live.at(-1);
+}
+
 function describeConversion(name: string, preview: LightConversionPreview): string {
   const cells = preview.width * preview.height;
   const spread = preview.bounds === null
     ? `${name} adds nothing to any of the ${cells} shade cells (it lies off the board or its colours are zero), so converting only removes the light.`
     : `${name} adds shade to ${preview.cellsChanged} of the ${cells} shade cells, in columns ${preview.bounds.column0} to ${preview.bounds.column1} and rows ${preview.bounds.row0} to ${preview.bounds.row1}.`;
   const layer = preview.createsShadingLayer ? " The board has no shading yet, so this creates its shading layer." : " This adds to the shading the board already has.";
-  const past = preview.cellsPastDrawRange === 0 ? "" : ` ${preview.cellsPastDrawRange} cell${preview.cellsPastDrawRange === 1 ? "" : "s"} would total more than 255 either way, and the picture draws those clamped.`;
+  const past = preview.cellsPastDrawRange === 0 ? "" : ` ${preview.cellsPastDrawRange} cell${preview.cellsPastDrawRange === 1 ? "" : "s"} would total more than 255 either way once added to the shading already there, and the board's picture draws those clamped at 255.`;
   return `${spread}${layer}${past}`;
 }
 
@@ -98,6 +114,8 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
   const previewCanvas = useRef<HTMLCanvasElement>(null);
   // Where focus goes when the review closes: the light's Convert button, or the lights list once the light is gone.
   const returnFocus = useRef<number | "list" | null>(null);
+  const entry = useRef<OpenReview>({ root: () => panel.current });
+  const reviewing = review !== null;
   const locked = disabled || busy || review !== null;
   const reviewLocked = disabled || busy;
 
@@ -134,7 +152,8 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
     if (review === null) return;
     // Any change to the lights or the shading the review was worked out from makes the picture and counts wrong: close it.
     const source = review.preview.precondition;
-    if (!sameData(snapshot.lights, source.lights) || !sameData(snapshot.shadeLayers, source.shadeLayers)) {
+    const grid = { sizeX: snapshot.sizeX, sizeY: snapshot.sizeY, layers: snapshot.layers, coordType: snapshot.coordType };
+    if (!sameData(snapshot.lights, source.lights) || !sameData(snapshot.shadeLayers, source.shadeLayers) || !sameData(grid, source.grid)) {
       closeReview(null);
       setMessage(STALE_REVIEW);
     }
@@ -147,9 +166,11 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
     const onEscape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       const root = panel.current;
-      if (root === null || !root.isConnected || root.closest('[hidden], [inert], [aria-hidden="true"]') !== null) return;
+      if (!onScreen(root)) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target !== null && !root.contains(target) && target.closest('dialog[open], [role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]') !== null) return;
+      // With two boards open side by side only one review answers: the one holding the key, else the most recent.
+      if (escapeOwner(target) !== entry.current) return;
       event.preventDefault();
       event.stopPropagation();
       cancelConvert();
@@ -157,11 +178,31 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
     document.addEventListener("keydown", onEscape, true);
     return () => document.removeEventListener("keydown", onEscape, true);
   }, [review, reviewLocked]);
+  // Register while open, so Escape can tell reviews apart; moving focus into a review makes it the most recent.
+  useLayoutEffect(() => {
+    if (!reviewing) return;
+    const mine = entry.current;
+    openReviews.push(mine);
+    const onFocus = (event: FocusEvent): void => {
+      if (!(event.target instanceof Node) || panel.current?.contains(event.target) !== true) return;
+      const at = openReviews.indexOf(mine);
+      if (at !== -1 && at !== openReviews.length - 1) openReviews.push(...openReviews.splice(at, 1));
+    };
+    document.addEventListener("focusin", onFocus, true);
+    return () => {
+      document.removeEventListener("focusin", onFocus, true);
+      const at = openReviews.indexOf(mine);
+      if (at !== -1) openReviews.splice(at, 1);
+    };
+  }, [reviewing]);
   useEffect(() => {
     if (review === null) {
       const target = returnFocus.current;
       returnFocus.current = null;
       if (target === null) return;
+      // Closing from another pane's keyboard must not pull focus back: only a focus that was here, or was lost with the review, returns.
+      const active = document.activeElement;
+      if (active !== null && active !== document.body && panel.current?.contains(active) !== true) return;
       (target === "list" ? lightsGroup.current : panel.current?.querySelector<HTMLElement>(`[data-light-convert="${target}"]`) ?? null)?.focus();
       return;
     }
@@ -250,7 +291,7 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
                   <p class="tkr-board-note">Apply adds this into the board's shading and removes the light, in one step that Undo takes back. Cancel, or Escape, changes nothing and keeps the light editable.</p>
                   <figure class="tkr-board-light-figure">
                     <canvas ref={previewCanvas} class="tkr-board-light-preview" aria-hidden="true" width={review.preview.width} height={review.preview.height} />
-                    <figcaption class="tkr-board-note">This picture shows only what {name} adds, one pixel per cell: grey where it adds nothing, lighter where it adds shade, darker where it takes shade away. It does not show the board's shading plus the light, so it does not show where that total is clamped at 255; the count above does.</figcaption>
+                    <figcaption class="tkr-board-note">This picture shows only what {name} adds on its own, one pixel per cell: grey where it adds nothing, lighter where it adds shade, darker where it takes shade away. It never shows the total with the shading already on the board, so it does not mark clamped cells; the count above is where clamping is reported.</figcaption>
                   </figure>
                   <button type="button" disabled={reviewLocked} data-light-review-cancel aria-label={`Cancel converting ${name}`} onClick={cancelConvert}>Cancel</button>
                   <button type="button" disabled={reviewLocked} aria-label={`Apply conversion of ${name} to shading`} onClick={applyConvert}>Apply conversion</button>

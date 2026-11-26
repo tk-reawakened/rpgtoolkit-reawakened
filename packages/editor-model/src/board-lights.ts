@@ -85,7 +85,7 @@ export interface LightConversionPreview {
   /** The light as it stands, so Apply can tell the author reviewed this very light and not an edited one. */
   readonly light: BoardLight;
   /**
-   * What the stored board must still hold for Apply to run: the lights and shading this preview was worked out from. Apply sends
+   * What the stored board must still hold for Apply to run: the lights, shading and grid/projection this preview was worked out from. Apply sends
    * it with the command, and the document checks it against the stored board, so a second editor's edit refuses the Apply.
    */
   readonly precondition: BoardPrecondition;
@@ -163,7 +163,7 @@ export function previewLightConversion(board: LightBoard, index: number): LightC
     lights: board.lights.filter((_light, at) => at !== index),
     shadeLayers: [{ castLayer: existing.castLayer, records: encodeShade(into, cells) }],
     light,
-    precondition: { lights: board.lights, shadeLayers: board.shadeLayers },
+    precondition: { lights: board.lights, shadeLayers: board.shadeLayers, grid: { sizeX: board.sizeX, sizeY: board.sizeY, layers: board.layers, coordType: board.coordType } },
     width: grid.width,
     height: grid.height,
     added,

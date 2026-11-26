@@ -1,4 +1,4 @@
-import { after, before, test } from "node:test";
+import { after, afterEach, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
@@ -32,6 +32,13 @@ before(async () => {
   ({ useState } = await import("preact/hooks"));
 });
 
+afterEach(async () => {
+  for (const root of mounted.splice(0)) {
+    await act(() => { render(null, root); });
+    root.remove();
+  }
+});
+
 after(() => GlobalRegistrator.unregister());
 
 interface Setup {
@@ -43,7 +50,8 @@ interface Setup {
   freeze(): void;
 }
 
-let Harness: () => preact.JSX.Element;
+/** Every mounted pane, unmounted after each test so an open review in one test cannot answer another test's Escape. */
+const mounted: HTMLElement[] = [];
 
 async function setup(): Promise<Setup> {
   const built = buildNewBoard({ name: "lighting", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
@@ -71,7 +79,8 @@ async function setup(): Promise<Setup> {
   };
   const root = document.createElement("div");
   document.body.append(root);
-  Harness = () => {
+  mounted.push(root);
+  const Harness = (): preact.JSX.Element => {
     const [ui, setUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
     const board = useBoardSubmit(view, () => undefined, pendingEdits, "Edit lights and shading");
     return createElement(BoardLightingView, { doc: view, disabled: false, ui, onUi: setUi, board }) as preact.JSX.Element;
@@ -325,6 +334,47 @@ test("the review says its picture is only what the light adds, and counts the ce
   await click(s.root, "Add gradient");
   await click(s.root, CONVERT);
   const text = review(s.root)!.textContent ?? "";
-  ok(/This picture shows only what Light 1 adds/.test(text) && /does not show where that total is clamped at 255/.test(text));
-  ok(/\d+ cells? would total more than 255 either way/.test(text), "the clamped cells are counted");
+  ok(/This picture shows only what Light 1 adds on its own/.test(text) && /does not mark clamped cells/.test(text));
+  ok(/\d+ cells? would total more than 255 either way once added to the shading already there, and the board's picture draws those clamped at 255/.test(text), "the clamped cells are counted, and the board's picture (not this one) is what clamps");
+});
+
+test("two open reviews in two panes: Escape answers only the active one, and never pulls focus into the other pane", async () => {
+  const a = await setup();
+  const b = await setup();
+  await click(a.root, "Add spotlight");
+  await click(b.root, "Add spotlight");
+  const fingerprints = [fingerprint(a.doc), fingerprint(b.doc)];
+  const escape = async (target: Element): Promise<KeyboardEvent> => {
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    await act(() => { target.dispatchEvent(event); });
+    return event;
+  };
+
+  // A is opened first, B second: with focus on the page, the most recent review (B) answers and A stays open.
+  await click(a.root, CONVERT);
+  await click(b.root, CONVERT);
+  ok(review(a.root) !== null && review(b.root) !== null);
+  await act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+  await escape(document.body);
+  ok(review(a.root) !== null, "the older review is not closed by the newer one's Escape");
+  equal(review(b.root), null, "the most recent review is the one that closed");
+
+  // Focus moves into A's review: A is now the active one and B (reopened) is the more recent open, yet Escape in A closes A.
+  await click(b.root, CONVERT);
+  const cancelA = a.root.querySelector<HTMLElement>("[data-light-review-cancel]")!;
+  await act(() => { cancelA.focus(); });
+  await escape(cancelA);
+  equal(review(a.root), null, "Escape inside a review closes that review");
+  ok(review(b.root) !== null, "and not the other pane's");
+
+  // Focus rests in B's field while A's review is the only one it could close: Escape closes A but leaves focus in B.
+  await click(b.root, "Cancel");
+  await click(a.root, CONVERT);
+  const field = input(b.root, "Light 1 Centre X (pixels)");
+  await act(() => { field.focus(); });
+  equal(document.activeElement, field);
+  await escape(field);
+  equal(review(a.root), null, "the open review answered the Escape");
+  equal(document.activeElement, field, "focus stayed in the pane where the author was working");
+  deepEqual([fingerprint(a.doc), fingerprint(b.doc)], fingerprints, "no pane stored anything");
 });
