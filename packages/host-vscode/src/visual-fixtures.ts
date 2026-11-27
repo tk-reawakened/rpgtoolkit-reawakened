@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { BinaryReader, boardPixelSize, coordLayout, readBoard, usesPixelCoordinates } from "@tk-reawakened/core";
+import { resolveVisualFixtureBoardCoordinates } from "@tk-reawakened/editor-ui";
+import { createVscodeFileSystem } from "./filesystem.ts";
 
 const SHOW_COMMAND = "tkr.visualFixtures.show";
 const RUN_COMMAND = "tkr.visualFixtures.runSavedTests";
@@ -67,36 +68,8 @@ export function registerVisualFixtures(context: vscode.ExtensionContext): void {
       }
       if (message.type === "visual-fixtures:board-mode") {
         if (typeof message.id !== "string" || !/^board-\d+$/.test(message.id) || typeof message.path !== "string") return;
-        const answer = async (): Promise<Record<string, unknown> | null> => {
-          const path = message.path as string;
-          if (!/\.brd$/i.test(path) || path.startsWith("/") || path.split(/[\\/]/).includes("..")) return null;
-          const segments = path.split(/[\\/]/);
-          // A fixture path is relative to the fixture world: the spec's folder, its ancestors, then the workspace.
-          const bases: vscode.Uri[] = [
-            vscode.Uri.joinPath(active.uri, ".."),
-            vscode.Uri.joinPath(active.uri, "..", ".."),
-          ];
-          const folder = vscode.workspace.getWorkspaceFolder(active.uri);
-          if (folder !== undefined) bases.push(folder.uri);
-          const candidates = bases.map((base) => vscode.Uri.joinPath(base, ...segments));
-          for (const candidate of candidates) {
-            let bytes: Uint8Array;
-            try {
-              bytes = await vscode.workspace.fs.readFile(candidate);
-            } catch {
-              continue;
-            }
-            const parsed = readBoard(new BinaryReader(bytes));
-            if (!parsed.ok) return null;
-            const layout = coordLayout(parsed.value.coordType);
-            const size = boardPixelSize(layout, parsed.value.sizeX, parsed.value.sizeY);
-            return usesPixelCoordinates(parsed.value.coordType)
-              ? { mode: "pixel", width: size.width, height: size.height }
-              : { mode: "tile", width: parsed.value.sizeX, height: parsed.value.sizeY };
-          }
-          return null;
-        };
-        const coordinates = await answer();
+        const folder = vscode.workspace.getWorkspaceFolder(active.uri);
+        const coordinates = folder === undefined ? null : await resolveVisualFixtureBoardCoordinates(createVscodeFileSystem(folder.uri), message.path);
         // A closed panel has no webview to answer; the in-flight read is dropped with it.
         if (panel === created) void created.webview.postMessage({ type: "visual-fixtures:board-mode-result", id: message.id, coordinates });
         return;
