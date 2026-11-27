@@ -142,7 +142,7 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       deepEqual(host.script.pickLists.at(-1)?.labels, ["battle.mp3", "tone.WAV", "Choose a file from outside the project…"], "its header makes it a choice; bytes that are not audio stay out");
       host.script.picks.push("file:battle.mp3");
       host.script.answers.push("use");
-      deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3" });
+      deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3", layout: { projectFolder: "" } });
 
       // What the webview offers as Open is what a visit really does: the host hands the file to VS Code's own `vscode.open`
       // (`script.opened`; this fake only models documents the extension provides, so what VS Code then shows for a picture or a

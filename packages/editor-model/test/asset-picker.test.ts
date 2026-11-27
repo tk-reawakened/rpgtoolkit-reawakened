@@ -312,6 +312,6 @@ test("the picker offers a mismatched-name WAV and chooses it as listed, without 
   ok(chooser.getSnapshot().candidates.some((candidate) => candidate.reference === "battle.mp3"));
   chooser.select("battle.mp3");
   host.answerQuestions("use");
-  deepEqual(await chooser.confirm(), { chosen: true, reference: "battle.mp3" });
+  deepEqual(await chooser.confirm(), { chosen: true, reference: "battle.mp3", layout: ROOT });
   deepEqual(host.bytesOf("Media/battle.mp3"), wavBytes, "the file is untouched");
 });
