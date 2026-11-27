@@ -3,7 +3,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { BinaryReader, readBoard, type Board } from "@tk-reawakened/core";
-import { addLight, convertLightToShading, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, removeLight, setLightColour, setLightType } from "../src/index.ts";
+import { addLight, buildNewBoard, convertLightToShading, createBoardDocument, createDocumentIdentity, moveLightNode, newLight, openBoardDocument, previewLightConversion, removeLight, setLightColour, setLightType } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const PATH = "Boards/village.brd";
@@ -112,4 +112,116 @@ test("painting shade cells is one edit; out-of-range channels and cells are refu
   const reopened = await openBoardDocument(host.fs, identity);
   ok(reopened.ok);
   equal(modelOf(reopened.document).shadeLayers.length, 1);
+});
+
+test("previewLightConversion reports the cells a light changes without changing anything, and Apply's arrays match convert", async () => {
+  const { doc } = await open();
+  const base = doc.getSnapshot();
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  const withLight = { ...base, lights: [light], shadeLayers: [] };
+  const before = JSON.stringify(withLight);
+  const preview = previewLightConversion(withLight, 0);
+  ok(preview.ok);
+  equal(JSON.stringify(withLight), before, "the board is not touched by looking");
+  equal(preview.width * preview.height * 3, preview.added.length);
+  ok(preview.cellsChanged > 0);
+  ok(preview.bounds !== null && preview.bounds.column0 >= 1 && preview.bounds.column1 <= preview.width && preview.bounds.row1 <= preview.height);
+  equal(preview.createsShadingLayer, true);
+  equal(preview.lights.length, 0);
+  equal(preview.light, light, "the reviewed light is the stored one");
+  const converted = convertLightToShading(withLight, 0);
+  ok(converted.ok);
+  deepEqual(converted.shadeLayers, preview.shadeLayers);
+  deepEqual(converted.lights, preview.lights);
+});
+
+test("previewLightConversion counts cells past the draw range, a light that adds nothing, and refuses a stored overflow", async () => {
+  const { doc } = await open();
+  const base = doc.getSnapshot();
+  const hot = newLight(1, { x: 0, y: 0 }, { r: 200, g: 0, b: 0 });
+  const dims = previewLightConversion({ ...base, lights: [hot] }, 0);
+  ok(dims.ok);
+  const cells = dims.width * dims.height;
+  const everywhere = (r: number) => [{ castLayer: base.layers, records: [{ runCount: cells, r, g: 0, b: 0 }] }];
+  const past = previewLightConversion({ ...base, lights: [hot], shadeLayers: everywhere(250) }, 0);
+  ok(past.ok);
+  equal(past.cellsBeyondShadeRange, dims.cellsChanged, "every cell the light adds red to now has a stored total beyond ±255");
+  ok(past.cellsBeyondShadeRange > 0);
+  equal(past.createsShadingLayer, false);
+  const dark = newLight(1, { x: 0, y: 0 }, { r: 0, g: 0, b: 0 });
+  const nothing = previewLightConversion({ ...base, lights: [dark] }, 0);
+  ok(nothing.ok);
+  equal(nothing.cellsChanged, 0);
+  equal(nothing.bounds, null);
+  // A stored channel at the i16 limit cannot take any more: the whole conversion is refused, naming a cell, and nothing changes.
+  const full = { ...base, lights: [hot], shadeLayers: everywhere(32_767) };
+  const before = JSON.stringify(full);
+  const refused = previewLightConversion(full, 0);
+  equal(refused.ok, false);
+  ok(!refused.ok && /column \d+, row \d+ red/.test(refused.message) && /Nothing was changed/.test(refused.message));
+  equal(JSON.stringify(full), before);
+  equal(previewLightConversion(base, 4).ok, false);
+});
+
+test("Apply's command carries the reviewed lights and shading, and the document refuses it when either changed since", async () => {
+  const { doc } = await open();
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  ok(doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  const reviewed = previewLightConversion(doc.getSnapshot(), 0);
+  ok(reviewed.ok);
+  const apply = { type: "set-board-fields", precondition: reviewed.precondition, fields: { lights: reviewed.lights, shadeLayers: reviewed.shadeLayers } } as const;
+
+  // Another editor moves the light first: this Apply must not bake the old light or drop the new position.
+  const other = await open();
+  ok(other.doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  ok(other.doc.apply({ type: "set-board-fields", fields: { lights: [{ ...light, nodes: [{ x: 8, y: 8 }, light.nodes[1]!] }] } }).ok);
+  const staleLight = other.doc.apply(apply);
+  equal(staleLight.ok, false);
+  ok(!staleLight.ok && /board changed since this edit was prepared/.test(staleLight.rejection.message));
+  equal(other.doc.getSnapshot().lights.length, 1);
+  deepEqual(other.doc.getSnapshot().lights[0]?.nodes[0], { x: 8, y: 8 });
+
+  // Another editor paints shading first: the sum the review showed is no longer what Apply would store.
+  const shaded = await open();
+  ok(shaded.doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  ok(shaded.doc.apply({ type: "set-shade-cells", cells: [{ x: 1, y: 1, r: 40, g: 0, b: 0 }] }).ok);
+  const before = shaded.doc.getSnapshot();
+  equal(shaded.doc.apply(apply).ok, false);
+  deepEqual(shaded.doc.getSnapshot().shadeLayers, before.shadeLayers);
+  deepEqual(shaded.doc.getSnapshot().lights, before.lights);
+
+  // Unchanged inputs apply, as one edit that one undo takes back.
+  const edits = doc.getSnapshot().edits.length;
+  ok(doc.apply(apply).ok);
+  equal(doc.getSnapshot().edits.length, edits + 1);
+  equal(doc.getSnapshot().lights.length, 0);
+  ok(doc.undo().ok);
+  deepEqual(doc.getSnapshot().lights, [light]);
+});
+
+test("Apply refuses a board reloaded in place with another layout, even when its lights and shading are identical", async () => {
+  const open2 = (coordSystem: "2d" | "iso-stacked") => {
+    const built = buildNewBoard({ name: "lit", coordSystem, pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+    ok(built.ok);
+    const host = createMemoryPlatformServices({ files: { [PATH]: built.bytes } });
+    const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", PATH), built.bytes);
+    ok(opened.ok);
+    return opened.document;
+  };
+  const light = newLight(1, { x: 0, y: 0 }, { r: 100, g: 50, b: 0 });
+  const square = open2("2d");
+  const stacked = open2("iso-stacked");
+  for (const doc of [square, stacked]) ok(doc.apply({ type: "set-board-fields", fields: { lights: [light] } }).ok);
+  deepEqual(square.getSnapshot().lights, stacked.getSnapshot().lights);
+  deepEqual(square.getSnapshot().shadeLayers, stacked.getSnapshot().shadeLayers);
+  ok(square.getSnapshot().coordType !== stacked.getSnapshot().coordType);
+  const reviewed = previewLightConversion(square.getSnapshot(), 0);
+  ok(reviewed.ok);
+  const apply = { type: "set-board-fields", precondition: reviewed.precondition, fields: { lights: reviewed.lights, shadeLayers: reviewed.shadeLayers } } as const;
+  const before = JSON.stringify([stacked.getSnapshot().lights, stacked.getSnapshot().shadeLayers]);
+  const refused = stacked.apply(apply);
+  equal(refused.ok, false);
+  ok(!refused.ok && /board changed since this edit was prepared/.test(refused.rejection.message));
+  equal(JSON.stringify([stacked.getSnapshot().lights, stacked.getSnapshot().shadeLayers]), before, "no wrong cells were baked");
+  ok(square.apply(apply).ok, "the layout it was reviewed for still accepts it");
 });

@@ -109,7 +109,7 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 * **Programs:** list by index and file/inline code. Program **file or one line of inline RPGCode**, with browse and open buttons. Layer. Step-on or key-press. "Trigger every N px". "Stops movement". **Run once**. Run-if `var == value`. Then set `var = value`. Point table.
 * **Sprites:** item file with browse and open. Location (tile or pixel, bottom-centre anchor). Slot index. Override activation program. Override multitask program. Step-on or key-press. **Show when board loads if** `var == value`. Run-if and then-set conditions.
 * **Images:** file. Top-left pixel location. Layer. Transparent colour picked by clicking the image on the canvas.
-* **Lighting:** cast-onto layer. A light list with type (elliptic spotlight, gradient, clipped gradient). Per-node colours. **Convert to shading** (bake). Delete. Current-shade RGB (−255…+255) with a grey slider and a zero button.
+* **Lighting:** cast-onto layer. A light list with type (elliptic spotlight, gradient, clipped gradient). Per-node colours. **Convert to shading…** (bake): a review step shows the cells affected and a preview, and **Apply conversion** or **Cancel** (or Escape) decides it; Cancel changes nothing, Apply is one undo step. Delete. Current-shade RGB (−255…+255) with a grey slider and a zero button.
 
 **T-27 Board properties page.** Directional links N/S/E/W (board or program). Background image, colour and music. **Board threads** list (add, remove, open). Dimensions (read-only; coordinate system shown). **Board constants** list and **layer titles**. Battle settings (enable, skill level, background). Disable saving. Enter program. Board ambient RGB.
 

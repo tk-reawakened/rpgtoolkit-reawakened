@@ -15,4 +15,5 @@
 # IDs 58–61 map #3628–#3631 (PR #3535 setup review).
 # ID 62 maps #3632 (VS Code provider no-clobber capability).
 # IDs 63 and 64 map #3634 and #3635 (PR #3535 hosted proof contract updates).
-next_id = 65
+# ID 65 maps #3637 (collapsed lighting review Escape).
+next_id = 66

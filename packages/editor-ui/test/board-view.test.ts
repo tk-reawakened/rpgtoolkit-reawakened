@@ -1103,3 +1103,59 @@ test("board surface invokes each host-registered upgrade action", async () => {
     s.el.remove();
   }
 });
+
+test("a review of a light conversion has first claim on Enter and Escape over a pending region path", async () => {
+  const s = await setup();
+  await show(s);
+  const press = async (target: HTMLElement, key: string, init: KeyboardEventInit = {}): Promise<KeyboardEvent> => {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+    await act(async () => {
+      target.dispatchEvent(event);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    return event;
+  };
+  const button = (label: string): HTMLButtonElement => {
+    const found = [...s.el.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label || candidate.getAttribute("aria-label") === label);
+    if (found === undefined) throw new Error(`no button ${label}`);
+    return found;
+  };
+  const regions = (): number => s.doc.getSnapshot().vectors.length;
+  const tap = async (label: string): Promise<void> => {
+    await act(async () => { button(label).click(); await Promise.resolve(); await Promise.resolve(); });
+  };
+  const review = (): Element | null => s.el.querySelector(".tkr-board-light-review");
+
+  // A region path is pending: two points are placed from the keyboard and nothing is stored yet.
+  await press(cell(s.el, 1, 1), "2");
+  await press(cell(s.el, 1, 1), " ");
+  await press(cell(s.el, 1, 1), "ArrowRight");
+  await press(cell(s.el, 2, 1), " ");
+  const stored = regions();
+  await tap("Add spotlight");
+  const lights = s.doc.getSnapshot().lights.length;
+  await tap("Convert Light 1 to shading…");
+  ok(review() !== null);
+
+  // Enter on Cancel belongs to the button: the board must not see it, so it neither commits the path nor swallows the activation.
+  const cancel = button("Cancel converting Light 1");
+  const enter = await press(cancel, "Enter");
+  equal(enter.defaultPrevented, false, "the board did not take Enter from the review's button");
+  equal(regions(), stored, "Enter on Cancel did not finish the pending path");
+  await act(async () => { cancel.click(); await Promise.resolve(); });
+  equal(review(), null);
+  equal(s.doc.getSnapshot().lights.length, lights, "Cancel kept the light");
+
+  // Escape after focus moved off the review closes the review and not the pending path.
+  await tap("Convert Light 1 to shading…");
+  ok(review() !== null);
+  const escape = await press(cell(s.el, 2, 1), "Escape");
+  equal(escape.defaultPrevented, true);
+  equal(review(), null, "Escape closed the review");
+  const finish = await press(button("Grid"), "Enter");
+  for (let turn = 0; turn < 4; turn += 1) await act(() => nextTurn());
+  equal(finish.defaultPrevented, true, "the pending path survived Escape and Enter still finishes it");
+  equal(alerts(s.el).join(" "), "", "finishing the path raised no complaint");
+  equal(regions(), stored + 1);
+});

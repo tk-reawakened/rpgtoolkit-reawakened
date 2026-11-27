@@ -79,6 +79,16 @@ export interface BoardPrecondition {
   readonly programs?: Board["programs"];
   readonly sprites?: Board["sprites"];
   readonly images?: Board["images"];
+  /** The stored lights must still be exactly these (an explicit light conversion's reviewed input). */
+  readonly lights?: Board["lights"];
+  /** The stored shading layers must still be exactly these (an explicit light conversion's reviewed input). */
+  readonly shadeLayers?: Board["shadeLayers"];
+  /**
+   * The board's grid and projection must still be these: width and height in tiles, layer count and coordinate flags. The shade
+   * grid, a light's cells and which projection draws them all follow from them, so a board reloaded in place as a different
+   * layout (square to isometric) refuses a conversion that was worked out for the old one.
+   */
+  readonly grid?: { readonly sizeX: number; readonly sizeY: number; readonly layers: number; readonly coordType: number };
 }
 
 export interface SetTilesCommand {
@@ -533,7 +543,9 @@ function unmetPrecondition(previous: Board, precondition: BoardPrecondition | un
       if (values[at] !== cell.r || values[at + 1] !== cell.g || values[at + 2] !== cell.b) return changed;
     }
   }
-  for (const family of ["vectors", "programs", "sprites", "images"] as const) {
+  const grid = precondition.grid;
+  if (grid !== undefined && (previous.sizeX !== grid.sizeX || previous.sizeY !== grid.sizeY || previous.sizeL !== grid.layers || previous.coordType !== grid.coordType)) return changed;
+  for (const family of ["vectors", "programs", "sprites", "images", "lights", "shadeLayers"] as const) {
     const wanted = precondition[family];
     if (wanted !== undefined && !sameStoredValue(previous[family], wanted)) return changed;
   }
@@ -712,10 +724,17 @@ function isLights(value: unknown): boolean {
 function isPrecondition(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const precondition = value as Record<string, unknown>;
-  if (!Object.keys(precondition).every((key) => ["cells", "shadeCells", "vectors", "programs", "sprites", "images"].includes(key))) return false;
+  if (!Object.keys(precondition).every((key) => ["cells", "shadeCells", "vectors", "programs", "sprites", "images", "lights", "shadeLayers", "grid"].includes(key))) return false;
+  if (precondition.grid !== undefined) {
+    const grid = precondition.grid as Record<string, unknown> | null;
+    if (typeof grid !== "object" || grid === null || !["sizeX", "sizeY", "layers", "coordType"].every((key) => Number.isInteger(grid[key]))) return false;
+  }
   if (precondition.cells !== undefined && !(Array.isArray(precondition.cells) && precondition.cells.length <= BOARD_MAX_CELLS && precondition.cells.every(isAssignment))) return false;
   if (precondition.shadeCells !== undefined && !(Array.isArray(precondition.shadeCells) && precondition.shadeCells.length <= BOARD_MAX_CELLS
     && precondition.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isStoredShadeChannel((cell as Record<string, unknown>)[channel]))))) return false;
+  // Lights and shading layers are only compared for equality, so any array is a safe requirement (a legacy light with extra nodes can still be required).
+  if (precondition.lights !== undefined && !Array.isArray(precondition.lights)) return false;
+  if (precondition.shadeLayers !== undefined && !isShadeLayers(precondition.shadeLayers)) return false;
   return (["vectors", "programs", "sprites", "images"] as const).every((family) => precondition[family] === undefined || isBoardObjectRecords(precondition[family], family));
 }
 
