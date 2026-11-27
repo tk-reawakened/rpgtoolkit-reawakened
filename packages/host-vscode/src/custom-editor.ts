@@ -2,7 +2,7 @@ import { boardPreviewRootForLayout, projectLayoutOwnerForDocumentPath, resolveRe
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { encodeBackup, recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
-import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
+import { handleEditorHostRequest, isEditorHostRequest, isNativeVisitPath, scopeEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
 /**
@@ -12,12 +12,12 @@ import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, Settle
  * document per file in the extension host and answers the workbench's calls (ADR 0022 D2, AD-19).
  */
 
-/** Find the document's declared game from only the Main folder, so nested reserved names cannot change ownership. */
-export async function owningProjectLayout(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectLayout> {
+type ProjectOwner = { readonly mainPath: string | null; readonly layout: ProjectLayout };
+async function owningProjectOwner(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectOwner | null> {
   const mainFolder = await resolveReservedFolderPath(fs, "Main");
-  if (mainFolder.failure !== null) return { projectFolder: "" };
+  if (mainFolder.failure !== null) return null;
   const listing = await fs.list(mainFolder.path);
-  if (!listing.ok) return { projectFolder: "" };
+  if (!listing.ok) return null;
   const mainPaths = new Set<string>();
   if (selectedMain !== undefined) mainPaths.add(selectedMain);
   for (const entry of listing.value) {
@@ -27,10 +27,16 @@ export async function owningProjectLayout(fs: FileSystemService, projectId: stri
     mainPath,
     layout: await projectLayoutOfMain(fs, projectId, mainPath),
   })));
-  return projectLayoutOwnerForDocumentPath(path, owners)?.layout ?? { projectFolder: "" };
+  return projectLayoutOwnerForDocumentPath(path, owners) ?? null;
+}
+
+/** Find the document's declared game from only the Main folder, so nested reserved names cannot change ownership. */
+export async function owningProjectLayout(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectLayout> {
+  return (await owningProjectOwner(fs, projectId, path, selectedMain))?.layout ?? { projectFolder: "" };
 }
 /** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
 const SAVE_ROUNDS = 3;
+let nextWebviewEditScope = 0;
 
 /** How long a save waits for a webview to hand over edits it has accepted before it refuses to save (see `GameDocument.settleViews`). */
 const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
@@ -130,13 +136,13 @@ export function eventsForDocumentKind<Event extends DocumentChangeEvent>(
 
 /** The document kinds each custom-editor manifest view type is permitted to dirty. */
 export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
-  "tkr.gameSettings": ["main", "character", "item"],
+  "tkr.gameSettings": ["main", "character", "item", "skin"],
   "tkr.board": ["board"],
   "tkr.tileset": ["tileset"],
   "tkr.tileBitmap": ["tile-bitmap"],
   "tkr.font": ["font"],
   "tkr.animation": ["animation"],
-  "tkr.battleData": ["special-move", "status-effect"],
+  "tkr.battleData": ["special-move", "status-effect", "battle-background"],
 } as const;
 
 /** What a webview panel gives the provider. */
@@ -659,7 +665,7 @@ export interface GameEditorProvider<Uri extends UriLike> {
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const fontOperations = new WeakMap<GameDocument<Uri>, Promise<void>>();
-  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
+  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSessions: Map<string, BrowserSession> }>();
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
   /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
   const openDocuments = new Map<string, GameDocument<Uri>>();
@@ -687,16 +693,25 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       },
     });
   };
-  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession; readonly path: string };
+  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSessions: Map<string, BrowserSession>; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
       const workspace = createWorkspace(folder, fs);
-      project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+      project = { fs, workspace, visits: createVisits(workspace), browserSessions: new Map() };
       workspaces.set(folder.key, project);
     }
     return { ...project, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
+  };
+  const browserSessionFor = (project: Pick<Project, "browserSessions">, folder: WorkspaceFolderLike<Uri>, owner: string | null): BrowserSession => {
+    const key = owner === null ? `workspace:${folder.key}` : createDocumentIdentity(folder.key, owner).key;
+    let session = project.browserSessions.get(key);
+    if (session === undefined) {
+      session = createBrowserSession();
+      project.browserSessions.set(key, session);
+    }
+    return session;
   };
   const nameOf = (uri: Uri): string => uri.path.split("/").at(-1) ?? uri.path;
   const folderOfDocument = (document: GameDocument<Uri>): WorkspaceFolderLike<Uri> => {
@@ -710,7 +725,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     if (existing !== undefined) return existing;
     const fs = port.fileSystem(folder);
     const workspace = createWorkspace(folder, fs);
-    const project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+    const project = { fs, workspace, visits: createVisits(workspace), browserSessions: new Map<string, BrowserSession>() };
     workspaces.set(folder.key, project);
     return project;
   };
@@ -755,7 +770,24 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const folder = folderOfDocument(origin);
       const project = projectIn(folder, origin.uri);
       const kind = kindForPath(path);
-      if (kind === null) return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
+      if (kind === null) {
+        const nativeAsset = isNativeVisitPath(path);
+        if (!reference && nativeAsset) {
+          const resolved = await resolveDocumentPath(project.fs, path);
+          if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
+          if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to visit.` };
+          const separator = resolved.path.lastIndexOf("/");
+          const parent = separator < 0 ? "" : resolved.path.slice(0, separator);
+          const name = separator < 0 ? resolved.path : resolved.path.slice(separator + 1);
+          const listing = await project.fs.list(parent);
+          if (!listing.ok) return { ok: false, message: `Could not check ${resolved.path}: ${listing.error.message}` };
+          if (!listing.value.some((entry) => entry.name === name && entry.kind === "file")) {
+            return { ok: false, message: `${resolved.path} is not a file, so there is nothing to visit.` };
+          }
+          return openVisited(origin, project, folder, resolved.path, null);
+        }
+        return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
+      }
       let target = path;
       if (reference) {
         if (kind.id !== "board" && kind.id !== "program" && kind.id !== "item" && kind.id !== "character" && kind.id !== "tile-bitmap") {
@@ -868,6 +900,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         layout: await owningProjectLayout(project.fs, folder.key, origin.model.identity.path, origin.model.kind === "main" ? origin.model.identity.path : undefined),
         kind: request.kind,
         extensions: request.extensions,
+        ...(request.content === undefined ? {} : { content: request.content }),
         field: request.field,
       });
       await picker.refresh();
@@ -896,7 +929,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     async openCustomDocument(uri, backupId) {
       const folder = port.folderOf(uri);
       if (folder === undefined) throw new Error(`${nameOf(uri)} is outside the open workspace`);
-      const { workspace, fs, path, browserSession } = projectIn(folder, uri);
+      const project = projectIn(folder, uri);
+      const { workspace, fs, path } = project;
       if (backupId !== undefined) {
         const resolved = await resolveDocumentPath(fs, path);
         if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `${nameOf(uri)}: ${resolved.error.message}`);
@@ -909,7 +943,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
         const sourceTile = pendingSourceTiles.get(identity.key);
         pendingSourceTiles.delete(identity.key);
-        const layout = await owningProjectLayout(fs, folder.key, recovered.document.identity.path, recovered.document.kind === "main" ? recovered.document.identity.path : undefined);
+        const owner = await owningProjectOwner(fs, folder.key, recovered.document.identity.path, recovered.document.kind === "main" ? recovered.document.identity.path : undefined);
+        const layout = owner?.layout ?? { projectFolder: "" };
+        const browserSession = browserSessionFor(project, folder, owner?.mainPath ?? null);
         const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession, () => {
           if (openDocuments.get(recovered.document.identity.key)?.model === recovered.document) openDocuments.delete(recovered.document.identity.key);
         }, sourceTile ?? null, layout);
@@ -928,7 +964,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
       const sourceTile = pendingSourceTiles.get(opened.document.identity.key);
-      const layout = await owningProjectLayout(fs, folder.key, opened.document.identity.path, opened.document.kind === "main" ? opened.document.identity.path : undefined);
+      const owner = await owningProjectOwner(fs, folder.key, opened.document.identity.path, opened.document.kind === "main" ? opened.document.identity.path : undefined);
+      const layout = owner?.layout ?? { projectFolder: "" };
+      const browserSession = browserSessionFor(project, folder, owner?.mainPath ?? null);
       pendingSourceTiles.delete(opened.document.identity.key);
       const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession, () => {
         if (openDocuments.get(opened.document.identity.key)?.model === opened.document) openDocuments.delete(opened.document.identity.key);
@@ -1017,6 +1055,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       return openDocuments.get(createDocumentIdentity(folder.key, path).key);
     },
     resolveCustomEditor(document, webview) {
+      const coalesceScope = `webview:${++nextWebviewEditScope}`;
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);
       const browserSubscription = document.browserSession.subscribe((changes) => {
@@ -1033,10 +1072,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
+        const scopedMessage = scopeEditorHostRequest(message, coalesceScope);
         if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {
           // Order the operations at the shared document, not in an iframe awaiting replies. A history call must
           // complete in VS Code before the next stroke is registered, even if either webview receives its reply late.
-          const apply = () => handleEditorHostRequest(document, message, (reply) => { void webview.postMessage(reply); });
+          const apply = () => handleEditorHostRequest(document, scopedMessage, (reply) => { void webview.postMessage(reply); });
           const previous = fontOperations.get(document);
           const operation = previous === undefined ? apply() : previous.then(apply, apply);
           fontOperations.set(document, operation);
@@ -1047,7 +1087,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
           }
           return;
         }
-        await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
+        await handleEditorHostRequest(document, scopedMessage, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {
         subscription();

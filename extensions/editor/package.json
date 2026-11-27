@@ -22,6 +22,7 @@
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualFixtures.show",
     "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
     "onCommand:tkr.upgradeBoardStackedToRotated",
@@ -89,6 +90,10 @@
       {
         "command": "tkr.visualEvents.show",
         "title": "RPG Toolkit: Show Visual events"
+      },
+      {
+        "command": "tkr.visualFixtures.show",
+        "title": "RPG Toolkit: Show Visual fixtures"
       },
       {
         "command": "tkr.runSavedTests",
@@ -255,6 +260,9 @@
           },
           {
             "filenamePattern": "*.itm"
+          },
+          {
+            "filenamePattern": "*.tkrskin"
           }
         ],
         "priority": "default"
@@ -301,13 +309,16 @@
       },
       {
         "viewType": "tkr.battleData",
-        "displayName": "RPG Toolkit Special Move and Status Effect Editor",
+        "displayName": "RPG Toolkit Battle Data Editor",
         "selector": [
           {
             "filenamePattern": "*.spc"
           },
           {
             "filenamePattern": "*.ste"
+          },
+          {
+            "filenamePattern": "*.bkg"
           }
         ],
         "priority": "default"

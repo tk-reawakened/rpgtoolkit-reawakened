@@ -57,13 +57,7 @@ export function compileTerrainMatcher(recipe: TerrainRecipe): TerrainMatcherResu
   const rules: { id: string; named: number; same: number; choice: Choice; matched: boolean }[] = [];
   const problems: TerrainProblem[] = [];
   for (const rule of recipe.rules) {
-    let named = 0;
-    let same = 0;
-    for (const [direction, value] of Object.entries(rule.when)) {
-      const bit = BITS[direction as Neighbour];
-      named |= bit;
-      if (value === "same") same |= bit;
-    }
+    const { named, same } = whenMask(rule.when);
     let choice: Choice;
     if (rule.use !== undefined) choice = rule.use.tile;
     else {
@@ -114,5 +108,82 @@ export function compileTerrainMatcher(recipe: TerrainRecipe): TerrainMatcherResu
       }
       throw new Error("terrain matcher weight invariant violated");
     },
+  };
+}
+
+/** The neighbour bits a rule names and the ones it requires to be the same terrain. */
+function whenMask(when: TerrainRule["when"]): { readonly named: number; readonly same: number } {
+  let named = 0;
+  let same = 0;
+  for (const [direction, value] of Object.entries(when)) {
+    const bit = BITS[direction as Neighbour];
+    named |= bit;
+    if (value === "same") same |= bit;
+  }
+  return { named, same };
+}
+
+const NAMES = Object.keys(BITS) as Neighbour[];
+
+/** A reduced neighbourhood in words: the directions holding the same terrain, in n e s w nw ne se sw order. */
+function describeMask(mask: number): string {
+  const names = NAMES.filter((name) => (mask & BITS[name]) !== 0);
+  return names.length === 0 ? "isolated" : names.join("+");
+}
+
+export type TerrainRoleReport = {
+  readonly neighbours: TerrainRecipe["neighbours"];
+  readonly coverage: TerrainRecipe["coverage"];
+  /** How many distinct reduced neighbourhoods the recipe's neighbour mode can produce (16 or 47). */
+  readonly situations: number;
+  /** Every rule as authored: the neighbourhood it asks for and the tiles it can choose, with the reduced situations it covers. */
+  readonly rules: readonly { readonly id: string; readonly when: string; readonly tiles: readonly string[]; readonly situations: number }[];
+  /** The reduced neighbourhoods no rule chooses a tile for, named by their same-terrain directions. */
+  readonly missing: readonly string[];
+  /** Why the matcher would refuse this recipe (ambiguity, an impossible rule, bad weights, or a gap in a complete recipe). */
+  readonly problems: readonly string[];
+};
+
+/**
+ * Describe which authored rules cover which reduced neighbourhoods, from the same reduction and first-match table the
+ * built-in matcher uses, so the editor shows the situations `choose` would find no tile for. Native terrain roles are
+ * rule situations; they are not the legacy 52-slot order.
+ */
+export function inspectTerrainRoles(recipe: TerrainRecipe): TerrainRoleReport {
+  const diagonal = recipe.neighbours === "blob-8";
+  const parsed = recipe.rules.map((rule) => ({ rule, ...whenMask(rule.when), covered: 0 }));
+  const missing: string[] = [];
+  let situations = 0;
+  for (let mask = 0; mask < 256; mask += 1) {
+    const active = activeBits(mask, diagonal);
+    if ((mask & active) !== mask) continue;
+    situations += 1;
+    let hit = false;
+    for (const entry of parsed) {
+      if ((entry.named & active) !== entry.named || (mask & entry.named) !== entry.same) continue;
+      entry.covered += 1;
+      hit = true;
+    }
+    if (!hit) missing.push(describeMask(mask));
+  }
+  const compiled = compileTerrainMatcher(recipe);
+  const problems = compiled.ok ? [] : compiled.problems.map((problem) =>
+    "mask" in problem ? `Rules ${problem.rules.join(" and ")} both match ${describeMask(problem.mask)}.`
+      : "count" in problem ? `${problem.count} neighbourhood patterns have no rule, and the recipe says it is complete.`
+      : problem.code === "terrain-rule-unsatisfiable" ? `Rule ${problem.rule} cannot match any neighbourhood.`
+      : `Rule ${problem.rule} must have positive integer weights whose total fits in an unsigned 32-bit integer.`);
+  return {
+    neighbours: recipe.neighbours,
+    coverage: recipe.coverage,
+    situations,
+    rules: parsed.map(({ rule, named, same, covered }) => ({
+      id: rule.id,
+      when: named === 0 ? "any neighbourhood" : NAMES.filter((name) => (named & BITS[name]) !== 0)
+        .map((name) => `${name} ${(same & BITS[name]) !== 0 ? "same" : "other"}`).join(", "),
+      tiles: rule.use !== undefined ? [rule.use.tile] : rule.variants.map(({ tile }) => tile),
+      situations: covered,
+    })),
+    missing,
+    problems,
   };
 }

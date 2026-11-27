@@ -17,15 +17,42 @@ const gam = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/gam
 const example = (path: string): Uint8Array => new Uint8Array(readFileSync(new URL(`../../../docs/spec/examples/game/Game/Example/${path}`, import.meta.url)));
 const SPC = "SpcMove/fireball.spc";
 const STE = "StatusE/burn.ste";
+const BKG = "Bkrounds/forest.bkg";
 const fireball = example(SPC);
 const burn = example(STE);
-const FILES = { [SPC]: fireball, [STE]: burn };
+const background = example(BKG);
+const FILES = { [SPC]: fireball, [STE]: burn, [BKG]: background };
 // fireball.spc: fp 0x1e (i32), battle 0x37, menu 0x38. burn.ste: slow 0x1e, hpAmount 0x24 (i16).
 const patched = (original: Uint8Array, edits: Readonly<Record<number, readonly number[]>>): Uint8Array => {
   const copy = original.slice();
   for (const [at, bytes] of Object.entries(edits)) copy.set(bytes, Number(at));
   return copy;
 };
+const BKG_VALUES = {
+  image: "arena.tbm",
+  music: "battle2.mid",
+  selectSound: "cursor.wav",
+  chooseSound: "choose.wav",
+  readySound: "ready.mid",
+  cantDoSound: "nope.wav",
+} as const;
+const BKG_FIELD_LABELS = [
+  ["image", "Background picture"],
+  ["music", "Battle music"],
+  ["selectSound", "Menu cursor sound"],
+  ["chooseSound", "Menu choice sound"],
+  ["readySound", "Fighter ready sound"],
+  ["cantDoSound", "Action unavailable sound"],
+] as const;
+const bkgText = (value: string): Uint8Array<ArrayBuffer> => new TextEncoder().encode(`${value}\x00`);
+const BKG_EDITED = (() => {
+  const parts: Uint8Array<ArrayBuffer>[] = [new TextEncoder().encode("RPGTLKIT BKG\x00"), Uint8Array.of(2, 0, 3, 0)];
+  for (const field of BKG_FIELD_LABELS) parts.push(bkgText(BKG_VALUES[field[0]]));
+  const result = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { result.set(part, offset); offset += part.length; }
+  return result;
+})();
 const MOVE_EDITED = patched(fireball, { 0x1e: [0xe2, 0xff, 0xff, 0xff], 0x37: [0], 0x38: [1] });
 const STATUS_EDITED = patched(burn, { 0x24: [0xfb, 0xff], 0x1e: [1, 0] });
 
@@ -249,6 +276,20 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       equal(await saving, true);
       await until(() => !field(tab, "Damage (FP)").readOnly, "unlock after the write");
       equal(await damageOnDisk(proof), -30);
+    });
+    test("the fight-background form edits all six links and saves the same-version bytes through the host", async () => {
+      const proof = host();
+      const tab = await openReady(proof, BKG, "Background picture file");
+      for (const [key, label] of BKG_FIELD_LABELS) await type(tab, `${label} file`, BKG_VALUES[key]);
+      equal(tab.workbenchDirty(), true);
+      ok(same(await proof.disk(BKG), background), "edits remain pending until host save");
+      equal(await tab.saveFromWorkbench(), true);
+      await settle(act);
+      ok(same(await proof.disk(BKG), BKG_EDITED), "the independently assembled BKG bytes retain header and minor");
+      equal(await tab.close("discard"), true);
+      const reopened = await openReady(proof, BKG, "Background picture file");
+      for (const [key, label] of BKG_FIELD_LABELS) equal(field(reopened, `${label} file`).value, BKG_VALUES[key]);
+      deepEqual(await reopened.backupBytes(), BKG_EDITED);
     });
   });
 }

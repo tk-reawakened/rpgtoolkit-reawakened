@@ -54,6 +54,13 @@ void test("reserved top-level and clip fields cannot be plugin ids", () => {
   deepEqual(checkDocuments([{ path: "clip.tkranm", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"]);
 });
 
+void test("skin core fields cannot be used as plugin ids", () => {
+  for (const key of ["label", "windowImage", "buttonImage"]) {
+    const text = `contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/w.png\nbuttonImage: bitmap/b.png\npluginData:\n  ${key}: {version: 1.0.0, data: {}}\n`;
+    deepEqual(checkDocuments([{ path: "Misc/stone.tkrskin", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"], key);
+  }
+});
+
 void test("scene core fields cannot be used as plugin ids", () => {
   const text = "contract: scene\nversion: 1.0.0\npluginData:\n  size: {version: 1.0.0, data: {}}\n";
   deepEqual(checkDocuments([{ path: "map.tkrscn", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"]);

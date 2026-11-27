@@ -3357,6 +3357,62 @@ fieldset.tkr-web-project-controls {
   overflow: auto;
 }
 
+.tkr-spec-surface {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  block-size: 100%;
+}
+/* The source editor stays the main surface; the fixture cards sit below it (#3568). */
+.tkr-spec-surface > :first-child {
+  flex: 1 1 auto;
+  min-block-size: 12rem;
+}
+.tkr-spec-surface > .tkr-visual-fixtures {
+  flex: 0 1 auto;
+  overflow: auto;
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+.tkr-visual-fixtures {
+  min-inline-size: 0;
+  max-inline-size: 60rem;
+  padding: 1rem;
+}
+.tkr-visual-fixtures form {
+  margin-block: 1rem;
+}
+.tkr-visual-fixtures fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.75rem;
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  padding: 0.75rem;
+}
+.tkr-visual-fixtures legend {
+  font-weight: 600;
+}
+.tkr-visual-fixtures label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.tkr-visual-fixtures input,
+.tkr-visual-fixtures select,
+.tkr-visual-fixtures textarea {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.tkr-visual-fixtures button {
+  align-self: end;
+}
+.tkr-visual-fixtures pre {
+  max-inline-size: 100%;
+  max-block-size: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 /* Focused-editor controls: compact targets, readable tooltips and native focus. */
 .tkr-editor-surface { display: contents; }
 .tkr-board-controls {

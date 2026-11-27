@@ -690,11 +690,14 @@ jobs:
             cp docs/spec/examples/game/Main/example.gam "$board_upgrade_workspace/Main/example.gam"
             printf '{\n  "files.autoSave": "off"\n}\n' > "$board_upgrade_workspace/.vscode/settings.json"
             TKR_VSCODE_PROOF_WORKSPACE="$board_upgrade_workspace" TKR_VSCODE_BOARD_UPGRADE_PROOF=1 proof "$@"
+          else
+            TKR_VSCODE_CREATOR_TESTS_PROOF=0 TKR_VSCODE_VISUAL_FIXTURES_PROOF=1 proof "$@"
           fi
           if [ "$TKR_VSCODE_CREATOR_TESTS_PROOF" != 1 ]; then
             TKR_VSCODE_NATIVE_SCENE_PROOF=1 proof "$@"
             TKR_VSCODE_BATTLE_DATA_PROOF=1 proof "$@"
             TKR_VSCODE_VISUAL_EVENTS_PROOF=1 proof "$@"
+            TKR_VSCODE_SKIN_PROOF=1 proof "$@"
             TKR_VSCODE_FIRST_BOARD_TUTORIAL_PROOF=1 proof "$@"
           fi
         env:

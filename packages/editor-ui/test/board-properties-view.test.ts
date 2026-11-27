@@ -198,6 +198,9 @@ test("the audition buttons run their registry commands and do not drive the cont
   const controls: AuditionControls = {
     subscribe: () => () => undefined,
     getSnapshot: () => ({ loop: false, note: null }),
+    beginPlay: () => 1,
+    isPlayCurrent: () => true,
+    setNote: () => undefined,
     setReference: () => undefined,
     setLoop: () => {
       direct.push("setLoop");

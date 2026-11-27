@@ -90,6 +90,18 @@ The Reawakened editor opens `.spc` and `.ste` files for editing under these rule
 4. **Signed values.** The special move's FP, user SMP cost and target SMP amount are signed 32-bit integers, and the status effect's rounds, HP amount and SMP amount are signed 16-bit integers; a negative FP, HP amount or SMP amount heals or restores. The editor stores the integer the author enters, refuses a value outside the field's range or a non-integer whole, and never clamps or rewrites it (the stat clamp is the actor owner's, BAT-5).
 5. **References.** A special move's status effect, animation and program, and a status effect's program, are stored as the text the author enters or picks, under [the path rules](README.md#paths-inside-files). A reference to a file that is not in the project is kept and reported; it is never cleared or rewritten. Text the file's code page cannot store is refused whole.
 
+<a id="battle-background-editor-rules"></a>
+## Editing fight backgrounds (Reawakened rules; story 13.11)
+
+The editor lets an author choose a battle's background picture, music and four distinct menu sounds. Choosing a file and listening to it are separate: previewing a sound never changes the stored reference.
+
+1. **Same-version writing.** Binary `minor` 2–3 files keep their `major`, `minor` and bytes after the last documented field when edited. Opening and saving without an edit leaves the bytes unchanged. A Toolkit 2 text background opens read-only, with the reason; it is never silently converted.
+2. **References.** The image is a project bitmap reference; music and all four sounds are project media references. The editor stores the text entered or selected under [the path rules](README.md#paths-inside-files). It retains and reports missing or ambiguous references rather than clearing or rewriting them. Unrepresentable text is refused whole.
+3. **Audition.** Where the host offers audio output, authors can play and stop a supported sound and choose whether it loops. The file's own first bytes decide whether it is supported, never its name, as at run time ([audio-format-policy](../engine/audio-media.md#audio-format-policy)): a RIFF/WAVE file plays as WAV and a Standard MIDI File (`MThd`) plays as MIDI, whatever the reference's extension, and only a MIDI audition reads the project's SoundFont. Bytes that are neither are refused with the reason, and a missing file or unavailable host output is reported; none of these changes the reference. Audition is not proof of playback in a battle.
+4. **Choosing audio.** The picker for music and the four sounds also offers a file whose extension is not `.wav`, `.mid` or `.midi` when its first bytes are a WAV or MIDI header, so a valid file stored under another logical name can be chosen. Choosing stores the reference exactly as listed; the file is never renamed or converted.
+5. **Open.** A reference's Open action is offered only where the host can open that file: a file with a registered editor (such as a `.tbm` tile bitmap), or a file type the host states it can open. A host that cannot open a plain picture or sound shows no Open action for it. The picker, the linked-file check and the diagnostics for missing, ambiguous or unreadable references do not depend on Open.
+6. **Battle picture.** A binary background's image is resolved as a bitmap and loaded for the battle picture, including a tile bitmap where supported. Text backgrounds retain their tile-and-tint grid behavior.
+
 ## Examples
 
 [../examples/listings/fireball.spc.txt](../examples/listings/fireball.spc.txt), [../examples/listings/burn.ste.txt](../examples/listings/burn.ste.txt), [../examples/listings/forest.bkg.txt](../examples/listings/forest.bkg.txt).

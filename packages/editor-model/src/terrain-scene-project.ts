@@ -8,6 +8,8 @@ import type { SceneTileCrop } from "./scene-tile-slots.ts";
 import type { SceneBuildCheck, SceneBuildOutput, SceneBuildWriteResult } from "./scene-build-ownership.ts";
 import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
 import type { TerrainScenePack } from "./scene-pack-placements.ts";
+import { sha256Hex } from "./document-history.ts";
+import { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
 
 type ProjectFs = Pick<FileSystemService, "list" | "read">;
 type Ownership = {
@@ -25,8 +27,50 @@ type InventoryWithFiles = {
 };
 type InventoryFailure = Extract<TerrainSceneProjectInventory, { readonly ok: false }>;
 
+/** The tilesets the scene view offers: each native terrain with the rule coverage its own matcher reports. */
+export type TerrainSceneTileset = {
+  readonly path: string;
+  /**
+   * Everything in the tileset document a build reads from it - the tiles, every terrain's full recipe (outside policy, seed,
+   * variant weights, rules) and the output binding. Two reads with the same roles but another seed or weight differ here,
+   * so a preview built from the earlier one is not shown as current.
+   */
+  readonly revision: string;
+  readonly terrains: readonly { readonly id: string; readonly label: string; readonly roles: TerrainRoleReport }[];
+};
+
+/** Describe each tileset's terrains and source content for the scene view's current-preview gate. */
+export function terrainSceneTilesets(tilesets: ReadonlyMap<string, Tileset>, contentRevisions?: ReadonlyMap<string, string>): readonly TerrainSceneTileset[] {
+  return [...tilesets].map(([path, tileset]) => ({
+    path,
+    revision: contentRevisions?.get(path) ?? JSON.stringify(tileset),
+    terrains: (tileset.terrains ?? []).map((terrain) => ({ id: terrain.id, label: terrain.name, roles: inspectTerrainRoles(terrain) })),
+  }));
+}
+
+/** What a scene view shows from one inventory read; a failed read shows nothing as current and says why. */
+export type TerrainSceneAssetsData = {
+  readonly tilesets: readonly TerrainSceneTileset[];
+  readonly assetTiles: readonly { readonly label: string; readonly tile: { readonly tile: string } }[];
+  readonly packs: readonly TerrainScenePack[];
+  readonly problems: readonly string[];
+};
+
+export function terrainSceneAssets(inventory: TerrainSceneProjectInventory): TerrainSceneAssetsData {
+  if (!inventory.ok) {
+    // The older roles are not kept on screen as if they were still the recipe: a failed read clears them.
+    return { tilesets: [], assetTiles: [], packs: [], problems: inventory.problems.map(({ path, message }) => `${path}: ${message}`) };
+  }
+  return {
+    tilesets: terrainSceneTilesets(inventory.tilesets, inventory.contentRevisions ?? undefined),
+    assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
+    packs: inventory.packs,
+    problems: [],
+  };
+}
+
 export type TerrainSceneProjectInventory =
-  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[] }
+  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[]; readonly contentRevisions: ReadonlyMap<string, string> | null }
   | { readonly ok: false; readonly problems: readonly Problem[] };
 export type TerrainSceneProjectPreparation =
   | (CompiledSceneProject & { readonly check: SceneBuildCheck })
@@ -90,6 +134,48 @@ async function inventory(fs: ProjectFs, gameFolder: string, readFile: (path: str
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, tilesets, files, nativeTiles };
 }
+async function tilesetContentRevisions(fs: ProjectFs, project: InventoryWithFiles, usedTilesets: ReadonlySet<string>): Promise<{ readonly ok: true; readonly revisions: ReadonlyMap<string, string> } | InventoryFailure> {
+  const sampleHashes = new Map<string, string>();
+  const revisions = new Map<string, string>();
+  for (const [tilesetPath, tileset] of project.tilesets) {
+    const usedByScene = usedTilesets.has(identity(tilesetPath));
+    const tileInputs: unknown[] = [];
+    for (const { tile: reference } of tileset.tiles) {
+      const tilePath = project.files.get(identity(reference));
+      const nativeTile = tilePath === undefined ? null : project.nativeTiles.get(tilePath) ?? null;
+      const samples: readonly NativeTileSample[] = nativeTile === null ? []
+        : nativeTile.visual.sample !== undefined ? [nativeTile.visual.sample]
+          : nativeTile.visual.cels.map(({ sample }) => sample);
+      const sampleFiles: [string, string][] = [];
+      for (const sample of samples) {
+        const referencePath = "file" in sample ? sample.file : sample.source;
+        const samplePath = project.files.get(identity(referencePath));
+        if (samplePath === undefined) {
+          if (usedByScene) return { ok: false, problems: [{ path: referencePath, message: "Tile sample source does not exist in the project." }] };
+          sampleFiles.push([referencePath, "missing"]);
+          continue;
+        }
+        let digest = sampleHashes.get(samplePath);
+        if (digest?.startsWith("unreadable:") && usedByScene) {
+          return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${digest.slice("unreadable:".length)}` }] };
+        }
+        if (digest === undefined) {
+          try { digest = await sha256Hex(await readProjectFile(fs, samplePath)); }
+          catch (error) {
+            if (usedByScene) return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${message(error)}` }] };
+            digest = `unreadable:${message(error)}`;
+          }
+          sampleHashes.set(samplePath, digest);
+        }
+        sampleFiles.push([samplePath, digest]);
+      }
+      tileInputs.push([reference, nativeTile, sampleFiles]);
+    }
+    revisions.set(tilesetPath, await sha256Hex(utf8Encode(JSON.stringify([tileset, tileInputs]))));
+  }
+  return { ok: true, revisions };
+}
+
 
 /**
  * Browse the packs this scene can use without turning a broken pack into a build dependency: the
@@ -101,20 +187,51 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
   const { projectFolder } = projectLayoutForDocumentPath(scenePath);
   const result = await inventory(fs, projectFolder, (path) => readProjectFile(fs, path));
   if (!result.ok) return result;
-  const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
-  const references = new Set<string>();
   let text = sceneText;
   if (text === undefined) {
     const saved = result.files.get(identity(scenePath)) ?? scenePath;
     try { text = utf8Decode(await readProjectFile(fs, saved)); }
     catch { text = undefined; }
   }
-  if (text !== undefined) {
-    const parsed = readScene(text);
-    if (parsed.ok) for (const placement of parsed.scene.placedPacks ?? []) references.add(identity(placement.pack));
+  const parsedScene = text === undefined ? null : readScene(text);
+  const usedTilesets = new Set<string>();
+  const owners = new Map<string, string[]>();
+  const tilesetsByIdentity = new Map<string, Tileset>();
+  for (const [path, tileset] of result.tilesets) {
+    const pathKey = identity(path);
+    if (!tilesetsByIdentity.has(pathKey)) tilesetsByIdentity.set(pathKey, tileset);
+    for (const member of tileset.tiles) {
+      const key = identity(member.tile);
+      const matches = owners.get(key) ?? [];
+      if (!matches.includes(path)) matches.push(path);
+      owners.set(key, matches);
+    }
   }
+  const useOwnedTile = (reference: { readonly tile?: string }): void => {
+    if (reference.tile === undefined) return;
+    const matches = owners.get(identity(reference.tile)) ?? [];
+    if (matches.length === 1) usedTilesets.add(identity(matches[0]!));
+  };
+  if (parsedScene?.ok) {
+    const scene = parsedScene.scene;
+    for (const entry of scene.tilePalette ?? []) useOwnedTile(entry);
+    for (const override of scene.tileOverrides ?? []) useOwnedTile(override.tile);
+    for (const floor of scene.floors) for (const reference of floor.boundarySources?.walkableTiles ?? []) useOwnedTile(reference);
+    for (const region of scene.terrainRegions ?? []) {
+      const key = identity(region.terrain.tileset);
+      const entry = tilesetsByIdentity.get(key);
+      const recipe = entry?.terrains?.find((candidate) => candidate.id === region.terrain.terrain);
+      if (recipe?.resolver.provider === "builtin" && recipe.resolver.id === "neighbour-match" && recipe.resolver.version === "1.0.0") usedTilesets.add(key);
+    }
+  }
+  const content = await tilesetContentRevisions(fs, result, usedTilesets);
+  if (!content.ok) return content;
+  const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
+  const references = new Set<string>();
+  if (parsedScene?.ok) for (const placement of parsedScene.scene.placedPacks ?? []) references.add(identity(placement.pack));
   const packs: TerrainScenePack[] = [];
   const packProblems: Problem[] = [];
+  const sourceHashes = new Map<string, string>();
   const game = identity(projectFolder);
   for (const path of [...result.files.values()].sort()) {
     const key = identity(path);
@@ -122,16 +239,33 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
     const ownGame = tilesetGame(path) === game;
     if (!ownGame && !references.has(key)) continue;
     try {
-      const parsed = readAssetPack(utf8Decode(await readProjectFile(fs, path)));
+      const bytes = await readProjectFile(fs, path);
+      const parsed = readAssetPack(utf8Decode(bytes));
       if (parsed.ok) {
-        const { name, projection, assets } = parsed.assetPack;
-        packs.push({ path, name, projection, ...(ownGame ? {} : { external: true }), assets: assets.map(({ id, name, kind, anchor }) => ({ id, name, kind, anchor })) });
+        const { name, projection, assets, sources } = parsed.assetPack;
+        const sourceRevisions: [string, string][] = [];
+        for (const source of sources) {
+          const sourcePath = result.files.get(identity(source.file));
+          if (sourcePath === undefined) {
+            sourceRevisions.push([source.file, "missing"]);
+            continue;
+          }
+          let digest = sourceHashes.get(sourcePath);
+          if (digest === undefined) {
+            try { digest = await sha256Hex(await readProjectFile(fs, sourcePath)); }
+            catch (error) { digest = `unreadable:${message(error)}`; }
+            sourceHashes.set(sourcePath, digest);
+          }
+          sourceRevisions.push([sourcePath, digest]);
+        }
+        const revision = await sha256Hex(utf8Encode(JSON.stringify([await sha256Hex(bytes), sourceRevisions])));
+        packs.push({ path, name, projection, revision, ...(ownGame ? {} : { external: true }), assets: assets.map(({ id, name, kind, anchor }) => ({ id, name, kind, anchor })) });
       } else {
         for (const problem of parsed.problems) packProblems.push({ path, message: `${problem.path}: ${problem.message}` });
       }
     } catch (error) { packProblems.push({ path, message: `Cannot read native document: ${message(error)}` }); }
   }
-  return { ok: true, tilesets: result.tilesets, tiles: [...result.nativeTiles.keys()].filter((path) => members.has(identity(path))), packs, packProblems };
+  return { ok: true, tilesets: result.tilesets, tiles: [...result.nativeTiles.keys()].filter((path) => members.has(identity(path))), packs, packProblems, contentRevisions: content.revisions };
 }
 
 type ProjectBuildInputs = {

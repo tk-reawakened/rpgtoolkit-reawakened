@@ -1,16 +1,67 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import { newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
+import { expect, test, type Page } from "@playwright/test";
 
-// Story 13.10 (T-57, T-58) in the real browser host, through the shipped editor page: the workbench opens a special move
-// and its linked status effect in their own tabs, each form edits and saves through the host's own Save, and the bytes
-// left in the origin-private project folder are exactly the hand-patched bytes of the committed annotated listings
-// (docs/spec/examples/listings/fireball.spc.txt, burn.ste.txt). No expected byte comes from the writer under test.
+// Story 13.10 and 13.11 in the real browser host: battle-data forms edit and save through the shipped workbench.
 
 const bytes = (path: string): number[] => Array.from(readFileSync(new URL(`../../../docs/spec/examples/${path}`, import.meta.url)));
 const FIREBALL = bytes("game/Game/Example/SpcMove/fireball.spc");
 const BURN = bytes("game/Game/Example/StatusE/burn.ste");
+const BKG = bytes("game/Game/Example/Bkrounds/forest.bkg");
+const BKG_VALUES = {
+  image: "Nature/forest.tbm", music: "battle-tone.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
+} as const;
+const BKG_FIELDS = [
+  ["Background picture", "image"],
+  ["Battle music", "music"],
+  ["Menu cursor sound", "selectSound"],
+  ["Menu choice sound", "chooseSound"],
+  ["Fighter ready sound", "readySound"],
+  ["Action unavailable sound", "cantDoSound"],
+] as const;
+const battleTone = (): number[] => {
+  const rate = 8_000;
+  const samples = Math.floor(rate / 3);
+  const bytes = new Uint8Array(44 + samples * 2);
+  const view = new DataView(bytes.buffer);
+  for (const [offset, tag] of [[0, "RIFF"], [8, "WAVEfmt "], [36, "data"]] as const) bytes.set(Buffer.from(tag, "ascii"), offset);
+  for (const [offset, value] of [[4, bytes.length - 8], [16, 16], [24, rate], [28, rate * 2], [40, samples * 2]]) view.setUint32(offset!, value!, true);
+  for (const [offset, value] of [[20, 1], [22, 1], [32, 2], [34, 16]]) view.setUint16(offset!, value!, true);
+  for (let sample = 0; sample < samples; sample += 1) view.setInt16(44 + sample * 2, Math.round(16_000 * Math.sin(2 * Math.PI * 440 * sample / rate)), true);
+  return Array.from(bytes);
+};
+interface AudioProofWindow extends Window {
+  auditionGraph?: { readonly context: BaseAudioContext; readonly analyser: AnalyserNode };
+}
+async function observeAudio(page: Page): Promise<{ time: number; peak: number }> {
+  return page.evaluate(() => {
+    const graph = (window as AudioProofWindow).auditionGraph;
+    if (graph === undefined) return { time: 0, peak: 0 };
+    const samples = new Float32Array(graph.analyser.fftSize);
+    graph.analyser.getFloatTimeDomainData(samples);
+    return { time: graph.context.currentTime, peak: Math.max(...samples.map(Math.abs)) };
+  });
+}
+async function installAudioAnalyser(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const NativeWorklet = window.AudioWorkletNode;
+    window.AudioWorkletNode = class extends NativeWorklet {
+      constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
+        super(context, name, options);
+        if (name !== "tkr-pcm-processor") return;
+        const analyser = context.createAnalyser();
+        this.connect(analyser);
+        (window as AudioProofWindow).auditionGraph = { context, analyser };
+      }
+    };
+  });
+}
+const BKG_EDITED = (() => {
+  const fields = [new TextEncoder().encode("RPGTLKIT BKG\x00"), Uint8Array.of(2, 0, 3, 0)];
+  for (const [, key] of BKG_FIELDS) fields.push(new TextEncoder().encode(`${BKG_VALUES[key]}\x00`));
+  return Array.from(fields.reduce((all, part) => [...all, ...part], [] as number[]));
+})();
 const moveBytesWithDescription = (text: string): number[] => [...FIREBALL.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0];
 // fireball.spc: fp 0x1e (i32), battle 0x37, menu 0x38. burn.ste: hpAmount 0x24 (i16).
 const MOVE_EDITED = (() => {
@@ -28,9 +79,9 @@ const STATUS_EDITED = (() => {
 interface ProofWindow extends Window { __tkrTestFolder?: FileSystemDirectoryHandle }
 
 /** The shipped editor page over a seeded origin-private project folder, opened the way a person does it. */
-async function openWorkbench(page: Page, extra: readonly { readonly path: string; readonly bytes: number[] }[] = []): Promise<void> {
+async function openWorkbench(page: Page, extra: readonly { readonly path: string; readonly bytes: number[] }[] = [], mainBytes: number[] = bytes("game/Main/example.gam")): Promise<void> {
   const files = [
-    { path: "Main/example.gam", bytes: bytes("game/Main/example.gam") },
+    { path: "Main/example.gam", bytes: mainBytes },
     { path: "SpcMove/fireball.spc", bytes: FIREBALL },
     { path: "StatusE/burn.ste", bytes: BURN },
     ...extra,
@@ -61,6 +112,17 @@ async function openFile(page: Page, folderName: string, fileName: string): Promi
   const folder = page.getByRole("treeitem", { name: new RegExp(`^${folderName}, folder`) });
   await expect(folder).toBeVisible();
   if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.dblclick();
+  await page.getByRole("treeitem", { name: new RegExp(`^${fileName.replace(".", "\\.")},`) }).dblclick();
+}
+async function openProjectFile(page: Page, path: string): Promise<void> {
+  const parts = path.split("/");
+  const folders = parts.slice(0, -1);
+  for (const name of folders) {
+    const item = page.getByRole("treeitem", { name: new RegExp(`^${name.replace(".", "\\.")}, folder`) });
+    await expect(item).toBeVisible();
+    if (await item.getAttribute("aria-expanded") !== "true") await item.dblclick();
+  }
+  const fileName = parts.at(-1)!;
   await page.getByRole("treeitem", { name: new RegExp(`^${fileName.replace(".", "\\.")},`) }).dblclick();
 }
 
@@ -105,6 +167,154 @@ test("a special move opens, edits its signed damage and inverted usable flag, an
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect.poll(() => readProjectFile(page, "SpcMove/fireball.spc")).toEqual(MOVE_EDITED);
   await expect(editor.getByLabel("Usable in battle", { exact: true })).toBeChecked();
+});
+test("a fight background resolves assets, auditions real media, routes palette actions to a focused split, and saves six references", async ({ page }) => {
+  await installAudioAnalyser(page);
+  const main = writeMainFile({ ...newProjectMainFile(), projectPath: "" });
+  if (!main.ok) throw new Error("The proof Main file must serialize");
+  const bkgPath = "Game/Bkrounds/forest.bkg";
+  const imagePath = "Game/Bitmap/Nature/forest.tbm";
+  await openWorkbench(page, [
+    { path: bkgPath, bytes: BKG },
+    { path: "Game/Bitmap/forest.tbm", bytes: bytes("game/Game/Example/Bitmap/forest.tbm") },
+    { path: imagePath, bytes: bytes("game/Game/Example/Bitmap/forest.tbm") },
+    { path: "Game/Media/battle-tone.wav", bytes: battleTone() },
+  ], [...main.value]);
+  await openProjectFile(page, bkgPath);
+  const editor = page.locator('[data-tkr-editor="Fight background"]').first();
+  await expect(editor).toBeVisible();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Run", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Play background music", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await retype(page, "Background picture file", "Nature/forest.tbm");
+  const openImage = editor.getByRole("button", { name: "Open background picture", exact: true });
+  await expect(openImage).toBeEnabled();
+  await openImage.click();
+  await expect(page.locator('[data-tkr-editor="Tile bitmap"]')).toBeVisible();
+  const bitmapTab = page.getByRole("tab", { name: imagePath, exact: true });
+  await expect(bitmapTab).toBeVisible();
+  await expect(bitmapTab).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  for (const [label, key] of BKG_FIELDS) await retype(page, `${label} file`, BKG_VALUES[key]);
+  await expect(editor.getByRole("button", { name: "Play battle music" })).toBeVisible();
+  await toggleSecondView(page);
+  const mirror = page.locator("#mirror");
+  const mirrorLoop = mirror.getByRole("group", { name: "Battle music audition" }).getByRole("checkbox", { name: "Loop playback" });
+  const primaryLoop = editor.getByRole("group", { name: "Battle music audition" }).getByRole("checkbox", { name: "Loop playback" });
+  await mirrorLoop.check();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Run", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Toggle fight-background audition loop", exact: true }).click();
+  await expect(mirrorLoop).not.toBeChecked();
+  await expect(primaryLoop).not.toBeChecked();
+
+  const group = editor.getByRole("group", { name: "Battle music audition" });
+  await primaryLoop.check();
+  await group.getByRole("button", { name: "Play battle music", exact: true }).click();
+  await expect.poll(async () => (await observeAudio(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
+  const activeAudioStart = (await observeAudio(page)).time;
+  await expect.poll(async () => {
+    const sample = await observeAudio(page);
+    return sample.time >= activeAudioStart + 0.45 && sample.peak > 0.002;
+  }, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBe(true);
+  await group.getByRole("button", { name: "Stop", exact: true }).click();
+  const silenceTime = (await observeAudio(page)).time + 0.4;
+  await expect.poll(async () => {
+    const sample = await observeAudio(page);
+    return sample.time >= silenceTime && sample.peak < 0.00001;
+  }, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBe(true);
+
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Run", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Play battle music", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Stop fight-background audition", exact: true })).toBeVisible();
+  await expect(editor.getByRole("button", { name: "Play menu cursor sound" })).toBeVisible();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect.poll(() => readProjectFile(page, bkgPath)).toEqual(BKG_EDITED);
+  await page.getByRole("button", { name: `Close ${bkgPath}` }).click();
+  await openProjectFile(page, bkgPath);
+  const reopened = page.locator('[data-tkr-editor="Fight background"]').first();
+  for (const [label, key] of BKG_FIELDS) await expect(reopened.getByLabel(`${label} file`, { exact: true })).toHaveValue(BKG_VALUES[key]);
+});
+
+test("a header-valid WAV at a .mp3 name is pickable and plays as stored, bytes that are not audio are refused, and Open appears only where the browser can open the link (#3516, #3517)", async ({ page }) => {
+  await installAudioAnalyser(page);
+  const main = writeMainFile({ ...newProjectMainFile(), projectPath: "" });
+  if (!main.ok) throw new Error("The proof Main file must serialize");
+  const bkgPath = "Game/Bkrounds/forest.bkg";
+  const tone = battleTone();
+  const notAudio = Array.from(Buffer.from("ID3\x04\x00\x00\x00\x00\x00\x00padding", "latin1"));
+  await openWorkbench(page, [
+    { path: bkgPath, bytes: BKG },
+    { path: "Game/Bitmap/Nature/forest.tbm", bytes: bytes("game/Game/Example/Bitmap/forest.tbm") },
+    { path: "Game/Bitmap/shot.png", bytes: [137, 80, 78, 71, 13, 10, 26, 10] },
+    { path: "Game/Media/battle.mp3", bytes: tone },
+    { path: "Game/Media/not-a-tile-bitmap.tbm", bytes: tone },
+    { path: "Game/Media/plain.wav", bytes: tone },
+    { path: "Game/Media/tagged.mp3", bytes: notAudio },
+    { path: "Game/Media/fake.wav", bytes: notAudio },
+  ], [...main.value]);
+  await openProjectFile(page, bkgPath);
+  const editor = page.locator('[data-tkr-editor="Fight background"]').first();
+  await expect(editor).toBeVisible();
+
+  // Pick: the music picker lists the real WAV kept under a .mp3 name, and not the ID3 bytes under a .mp3 name.
+  await editor.getByRole("button", { name: "Choose battle music", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: /Choose battle music/i });
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole("option", { name: "battle.mp3", exact: true })).toBeVisible();
+  await expect(picker.getByRole("option", { name: "plain.wav", exact: true })).toBeVisible();
+  await expect(picker.getByRole("option", { name: "tagged.mp3", exact: true })).toHaveCount(0);
+  await picker.getByRole("option", { name: "battle.mp3", exact: true }).click();
+  await picker.getByRole("button", { name: "Use battle.mp3…", exact: true }).click();
+  await page.getByRole("button", { name: "Use it", exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(editor.getByLabel("Battle music file", { exact: true })).toHaveValue("battle.mp3");
+  // The picture picker is not an audio field: it never offers sounds.
+  await editor.getByRole("button", { name: "Choose background picture", exact: true }).click();
+  const picturePicker = page.getByRole("dialog", { name: /Choose background picture/i });
+  await expect(picturePicker).toBeVisible();
+  await expect(picturePicker.getByRole("option", { name: "battle.mp3", exact: true })).toHaveCount(0);
+  await picturePicker.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(picturePicker).toBeHidden();
+
+  // Play: the stored name stays, and the browser's synth really produces the tone.
+  const group = editor.getByRole("group", { name: "Battle music audition" });
+  await group.getByRole("button", { name: "Play battle music", exact: true }).click();
+  await expect.poll(async () => (await observeAudio(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
+  await group.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(group.getByRole("alert")).toHaveCount(0);
+  await expect(editor.getByLabel("Battle music file", { exact: true })).toHaveValue("battle.mp3");
+
+  // Refuse: a .wav whose bytes are not a WAV or MIDI reports why, and the reference stays exactly as typed.
+  await retype(page, "Menu choice sound file", "fake.wav");
+  const refused = editor.getByRole("group", { name: "Menu choice sound audition" });
+  await refused.getByRole("button", { name: "Play menu choice sound", exact: true }).click();
+  await expect(refused.getByRole("alert")).toContainText('"fake.wav" is neither');
+  await expect(editor.getByLabel("Menu choice sound file", { exact: true })).toHaveValue("fake.wav");
+
+  // Open: a plain picture or sound has no editor in the browser; a tile bitmap does. Choose and the link check stay.
+  await retype(page, "Background picture file", "shot.png");
+  await expect(editor.getByRole("button", { name: "Choose background picture", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open background picture", exact: true })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  // A WAV kept under a registered tile-bitmap suffix remains playable audio; Open must not route it to the tile reader.
+  await retype(page, "Battle music file", "not-a-tile-bitmap.tbm");
+  await expect(editor.getByRole("button", { name: "Play battle music", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await retype(page, "Battle music file", "battle.mp3");
+  await retype(page, "Menu cursor sound file", "plain.wav");
+  await expect(editor.getByRole("button", { name: "Play menu cursor sound", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open menu cursor sound", exact: true })).toHaveCount(0);
+  await retype(page, "Action unavailable sound file", "missing.wav");
+  await expect(editor.getByText("Game/Media/missing.wav is not in the project")).toBeVisible();
+  await retype(page, "Background picture file", "Nature/forest.tbm");
+  await expect(editor.getByRole("button", { name: "Open background picture", exact: true })).toBeEnabled();
+
+  // Nothing above wrote the file: saving stores exactly the six references as typed.
+  expect(await readProjectFile(page, bkgPath)).toEqual(BKG);
 });
 
 test("saving a linked status effect refreshes both move views without dropping the second view's refused text", async ({ page }) => {
@@ -262,4 +472,52 @@ test("text one view holds is the document's: the other view shows it, Save refus
   await expect(field, "a value typed in either view replaces the held text in both").toHaveValue("-30");
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect.poll(async () => Buffer.from(await readProjectFile(page, "SpcMove/fireball.spc")).readInt32LE(0x1e)).toBe(-30);
+});
+
+test("the tileset dock keeps a mounted fight background's game after discovering a nested Main (#3621)", async ({ page }) => {
+  const outer = writeMainFile({ ...newProjectMainFile(), projectPath: "" });
+  const nested = writeMainFile({ ...newProjectMainFile(), projectPath: "Nested" });
+  if (!outer.ok || !nested.ok) throw new Error("The proof Main files must serialize");
+  const set = bytes("versions/tileset/tileset_detail1.tst");
+  const mounted = "Game/Nested/Bkrounds/forest.bkg";
+  const unopened = "Game/Nested/Bkrounds/second.bkg";
+  await openWorkbench(page, [
+    { path: mounted, bytes: BKG },
+    { path: unopened, bytes: BKG },
+    { path: "Game/Tiles/ground.tst", bytes: set },
+    { path: "Game/Nested/Tiles/ground.tst", bytes: set },
+  ], [...outer.value]);
+  const source = page.getByRole("region", { name: "Tileset browser" }).getByLabel("Source");
+  const legacy = page.getByRole("region", { name: "Legacy autotile set" });
+  await openProjectFile(page, mounted);
+  await source.selectOption("Game/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
+
+  // Another tool discovers the new Main without closing the background or replacing its audition owner.
+  await page.evaluate(async (data) => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const main = await root.getDirectoryHandle("Main");
+    const file = await main.getFileHandle("nested.gam", { create: true });
+    const writer = await file.createWritable();
+    await writer.write(new Uint8Array(data));
+    await writer.close();
+  }, [...nested.value]);
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Upgrade a pre-vector board");
+  await search.press("Enter");
+  const notice = page.getByRole("dialog").filter({ hasText: "This project has no boards to upgrade." });
+  await notice.getByRole("button", { name: "OK", exact: true }).click();
+
+  // The untouched background now opens with the new owner; a mark made on the pinned background does not reach it.
+  await openProjectFile(page, unopened);
+  await source.selectOption("Game/Nested/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
+  await page.getByRole("tab", { name: mounted, exact: true }).click();
+  await expect(source).toHaveValue("Game/Tiles/ground.tst");
+  await legacy.getByRole("checkbox").check();
+  await expect(legacy).toContainText("Marked as a legacy 52-slot autotile set");
+  await page.getByRole("tab", { name: unopened, exact: true }).click();
+  await expect(source).toHaveValue("Game/Nested/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
 });

@@ -21,6 +21,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   let pausedRead;
   let pausedWrite;
   let pausedSave;
+  let pausedReadResult;
   // writeFile truncates and then writes in place, so a concurrent reader of the real file can see it empty or short
   // (#3484). Each in-place write and each proof observation through observe() run one at a time. Write gates wait
   // before this lock, so a paused write never blocks an observation.
@@ -59,6 +60,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     try {
       const input = JSON.parse(await readRequestBody(request, maxBodyBytes));
       let result;
+      let readResultGate;
       if (input.op === "trace") {
         if (!["open", "open-uri", "resolve", "edit", "active-tab", "save-request", "save", "save-uri", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
         events.push({ kind: input.kind, value: input.value });
@@ -83,6 +85,10 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
             readGate = pausedRead;
             if (readGate.nativeRestore) nativeRestoreReadEvents.push(event);
           }
+          if (input.op === "readFile" && pausedReadResult?.path === input.path) {
+            readResultGate = pausedReadResult;
+            pausedReadResult = undefined;
+          }
         }
         if (readGate !== undefined) {
           readGate.reach();
@@ -105,11 +111,20 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
           await gate.promise;
         }
         result = input.op === "writeFile" ? await exclusive(() => perform(root, input)) : await perform(root, input);
+        if (readResultGate !== undefined) {
+          readResultGate.reach();
+          await readResultGate.promise;
+        }
         if (input.op === "writeFile") writeOperationEvents.push({ kind: "write", path: input.path });
         if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
       response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result }));
+      readResultGate?.finish();
     } catch (error) {
+      if (response.headersSent) {
+        response.destroy(error);
+        return;
+      }
       response.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: error.code ?? "EINVAL", message: error.message }));
     }
   });
@@ -146,6 +161,18 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       return reached;
     },
     resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
+    pauseReadResult: (path) => {
+      if (pausedRead || pausedReadResult) throw new Error("A filesystem read is already paused");
+      let release;
+      let reach;
+      let finish;
+      const reached = new Promise((resolveReached) => { reach = resolveReached; });
+      const completed = new Promise((resolveCompleted) => { finish = resolveCompleted; });
+      const promise = new Promise((resolveGate) => { release = resolveGate; });
+      const gate = { path, promise, release, reach: () => reach(), finish: () => finish() };
+      pausedReadResult = gate;
+      return { reached, completed, release: () => gate.release() };
+    },
     pauseRead: (path) => {
       if (pausedRead) throw new Error("A filesystem read is already paused");
       let release;
@@ -164,7 +191,12 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       pausedRead = { path, armed: false, nativeRestore: true, promise, release, reach: () => reach() };
       return reached;
     },
-    resumeRead: () => { pausedRead?.release(); pausedRead = undefined; },
+    resumeRead: () => {
+      pausedRead?.release();
+      pausedRead = undefined;
+      pausedReadResult?.release();
+      pausedReadResult = undefined;
+    },
     pauseWrite: (path) => {
       if (pausedWrite) throw new Error("A backing write is already paused");
       let release;

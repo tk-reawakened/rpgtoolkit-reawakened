@@ -927,7 +927,7 @@ test("tile-reference matching folds ASCII path characters without conflating Uni
     ok(written.ok);
     return written.value;
   };
-  const s = await setup(exampleBoard(), createBrowserSession({ selection: null, path: "Bitmap/unicode.tbm", scrollTop: 0 }), {
+  const s = await setup(exampleBoard(), createBrowserSession({ selection: null, path: "Bitmap/unicode.tbm", scrollTop: 0, autotileMarks: [] }), {
     "Tiles/Ä.gph": single,
     "Tiles/FLOWER.GPH": single,
     "Bitmap/unicode.tbm": bitmapFor("ä.gph"),

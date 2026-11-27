@@ -1,10 +1,15 @@
 import {
+  audioContentOf,
   createEditTracker,
+  extensionOf,
+  kindForPath,
   linkedFileCandidates,
   resolveDocumentPath,
   linkReferenceProblem,
   projectLayoutForDocumentPath,
   reservedFolder,
+  type ProjectLayout,
+  type AssetContent,
   type AssetKind,
   type DocumentSnapshot,
   type HeldFields,
@@ -35,9 +40,17 @@ import { useDocumentSnapshot } from "./use-document.ts";
  */
 
 export interface BattleDataNavigation {
-  readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
+  readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly content?: AssetContent; readonly field: string }) => Promise<PickOutcome>;
+  /** Owning game layout, when a host knows it independently of this document's path. */
+  readonly layout?: ProjectLayout;
   /** Open the project file at this project-relative path in its own editor, remembering the way back. Resolves with a message when it could not. */
   readonly open?: (path: string) => Promise<string | null>;
+  /**
+   * Whether this host can open the project file at `path` (a project-relative path, or a reference's text). A host
+   * states what it can open; without it, a file is openable when a document kind is registered for its extension. A
+   * link that cannot be opened shows no Open action, and keeps its picker and diagnostics.
+   */
+  readonly canOpen?: (path: string) => boolean;
 }
 
 export interface BattleDataFormProps<Snapshot extends DocumentSnapshot<Command>, Command> extends BattleDataNavigation {
@@ -98,6 +111,7 @@ const problem = (error: unknown): string => error instanceof Error ? error.messa
 
 /** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
 const WHOLE_NUMBER = /^[+-]?\d+$/;
+let nextFormScope = 0;
 
 export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command> & HeldFields, Command>(
   { doc, pendingEdits, capabilities, onEdited }: Pick<BattleDataFormProps<Snapshot, Command>, "doc" | "pendingEdits" | "capabilities" | "onEdited">,
@@ -121,7 +135,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command> & H
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
   const gestures = useRef(new Map<string, number>());
-  const coalesceKey = (key: string): string => `${key}#${gestures.current.get(key) ?? 0}`;
+  const formScope = useRef<number | null>(null);
+  if (formScope.current === null) formScope.current = ++nextFormScope;
+  const coalesceKey = (key: string): string => `${formScope.current}:${key}#${gestures.current.get(key) ?? 0}`;
   const endGesture = (key: string): void => { gestures.current.set(key, (gestures.current.get(key) ?? 0) + 1); };
   /** The text each field last sent as a keystroke, so leaving it does not send the same text again as a second edit. */
   const typed = useRef(new Map<string, string>());
@@ -492,29 +508,32 @@ export function useLinkedFile(
   extensions: readonly string[],
   /** Whether the runtime itself appends the extension when the author left it off; false loads the exact reference. */
   lookup: LinkLookup,
+  layout?: ProjectLayout,
 ): LinkedFile {
   const assetRevision = useContext(AssetRefreshContext);
   // A caller writes its extension list inline, so the effect keys on the list's content: a new array of the same
   // extensions must not start the read again on every render.
   const extensionKey = `${extensions.join(",")}|${lookup}`;
-  const [linked, setLinked] = useState<LinkedFile>({ state: "none" });
+  const linkedKey = JSON.stringify([projectId, documentPath, kind, reference, extensionKey, lookup, layout?.projectFolder, assetRevision]);
+  const [entry, setEntry] = useState<{ readonly key: string; readonly value: LinkedFile }>({ key: linkedKey, value: { state: "none" } });
   useEffect(() => {
     let active = true;
+    const publish = (value: LinkedFile): void => setEntry({ key: linkedKey, value });
     const wanted = extensions.join(",") === "" ? [] : extensions.join(",").split(",");
     // Looked up as the game does: a status effect trims its text, a program or animation is exact, so text that only
     // differs by a space is another program. The stored text itself is never changed.
     const named = lookup === "status-effect" ? reference.trim() : reference;
     if (named === "") {
-      setLinked({ state: "none" });
+      publish({ state: "none" });
       return () => { active = false; };
     }
     const refused = linkReferenceProblem(named);
     if (refused !== null) {
-      setLinked({ state: "invalid", message: refused });
+      publish({ state: "invalid", message: refused });
       return () => { active = false; };
     }
-    const folder = reservedFolder(projectLayoutForDocumentPath(documentPath), kind);
-    setLinked({ state: "checking" });
+    const folder = reservedFolder(layout ?? projectLayoutForDocumentPath(documentPath), kind);
+    publish({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
       for (const candidate of linkedFileCandidates(folder, reference, wanted, lookup)) {
@@ -527,7 +546,7 @@ export function useLinkedFile(
             if (!resolved.ok) {
               // Two files differ only in case: the reference names neither, so the form says so instead of previewing
               // whichever spelling happens to read.
-              if (active) setLinked({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
+              if (active) publish({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
               return;
             }
             if (!resolved.exists) {
@@ -536,7 +555,7 @@ export function useLinkedFile(
             }
             path = resolved.path;
           } catch (error) {
-            if (active) setLinked({ state: "invalid", message: problem(error) });
+            if (active) publish({ state: "invalid", message: problem(error) });
             return;
           }
         }
@@ -547,17 +566,17 @@ export function useLinkedFile(
           result = { ok: false, error: { code: "unavailable", message: problem(error) } } as Awaited<ReturnType<typeof fs.readProject>>;
         }
         if (!active) return;
-        if (result.ok) { setLinked({ state: "found", bytes: result.value, path }); return; }
+        if (result.ok) { publish({ state: "found", bytes: result.value, path }); return; }
         missing ??= { path, message: result.error.message };
       }
-      if (active) setLinked({ state: "missing", path: missing!.path, message: missing!.message });
+      if (active) publish({ state: "missing", path: missing!.path, message: missing!.message });
     })();
     return () => { active = false; };
-  }, [fs, projectId, documentPath, kind, reference, extensionKey, lookup, assetRevision]);
-  return linked;
+  }, [fs, projectId, documentPath, kind, reference, extensionKey, lookup, layout, assetRevision, linkedKey]);
+  return entry.key === linkedKey ? entry.value : { state: "checking" };
 }
 
-export function LinkRow<Command>({ form, id, label, value, hint, kind, extensions, navigation, linked, command, children }: {
+export function LinkRow<Command>({ form, id, label, value, hint, kind, extensions, content, navigation, linked, command, children }: {
   readonly form: BattleDataFormBase<Command>;
   readonly id: string;
   readonly label: string;
@@ -565,6 +584,8 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly hint?: string;
   readonly kind: AssetKind;
   readonly extensions: readonly string[];
+  /** Also offer, in the picker, a file outside `extensions` whose own bytes the field accepts. */
+  readonly content?: AssetContent;
   readonly navigation: BattleDataNavigation;
   readonly linked: LinkedFile;
   readonly command: (value: string) => Command;
@@ -576,7 +597,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
   const choose = async (): Promise<void> => {
-    const outcome = await navigation.pickAsset?.({ kind, extensions, field: `Choose ${label.toLowerCase()}` });
+    const outcome = await navigation.pickAsset?.({ kind, extensions, ...(content === undefined ? {} : { content }), field: `Choose ${label.toLowerCase()}` });
     if (outcome?.chosen !== true || form.snapshot.identity.path !== origin) return;
     // The chosen file replaces whatever was typed, so the stale draft goes with it.
     dropDraft(id);
@@ -587,6 +608,19 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     const message = await navigation.open?.(linked.path);
     if (message !== null && message !== undefined) setMessage(message);
   };
+  const openable = (path: string): boolean => navigation.canOpen?.(path) ?? kindForPath(path) !== null;
+  // A header-valid audio file with a misleading registered suffix (e.g. RIFF bytes at .tbm) still plays as audio; do not
+  // route it to a different format's editor just because that suffix is registered.
+  const openableLinked = linked.state === "found"
+    && content === "audio"
+    && audioContentOf(linked.bytes) !== null
+    && !extensions.includes(extensionOf(linked.path))
+    ? false
+    : linked.state === "found" && openable(linked.path);
+  // Only a file the check found says what Open would open. Until then the stored text's own extension says it, and text
+  // with none (or none yet) offers Open when any file type this field accepts can be opened.
+  const fieldOpenable = extensions.length === 0 || extensions.some((extension) => openable(`file${extension}`));
+  const canOpen = navigation.open !== undefined && (linked.state === "found" ? openableLinked : extensionOf(value) !== "" ? openable(value) : fieldOpenable);
   return <fieldset>
     <legend>{label}</legend>
     <p>
@@ -598,7 +632,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     </p>
     <p>
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy || form.locked} onClick={() => void choose()}>Choose…</button>}
-      {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
+      {canOpen && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
     {linked.state === "checking" && <p role="status">Checking {drafts[id]?.text ?? value}…</p>}
     {linked.state === "collision" && <p role="status">{linked.message} The reference is kept as typed; rename one of the files.</p>}

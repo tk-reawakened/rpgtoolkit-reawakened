@@ -31,7 +31,12 @@ class FakeDirectory {
     const file = existing ?? { bytes: new Uint8Array() };
     this.children.set(name, file);
     return {
-      getFile: async () => ({ size: file.bytes.length, lastModified: 1, arrayBuffer: async () => file.bytes.slice().buffer } as File),
+      getFile: async () => ({
+        size: file.bytes.length,
+        lastModified: 1,
+        arrayBuffer: async () => file.bytes.slice().buffer,
+        slice: (start = 0, end = file.bytes.length) => ({ arrayBuffer: async () => file.bytes.slice(start, end).buffer }) as Blob,
+      } as File),
       createWritable: async () => {
         if (file.denyWrite || denyNewFileWrite) throw new DOMException("Permission denied", "NotAllowedError");
         let staged = new Uint8Array();
@@ -74,6 +79,14 @@ test("web filesystem obeys project-relative path, file operation and unsupported
   ok(!renamed.ok && renamed.error.code === "unavailable");
   const watched = await fs.watch("", () => undefined);
   ok(!watched.ok && watched.error.code === "unavailable");
+});
+test("web filesystem reads a bounded file prefix", async () => {
+  const { fs } = fixture();
+  const prefix = await fs.readPrefix?.("game.gam", 2);
+  ok(prefix?.ok);
+  deepEqual([...prefix.value], [1, 2]);
+  const invalid = await fs.readPrefix?.("../game.gam", 2);
+  ok(invalid !== undefined && !invalid.ok && invalid.error.code === "invalid-path");
 });
 
 test("web filesystem distinguishes a final directory from a non-directory parent during file access", async () => {

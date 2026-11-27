@@ -1,5 +1,6 @@
 import type { AssetKind } from "@tk-reawakened/core";
 import type { Capabilities, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
+import type { AssetContent } from "./audio-content.ts";
 import {
   copyIntoReservedFolder,
   listCandidates,
@@ -26,6 +27,8 @@ export interface AssetPickerOptions {
   readonly kind: AssetKind;
   /** Lower-case extensions with the dot that this field accepts; empty accepts every file. */
   readonly extensions: readonly string[];
+  /** Also offer files outside `extensions` whose own bytes the field accepts (audio: a WAV or MIDI header). */
+  readonly content?: AssetContent;
   /** What the field is called, in words for the confirmation: "the tile set", "the board link". */
   readonly field: string;
 }
@@ -45,8 +48,11 @@ export interface AssetPickerSnapshot {
 }
 
 export type PickOutcome =
-  /** The reference to store. For a copy it is the new file's link. */
-  | { readonly chosen: true; readonly reference: string }
+  /**
+   * The reference to store. For a copy it is the new file's link. `layout` is the project folders the picker read the
+   * file from, so a view previewing it later reads the same folders even if a game file changed owner since it mounted.
+   */
+  | { readonly chosen: true; readonly reference: string; readonly layout?: ProjectLayout }
   /** Nothing was chosen; the field keeps what it had. */
   | { readonly chosen: false };
 
@@ -66,7 +72,7 @@ export interface AssetPicker {
 }
 
 export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
-  const { services, layout, kind, extensions, field } = options;
+  const { services, layout, kind, extensions, content, field } = options;
   const folder = reservedFolder(layout, kind);
   const listeners = new Set<() => void>();
   const outsideUnavailable = !services.capabilities.has("pickFile") || services.dialogs.pickFile === undefined
@@ -95,7 +101,7 @@ export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
     },
     async refresh() {
       const mine = ++generation;
-      const listed = await listCandidates(services.fs, layout, kind, extensions);
+      const listed = await listCandidates(services.fs, layout, kind, extensions, content);
       if (mine !== generation || closed()) return;
       // A selection whose file has gone is dropped, so the user is never asked to confirm a file that is not there.
       const stillThere = snapshot.selected !== null && listed.candidates.some((candidate) => candidate.reference === snapshot.selected);
@@ -131,7 +137,7 @@ export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
         return { chosen: false };
       }
       publish({ phase: "closed" });
-      return { chosen: true, reference };
+      return { chosen: true, reference, layout };
     },
     async pickOutside(subfolder = "") {
       if (closed() || snapshot.phase === "busy") return { chosen: false };
@@ -165,7 +171,7 @@ export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
         return { chosen: false };
       }
       publish({ phase: "closed" });
-      return { chosen: true, reference: copied.reference };
+      return { chosen: true, reference: copied.reference, layout };
     },
     cancel() {
       if (!closed()) publish({ phase: "closed", message: null });

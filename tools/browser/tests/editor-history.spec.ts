@@ -53,16 +53,21 @@ async function readStoredHistory(page: Page, folderName: string): Promise<readon
   }, folderName);
 }
 
-async function readProjectFile(page: Page, folderName: string, path: string): Promise<number[]> {
-  return page.evaluate(async ({ name, filePath }) => {
+async function projectHash(page: Page, folderName: string, settling = false): Promise<string | null> {
+  const bytes = await page.evaluate(async ({ name, settling }) => {
     const storage = await navigator.storage.getDirectory();
     const project = await storage.getDirectoryHandle(name);
-    const parts = filePath.split("/");
-    let directory = project;
-    for (const segment of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(segment);
-    const file = await directory.getFileHandle(parts.at(-1)!);
-    return Array.from(new Uint8Array(await (await file.getFile()).arrayBuffer()));
-  }, { name: folderName, filePath: path });
+    const directory = await project.getDirectoryHandle("Main");
+    const file = await (await directory.getFileHandle("one.gam")).getFile();
+    try {
+      return Array.from(new Uint8Array(await file.arrayBuffer()));
+    } catch (error) {
+      // A concurrent save can invalidate the File snapshot, but not the path. Poll with a fresh snapshot.
+      if (settling && error instanceof DOMException && error.name === "NotReadableError") return null;
+      throw error;
+    }
+  }, { name: folderName, settling });
+  return bytes === null ? null : createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
 }
 
 test("history is kept in the project, previews a saved version read-only, restores it and takes the restore back", async ({ page }) => {
@@ -112,7 +117,7 @@ test("history is kept in the project, previews a saved version read-only, restor
   const latestSave = stored.filter((entry) => entry.reason === "manual").sort((a, b) => a.savedAt - b.savedAt).at(-1);
   expect(checkpoint).toBeDefined();
   expect(latestSave).toBeDefined();
-  expect(createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex")).toBe(latestSave!.sha256);
+  expect(await projectHash(page, folder)).toBe(latestSave!.sha256);
 
 
   // A saved version opens in the same editor, read-only, and previewing writes nothing.
@@ -121,16 +126,16 @@ test("history is kept in the project, previews a saved version read-only, restor
   await expect(preview.getByLabel("Game title")).toHaveValue(original);
   await expect(preview.getByLabel("Game title")).toBeDisabled();
   await expect(sourceStatus).toHaveText("All changes saved");
-  expect(createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex")).toBe(latestSave!.sha256);
+  expect(await projectHash(page, folder)).toBe(latestSave!.sha256);
 
   // Restore asks first; confirming puts the original back, and the restore itself can be undone.
   await panel.getByRole("button", { name: "Restore this version" }).click();
   await panel.getByRole("button", { name: "Confirm restore" }).click();
   await expect(page.locator(".tkr-history > p[role='status']")).toHaveText(/Restore finished/);
   await expect(title).toHaveValue(original);
-  await expect.poll(async () => createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(checkpoint!.sha256);
+  await expect.poll(() => projectHash(page, folder, true), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(checkpoint!.sha256);
   await panel.getByRole("button", { name: "Undo this restore" }).click();
   await expect(title).toHaveValue("Second saved");
   // The model title changes before the async restore reaches storage; only the real saved-byte hash proves completion.
-  await expect.poll(async () => createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(latestSave!.sha256);
+  await expect.poll(() => projectHash(page, folder, true), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(latestSave!.sha256);
 });

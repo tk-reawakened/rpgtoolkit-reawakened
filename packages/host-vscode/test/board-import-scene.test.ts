@@ -125,7 +125,7 @@ void test("the webview's import request carries the document's own board, and a 
 
   const posted: EditorHostRequest[] = [];
   const api: VscodeApi = { postMessage: (message) => { posted.push(message); }, getState: () => undefined, setState: () => undefined };
-  const browsed = { selection: null, path: null, scrollTop: 0 };
+  const browsed = { selection: null, path: null, scrollTop: 0, autotileMarks: [] };
   const snapshot = { identity: { projectId: "memory-project", path: PATH, key: "board" }, dirty: false, readOnly: null, canUndo: false, canRedo: false, edits: [], saving: false, saveError: null, conflict: null };
   const preview = new RemoteDocument("board", snapshot, browsed, api, DEFAULT_EDITOR_PREFERENCES, undefined, false);
   equal(preview.importAsScene, undefined, "a read-only history preview shows no import action");
@@ -172,4 +172,14 @@ void test("the webview's import request carries the document's own board, and a 
   deepEqual(replies.at(-1), { type: "save-image-result", requestId: "r3", result: { ok: true, value: true } });
   await handleEditorHostRequest(bridged, { type: "run-board-upgrade", requestId: "r4", operation: "pre-vector" }, (reply) => { replies.push(reply); });
   deepEqual(calls, ["import", "Village.png:4", "upgrade:pre-vector"]);
+});
+
+void test("the host bridge applies a safe autotile-mark session patch and rejects paths outside the project", async () => {
+  const { port, uri } = harness([]);
+  const document = await createGameEditorProvider(port, () => undefined).openCustomDocument(uri, undefined);
+  const request: EditorHostRequest = { type: "browser-context", changes: [{ field: "autotileMarks", value: ["village.tst"] }] };
+  ok(isEditorHostRequest(request));
+  await handleEditorHostRequest(document, request, () => undefined);
+  deepEqual(document.browserSession.getSnapshot().autotileMarks, ["village.tst"]);
+  equal(isEditorHostRequest({ type: "browser-context", changes: [{ field: "autotileMarks", value: ["../outside.tst"] }] }), false);
 });

@@ -103,6 +103,12 @@ function activate(context) {
     console.info("[vscode-web-proof-probe] invoking VS Code's native Save All command");
     await vscode.commands.executeCommand("workbench.action.files.saveAll");
   }));
+  // The bridge has no OS watcher. Deliver the external backing-file change through the provider's real event.
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.notifySceneImageChanged", () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (root === undefined) throw new Error("The proof workspace is not open");
+    filesystem.emitter.fire([{ type: vscode.FileChangeType.Changed, uri: vscode.Uri.joinPath(root, "Tiles", "roles-sheet.png") }]);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failBoardUpgradeCopyWrites", () => { filesystem.failBoardUpgradeCopyWrites = true; }));

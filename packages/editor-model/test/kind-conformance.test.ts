@@ -124,6 +124,13 @@ const CASES: readonly KindCase[] = [
     rejected: { type: "set-native-clip-property", path: ["delay"], value: -1 },
   },
   {
+    kind: "skin",
+    path: "Misc/stone.tkrskin",
+    bytes: utf8Encode("# skin\ncontract: skin\nversion: 1.0.0-pre.1\nlabel: Stone\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png # keep\n"),
+    accepted: { type: "set-native-skin-image", field: "windowImage", reference: "bitmap/new-window.png" },
+    rejected: { type: "set-native-skin-image", field: "windowImage", reference: "bitmap/bad.svg" },
+  },
+  {
     kind: "native-tile",
     path: "Tiles/fence.tkrtle",
     bytes: utf8Encode("contract: tile\nversion: 1.0.0-pre.1\nname: Fence\nprojection: 2d\nrole: wall\nvisual: {transparent: {mode: alpha}, sample: {file: Bitmap/fence.png, rect: [0, 0, 32, 32]}}\n"),
@@ -157,6 +164,13 @@ const CASES: readonly KindCase[] = [
     bytes: new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/StatusE/burn.ste", import.meta.url))),
     accepted: { type: "set-status-effect-number", field: "hpPerRound", value: -2 },
     rejected: { type: "set-status-effect-number", field: "hpPerRound", value: 32_768 },
+  },
+  {
+    kind: "battle-background",
+    path: "Bkrounds/forest.bkg",
+    bytes: new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/Bkrounds/forest.bkg", import.meta.url))),
+    accepted: { type: "set-battle-background-text", field: "image", value: "arena.tbm" },
+    rejected: { type: "set-battle-background-text", field: "music", value: "bad\u0000name.mid" },
   },
 ];
 
