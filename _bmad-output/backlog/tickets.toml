@@ -7,7 +7,9 @@
 # ID 31 maps issue #3354 (host-web project errors); ID 32 maps issue #3146.
 # ID 33 maps issue #3507 (BKG Stop proof); ID 34 maps #3508 (VS Code BKG CI fixture).
 # ID 35 is reserved by #3582 (#3510). IDs 36–41 map #3597, #3608, #3594, #3606, #3607, #3305.
-# ID 42 is reserved by #3582 (#3519). IDs 43 and 44 map #3618 and #3619.
+# ID 42 maps #3519. IDs 43 and 44 map #3618 and #3619.
 # IDs 45–48 map #3612–#3615.
 # IDs 49 and 50 map #3620 and #3621.
-next_id = 51
+# IDs 51–54 map #3622–#3625.
+# IDs 55–57 map #3626, #3627 and #3588 (PR #3534 browser proof failures).
+next_id = 58

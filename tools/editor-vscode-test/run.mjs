@@ -23,6 +23,7 @@ import { runVscodeBoardImportProof } from "./board-import-proof.ts";
 import { geometryProofFiles } from "./native-geometry-fixture.ts";
 import { runVscodeNativeGeometryProof } from "./native-geometry-vscode-proof.ts";
 import { runVscodeVisualEventsProof, VISUAL_EVENTS_PROOF_PATH } from "./visual-events-proof.ts";
+import { runVscodeVisualFixturesProof, visualFixtureProofFiles } from "./visual-fixtures-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -113,21 +114,23 @@ const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
 const visualEventsProof = process.env.TKR_VSCODE_VISUAL_EVENTS_PROOF === "1";
+const visualFixturesProof = process.env.TKR_VSCODE_VISUAL_FIXTURES_PROOF === "1";
 const scriptWorkflowProof = process.env.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF === "1";
 const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
 const battleDataProof = process.env.TKR_VSCODE_BATTLE_DATA_PROOF === "1";
 const skinProof = process.env.TKR_VSCODE_SKIN_PROOF === "1";
-if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof || skinProof)) {
+if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
+if (visualFixturesProof) await access(resolve(extension, "dist/visual-fixtures-webview.js"));
 if (visualEventsProof) {
   await access(resolve(extension, "dist/visual-events.js"));
   await access(resolve(extension, "dist/visual-events-webview.js"));
 }
-if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof || skinProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof || skinProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   let boardUpgradeAssets = [];
@@ -141,6 +144,11 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     await writeFile(target, Buffer.from("// native visual event proof\r\n// handwritten opaque line\r\n", "utf8"));
   }
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
+    const target = resolve(proofWorkspace, file.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, file.bytes);
+  }
+  if (visualFixturesProof) for (const file of visualFixtureProofFiles()) {
     const target = resolve(proofWorkspace, file.path);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, file.bytes);
@@ -589,6 +597,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     } else if (visualEventsProof) {
       await runVscodeVisualEventsProof(page, expect, workbenchUrl, readBacking);
       console.log("VS Code native Visual events edit, one-URI undo/navigation, close/reopen reconstruction, clean diagnostics, CRLF save and player dismissal proof passed");
+    } else if (visualFixturesProof) {
+      await runVscodeVisualFixturesProof(page, expect, workbenchUrl, { readBacking, writeBacking });
+      console.log("VS Code native TOOL-12 fixture cards saved opaque CRLF source, ran wall and door cases through the existing TOOL-5 runner, and located the broken-door and broken-wall failures at their own authored lines");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {

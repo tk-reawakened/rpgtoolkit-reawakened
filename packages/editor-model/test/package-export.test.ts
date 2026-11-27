@@ -35,6 +35,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     "Main/other.gam": utf8Encode("not the selected game"),
     "Saved/save.sav": utf8Encode("save"),
     "Prg/smoke.spec.prg": utf8Encode("test only"),
+    "Prg/visual-fixtures.spec.prg": utf8Encode("TOOL-12 saved fixture source"),
     [scriptSpecPath]: utf8Encode("test-only library"),
     "Notes/editor.tkrscn": utf8Encode("editor scene outside the game's Boards folder"),
     "Tiles/editor.tkrTst": utf8Encode("editor tiles"),
@@ -42,6 +43,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     ".tkr-history/snapshot.bin": utf8Encode("history"),
     ".TKR-Tests/Boards/wall.brd": utf8Encode("fixture board"),
     ".TKR-Tests/Prg/helper.prg": utf8Encode("fixture helper"),
+    ".TKR-Tests/Prg/visual-fixtures.spec.prg": utf8Encode("TOOL-12 source in the reserved test overlay"),
   };
 }
 
@@ -61,7 +63,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Media/Prg/script-spec/startup.prg", "Prg/script-spec-extra/startup.prg", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/visual-fixtures.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg", ".TKR-Tests/Prg/visual-fixtures.spec.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -332,7 +334,7 @@ test("a leaky inventory cannot hand the author an archive holding an excluded fi
   // Every excluded class is really present in the project and really reaches the inventory, as a broken filter would let it.
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3", inventoryFilter: () => false });
   ok(!outcome.ok, "the export is refused");
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/visual-fixtures.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg", ".TKR-Tests/Prg/visual-fixtures.spec.prg"]) {
     ok(outcome.message.includes(path), `${path} is named in the refusal: ${outcome.message}`);
   }
   match(outcome.message, /archive it produced holds files that must never be packaged/);

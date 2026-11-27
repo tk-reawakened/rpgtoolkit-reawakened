@@ -33,4 +33,7 @@ export { leaseLanguageClient, startLanguageClient, LANGUAGE_IDLE_MS, type Langua
 export { mountHistory } from "./mount.ts";
 export { createCreatorTestsController, type CreatorTestsController, type CreatorTestsControllerOptions, type CreatorTestsFrame, type CreatorTestsRequest, type CreatorTestsState } from "./creator-tests-controller.ts";
 export { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
+export { VisualFixtureView, type BoardCoordinates, type VisualFixtureDocument, type VisualFixtureViewProps } from "./visual-fixture-view.tsx";
+export { resolveVisualFixtureBoardCoordinates } from "./visual-fixture-board.ts";
+export { appendFixtureCase, codeString, fixtureSource, projectVisualFixtureSource, replaceFixtureLine, type FixtureCaseSpec, type VisualFixtureAction, type VisualFixtureCase, type VisualFixtureDefinition, type VisualFixtureGroup, type VisualFixtureLine, type VisualFixtureProjection } from "./visual-fixture-projection.ts";
 export { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type AuditionSnapshot, type BattleBackgroundAuditionTarget, type BoardAudition } from "./board-audition.ts";

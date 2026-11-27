@@ -65,6 +65,7 @@ import type { TextSurfaceFactory } from "./text-surface.ts";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { SpecialMoveView, type SpecialMoveViewDocument } from "./special-move-view.tsx";
 import { StatusEffectView, type StatusEffectViewDocument } from "./status-effect-view.tsx";
+import { VisualFixtureView } from "./visual-fixture-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -270,15 +271,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isFontView(document)) {
     view = createElement(FontView, { doc: document, capabilities, onEdited, pendingEdits });
-  } else if (isSpriteView(document)) {
-    view = createElement(Fragment, null,
-      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
-      document.kind === "character"
-        ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
-        : null);
   } else if (isProgramView(document)) {
     const editor = ctx.codeEditor;
-    view = createElement(ProgramView, {
+    const program = createElement(ProgramView, {
       doc: document,
       capabilities,
       onEdited,
@@ -297,6 +292,16 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
         }
       },
     });
+    // A saved spec keeps its source editor (and reveal) and shows the TOOL-12 cards beneath it (#3568).
+    view = /\.spec\.prg$/i.test(document.identity.path)
+      ? createElement("div", { class: "tkr-spec-surface" }, program, createElement(VisualFixtureView, { doc: document, onEdited }))
+      : program;
+  } else if (isSpriteView(document)) {
+    view = createElement(Fragment, null,
+      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
+      document.kind === "character"
+        ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
+        : null);
   } else if (isAnimationView(document)) {
     view = createElement(AnimationView, {
       doc: document,
