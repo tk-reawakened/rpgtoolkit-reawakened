@@ -90,11 +90,22 @@ try {
   const launched = context.waitForEvent("page");
   await cdp.send("PWA.launch", { manifestId: url });
   const app = await launched;
+  // The page event and OPFS picker can be ready while the editor bundle is still
+  // loading. Wait for the start document to install its folder click handler (#3305).
+  await app.waitForURL(url, { waitUntil: "domcontentloaded" });
   await app.waitForFunction(() => matchMedia("(display-mode: standalone)").matches);
-  await app.waitForFunction(() => window.__tkrPickerReady === true);
-  await app.getByRole("button", { name: "Open project folder" }).click();
   const gameTitle = app.getByLabel("Game title");
-  await gameTitle.waitFor();
+  const openProject = async () => {
+    await app.waitForFunction(() => window.__tkrPickerReady === true);
+    await app.getByRole("button", { name: "Open project folder" }).click();
+    try {
+      await gameTitle.waitFor();
+    } catch (error) {
+      const status = await app.locator("#host-status").textContent({ timeout: 1_000 }).catch(() => null);
+      throw new Error(`Game Settings did not open. Host status: ${status ?? "unavailable"}`, { cause: error });
+    }
+  };
+  await openProject();
   await gameTitle.fill(title);
   await app.getByRole("button", { name: "Apply changes" }).click();
   await app.getByRole("button", { name: "Save active editor", exact: true }).click();
@@ -112,10 +123,8 @@ try {
   assert.deepEqual(Buffer.from(stored.sibling), sentinel);
   await context.setOffline(true);
   await app.reload();
-  await app.waitForFunction(() => window.__tkrPickerReady === true);
-  await app.getByRole("button", { name: "Open project folder" }).click();
-  await app.getByLabel("Game title").waitFor();
-  assert.equal(await app.getByLabel("Game title").inputValue(), title);
+  await openProject();
+  assert.equal(await gameTitle.inputValue(), title);
   await cdp.send("PWA.uninstall", { manifestId: url });
   installed = false;
   const playerSurvived = await browserPage.evaluate(async () => {

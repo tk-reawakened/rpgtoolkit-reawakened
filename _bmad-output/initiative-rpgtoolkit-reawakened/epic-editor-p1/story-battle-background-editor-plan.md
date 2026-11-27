@@ -3,7 +3,7 @@ type: feature
 title: "Battle background editor"
 ticket: 11
 created: '2026-11-25'
-status: built
+status: done
 baseline_revision: '275f69f0324af5407d996eca00d5ecf0fb02802f'
 route: full
 route_source: auto

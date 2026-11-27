@@ -56,6 +56,7 @@ import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { FontView, type FontViewDocument } from "./font-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { BoardPropertiesNavigation } from "./board-properties-view.tsx";
+import type { BattleDataNavigation } from "./battle-data-form.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
 import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
@@ -138,7 +139,7 @@ export interface ViewContext {
   /** Where this document's project folders are now, re-resolved by the host on a refresh (tab activation, asset change). */
   readonly resolveLayout?: () => Promise<ProjectLayout>;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
-  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset"> & Partial<BoardPropertiesNavigation>;
+  readonly navigation?: Pick<BattleDataNavigation, "pickAsset" | "canOpen"> & Partial<BoardPropertiesNavigation>;
   /**
    * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
    * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
@@ -286,6 +287,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.language === undefined ? {} : { language: ctx.services.language }),
       ...(editor?.project === undefined ? {} : { project: editor.project }),
       ...(editor?.preferences === undefined ? {} : { preferences: editor.preferences }),
+      ...(ctx.navigation?.pickAsset === undefined ? {} : { pickAsset: ctx.navigation.pickAsset }),
       onRevealReady: (handler) => {
         reveal = handler;
         if (handler !== null && sourceRequest !== null) {

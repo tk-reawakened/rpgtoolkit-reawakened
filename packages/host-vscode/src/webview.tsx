@@ -1,7 +1,7 @@
 import { projectLayoutOwnerForDocumentPath, projectLayoutOfMain, resolveReservedFolderPath } from "@tk-reawakened/editor-model";
 import { clipboardFromApi, type Capability } from "@tk-reawakened/platform-services";
 import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
+import { RemoteDocument, canVisitPath, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
 import type { ProjectLayout } from "@tk-reawakened/editor-model";
 declare function acquireVsCodeApi(): VscodeApi;
 async function layoutForDocument(remote: RemoteDocument): Promise<ProjectLayout> {
@@ -129,6 +129,7 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
           navigation: {
             layout: browserLayout,
             pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),
+            canOpen: canVisitPath,
             open: async (path: string) => {
               const outcome = await remote.visit(path);
               return outcome.ok ? null : outcome.message;

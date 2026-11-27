@@ -3714,14 +3714,18 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundPath = "Game/Example/Bkrounds/forest.bkg";
   const ordinaryImagePath = "Game/Example/Bitmap/ordinary.png";
   const ordinaryAudioPath = "Game/Example/Media/ordinary.wav";
+  const mislabelledAudioPath = "Game/Example/Media/mislabelled.tbm";
   const fixtureRoot = new URL("../../docs/spec/examples/game/Game/Example/", import.meta.url);
   // CI flattens Game/Example into the workspace root; seed the nested project fixture the proof opens explicitly.
   await host.writeBacking(backgroundPath, new Uint8Array(readFileSync(new URL("Bkrounds/forest.bkg", fixtureRoot))));
   await host.writeBacking("Game/Example/Bitmap/forest.tbm", new Uint8Array(readFileSync(new URL("Bitmap/forest.tbm", fixtureRoot))));
   await host.writeBacking(ordinaryImagePath, new Uint8Array(readFileSync(new URL("../../docs/spec/examples/versions/tileset/tileset_iso.png", import.meta.url))));
-  await host.writeBacking(ordinaryAudioPath, Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69));
+  const audioBytes = Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69);
+  await host.writeBacking(ordinaryAudioPath, audioBytes);
+  await host.writeBacking(mislabelledAudioPath, audioBytes);
+  const chosenAudioReference = "mislabelled.tbm";
   const backgroundValues = {
-    image: "ordinary.png", music: "ordinary.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
+    image: "ordinary.png", music: chosenAudioReference, selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
   } as const;
   const backgroundFields = [
     ["Background picture", backgroundValues.image],
@@ -3743,6 +3747,22 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
   const backgroundPanel = backgroundFrame.locator('[data-tkr-editor="Fight background"]');
   await expect(backgroundPanel).toContainText("Audio audition is unavailable in this host.");
+  const chooseBattleMusic = backgroundPanel.getByRole("button", { name: "Choose battle music", exact: true });
+  await chooseBattleMusic.click();
+  const audioPicker = page.locator(".quick-input-widget:visible");
+  const audioOption = audioPicker.getByRole("option", { name: chosenAudioReference, exact: true });
+  await expect(audioOption).toBeVisible();
+  await audioOption.click();
+  const useChosenAudio = page.getByRole("button", { name: "Use it", exact: true });
+  await useChosenAudio.click();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  await saveAllShortcut();
+  await expect.poll(async () => new TextDecoder().decode(await host.readBacking(backgroundPath))).toContain(chosenAudioReference);
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await expect(useChosenAudio).toBeHidden();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  const openChosenAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
+  await expect(openChosenAudio).toHaveCount(0);
   const openOriginalTileBitmap = backgroundPanel.getByRole("button", { name: "Open background picture", exact: true });
   await expect(openOriginalTileBitmap).toBeEnabled();
   await openOriginalTileBitmap.click();
@@ -3755,11 +3775,14 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await openOrdinaryImage.click();
   await expect(page.getByRole("tab", { name: /ordinary\.png/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill("ordinary.wav");
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toBeEnabled();
   const openOrdinaryAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
   await expect(openOrdinaryAudio).toBeEnabled();
   await openOrdinaryAudio.click();
   await expect(page.getByRole("tab", { name: /ordinary\.wav/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill(chosenAudioReference);
   await saveAllShortcut();
   await expect.poll(async () => [...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
   const backgroundTab = page.getByRole("tab", { name: /forest\.bkg/ }).first();
