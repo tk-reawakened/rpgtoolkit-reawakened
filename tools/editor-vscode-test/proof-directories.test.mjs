@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -38,13 +38,21 @@ test("the package proof copies project assets but keeps only its selected main f
     const main = join(source, "Main", "example.gam");
     await mkdir(join(source, "Main"), { recursive: true });
     await mkdir(join(source, "Prg"), { recursive: true });
-    await writeFile(main, "main file");
+    await writeFile(main, "main file", { mode: 0o444 });
     await writeFile(join(source, "Main", "other.gam"), "other main");
-    await writeFile(join(source, "Prg", "start.prg"), "startup program");
+    await writeFile(join(source, "Prg", "start.prg"), "startup program", { mode: 0o444 });
     const { workspace, profile } = await createProofDirectories(main, "Main/example.gam", root, undefined, source);
     try {
       assert.equal(await readFile(join(workspace, "Prg", "start.prg"), "utf8"), "startup program");
       assert.deepEqual(await readdir(join(workspace, "Main")), ["example.gam"]);
+      // Assert writability even when the test runner has permission overrides.
+      for (const path of ["Prg/start.prg", "Main/example.gam", "__tkr_sentinel.gam"]) {
+        const copy = join(workspace, path);
+        assert.notEqual((await stat(copy)).mode & 0o200, 0, `${path} should be editable independently of the source`);
+        await writeFile(copy, "proof edit");
+      }
+      assert.equal(await readFile(main, "utf8"), "main file");
+      assert.equal(await readFile(join(source, "Prg", "start.prg"), "utf8"), "startup program");
     } finally {
       await rm(workspace, { recursive: true, force: true });
       await rm(profile, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, chmod, copyFile, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -26,7 +26,7 @@ import { runVscodeVisualEventsProof, VISUAL_EVENTS_PROOF_PATH } from "./visual-e
 import { runVscodeVisualFixturesProof, visualFixtureProofFiles } from "./visual-fixtures-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
-import { createProofDirectories } from "./proof-directories.mjs";
+import { copyProofAssets, createProofDirectories } from "./proof-directories.mjs";
 import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { CREATOR_PROJECT, runVscodeCreatorAcceptanceProof } from "./creator-acceptance-proof.ts";
 import { runVscodeFirstBoardTutorialProof } from "./first-board-tutorial-proof.ts";
@@ -70,8 +70,7 @@ await access(gameFiles[0]);
 const assetWorkspace = await proofAssetDirectory(workspace, gameFiles[0]);
 const spritePath = "Chrs/__tkr_sprite_proof.tem";
 const spriteFile = resolve(root, "docs/spec/examples/versions/character/character_minor8.tem");
-const spritePreviewGifFile = resolve(root, "packages/core/test/fixtures/authored/gif-anim89a.gif");
-await access(spritePreviewGifFile);
+const spritePreviewGifBytes = await readFile(resolve(root, "packages/core/test/fixtures/authored/gif-anim89a.gif"));
 await access(spriteFile);
 const spriteBytes = new Uint8Array(await readFile(spriteFile));
 const title = `VS Code web proof ${Date.now()}`;
@@ -140,8 +139,8 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   if (visualEventsProof) {
     const fixture = resolve(root, "docs/spec/examples/game/Game/Example");
     const project = resolve(proofWorkspace, "Game/Example");
-    await cp(fixture, project, { recursive: true });
-    await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(project, "Bitmap/window.png"));
+    await copyProofAssets(fixture, project);
+    await writeFile(resolve(project, "Bitmap/window.png"), await readFile(resolve(root, "media/cursors/tkr-arrow.png")));
     const target = resolve(proofWorkspace, VISUAL_EVENTS_PROOF_PATH);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, Buffer.from("// native visual event proof\r\n// handwritten opaque line\r\n", "utf8"));
@@ -172,7 +171,7 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   await writeFile(resolve(proofWorkspace, spritePath), spriteBytes);
   if (historyProof) await writeFile(resolve(proofWorkspace, "Chrs/ada.tem"), spriteBytes);
   await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
-  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
+  await writeFile(resolve(proofWorkspace, "Misc/vscode-web-proof.gif"), spritePreviewGifBytes);
   const nativeClipBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm")));
   await writeFile(resolve(proofWorkspace, NATIVE_CLIP_PROOF_PATH), nativeClipBytes);
   const nativeSceneBytes = nativeSceneProof ? new TextEncoder().encode("contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: 2, height: 2}\nfloors: [{id: ground, tiles: [[1, 1], [3, 0]]}]\ntilePalette: [{}, {legacy: village.tst1}]\nstart: {x: 16, y: 31, floor: ground}\n") : undefined;
@@ -190,8 +189,8 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
     await writeFile(resolve(proofWorkspace, "Tiles/roles.tkrtst"), new TextEncoder().encode(NATIVE_SCENE_RECIPE));
     await writeFile(resolve(proofWorkspace, NATIVE_ROLES_SCENE_PATH), new TextEncoder().encode(NATIVE_ROLES_SCENE));
     // A supported older board (minor 3, pre-vector): the legacy editor cannot open it for editing, but Import as Scene can.
-    await copyFile(resolve(root, "docs/spec/examples/versions/board/board_minor3.brd"), resolve(proofWorkspace, "Boards/older-board.brd"));
-    await copyFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem"), resolve(proofWorkspace, "Chrs/ada.tem"));
+    await writeFile(resolve(proofWorkspace, "Boards/older-board.brd"), await readFile(resolve(root, "docs/spec/examples/versions/board/board_minor3.brd")));
+    await writeFile(resolve(proofWorkspace, "Chrs/ada.tem"), await readFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem")));
     for (const { path, bytes } of geometryProofFiles()) {
       const target = resolve(proofWorkspace, path);
       await mkdir(dirname(target), { recursive: true });
@@ -276,8 +275,8 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
-  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/a.gif"));
-  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/z.gif"));
+  await writeFile(resolve(proofWorkspace, "Bitmap/a.gif"), spritePreviewGifBytes);
+  await writeFile(resolve(proofWorkspace, "Bitmap/z.gif"), spritePreviewGifBytes);
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
   const artBytes = await readFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"));
   const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
@@ -301,7 +300,7 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
     // generic harness seeds, so only the real Game/Example ownership can satisfy this proof.
     await Promise.all(["Bitmap", "Bkrounds", "Boards", "Chrs", "Enemy", "Item", "Misc", "Prg", "SpcMove", "StatusE", "Tiles"]
       .map((folder) => rm(resolve(proofWorkspace, folder), { recursive: true, force: true })));
-    await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+    await copyProofAssets(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"));
     for (const file of connectedAuthoringProofFiles()) {
       const target = resolve(proofWorkspace, file.path);
       await mkdir(dirname(target), { recursive: true });
@@ -319,17 +318,17 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   const historyPreviewTraceDiagnostics = [];
   try {
     if (designProof) {
-      await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
       const sourceFixture = resolve(root, "docs/spec/examples/game/Game/Example");
-      await cp(sourceFixture, resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
+      await copyProofAssets(sourceFixture, resolve(proofWorkspace, "Game/Example"));
       const authoredGame = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/game/Main/example.gam")));
+      await writeFile(resolve(proofWorkspace, game), authoredGame);
       const providedGame = new Uint8Array(await readFile(resolve(proofWorkspace, game)));
       if (authoredGame.length !== providedGame.length || !authoredGame.every((byte, index) => byte === providedGame[index])) {
         throw new Error("Design proof requires the authored docs/spec/examples/game/Main/example.gam fixture");
       }
     }
     if (launchProof || boardProof || boardUpgradeProof || programProof || guardProof || historyProof) {
-      await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+      await copyProofAssets(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"));
       if (boardUpgradeProof) {
         for (const file of boardUpgradeAssets) {
           const target = resolve(proofWorkspace, file.path);
@@ -337,7 +336,7 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
           await writeFile(target, file.bytes);
         }
       }
-      if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
+      if (programProof || guardProof) await writeFile(resolve(proofWorkspace, "Game/Example/Bitmap/window.png"), await readFile(resolve(root, "media/cursors/tkr-arrow.png")));
       const startProgram = boardProof || programProof || guardProof
         ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
         : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n';
@@ -521,7 +520,7 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
       await mkdir(resolve(proofWorkspace, "__tkr_new_project/Bitmap"), { recursive: true });
       await mkdir(resolve(proofWorkspace, "__tkr_new_project/Tiles"), { recursive: true });
       await writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false));
-      await copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "__tkr_new_project/Tiles/village.tst"));
+      await writeFile(resolve(proofWorkspace, "__tkr_new_project/Tiles/village.tst"), artBytes);
       const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
         .filter((entry) => entry.isFile() || entry.isDirectory())
         .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)).replaceAll("\\", "/") + (entry.isDirectory() ? "/" : ""))

@@ -31,6 +31,8 @@ The required VS Code web proof can time out after native Save All because the sp
 
 After the dirty-tab and early-registration changes, wrkflw `20261127-223734910-e3b36c` still reproduced the sprite failure. VS Code's native save reached the workspace provider, but the backing write was refused. The same-image discriminator `20261127-224207190-e05460` showed that `copyFile` preserved checkout UID 1001 on the mode-0644 sprite, while the proof ran as UID 0 with the normal CI DAC overrides removed. Opening that copy for writing returned `EACCES`; a new file written from the same bytes was owned by the proof and writable. The sprite and editable tileset seeds now write those bytes into the private proof workspace without inheriting checkout ownership. Permission refusal is still exercised with the same CI restrictions.
 
+The same ownership leak then appeared in a nested fixture: wrkflw `20261127-224337865-c41514` passed the repaired sprite Save All proof, then hit `EACCES` while seeding the visual-events `Game/Example/Prg/start.prg`. The native proof workspace now writes directory contents rather than preserving checkout metadata, including the selected Main and its sentinel copy. Checked-in fixture bytes remain untouched.
+
 ## Early edit settlement
 
 Separately, the pending-edit regression shows that passive registration can miss accepted DOM edits before passive effects run. `SpriteView` and `CharacterAuthoringView` register with `useLayoutEffect` so both queues participate from mount. This does not explain the reproduced filesystem refusal.
