@@ -40,7 +40,8 @@ export async function runVscodeVisualEventsProof(
   await expect(pane.getByRole("textbox", { name: "Message" })).toHaveValue("Native tracer event");
 
   // The opaque block's command must focus the native text editor for this exact URI, not a copy or new document.
-  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await pane.locator("fieldset").filter({ hasText: "native visual event proof // handwritten" })
+    .getByRole("button", { name: "Open in editor", exact: true }).click();
   await expect(sourceTab).toHaveAttribute("aria-selected", "true");
   await expect(text).toContainText("handwritten opaque line");
   await expect(text).toContainText("Native tracer event");

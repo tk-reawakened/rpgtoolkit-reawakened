@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Native VS Code Save All waits for accepted sprite and character edits before saving (#3606).
 - Follow **First board tutorial** in the browser editor or VS Code to create a project with original starter tiles, paint and save a board, and compare the preview, a board test and normal startup. Resume or restart the guide at any time, and use **Tip of the day** to control whether tips appear when the editor opens (#1751; [onboarding and help](docs/editor-features.md#t-09-onboarding--help)).
 - Create a reviewed unsigned setup ZIP from the existing game package and install descriptor. The browser lists the ZIP contents, dependencies and excluded project files before download, and explains that it cannot install or sign; VS Code saves the same ZIP through Save As, defaulting to `.tkr-exports/`, and stages the new file so a cancelled or failed save keeps the previous one. The desktop recipient validates the descriptor and package, installs only the package into its library, and can play or remove it; removal leaves saves untouched (#1749; [setup delivery](docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery), [ADR 0045 5C](docs/adr/0045-visual-source-skin-and-setup-delivery-contracts.md)).
 - Packaging refuses to export while a Game Settings form has unapplied changes. If VS Code cannot finish replacing a setup ZIP, it keeps the prior archive and names its recovery location if it cannot move it back (#3628, #3629).

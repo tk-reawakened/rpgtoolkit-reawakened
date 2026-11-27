@@ -16,7 +16,7 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import type { JSX } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { SpriteViewDocument } from "./sprite-view.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -167,7 +167,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   const hasPendingPrefix = (prefix: string): boolean => [...pendingDraftKeys.current].some(([key, pending]) =>
     key.startsWith(prefix) && pending.generation === mutationGeneration.current && pending.count > 0);
 
-  useEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
+  useLayoutEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
 
   useEffect(() => {
     observedSnapshot.current = doc.getSnapshot();

@@ -1,7 +1,9 @@
 import { after, before, test } from "node:test";
+import { setImmediate } from "node:timers/promises";
+import type { Options } from "preact";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createPendingEdits, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { ViewContext, ViewHandle } from "../src/mount.ts";
 import { exampleCharacter, exampleItem } from "./fixtures.ts";
@@ -13,10 +15,12 @@ const CASES = [
 
 let mount: (el: HTMLElement, context: ViewContext) => ViewHandle;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
+let preactOptions: Options;
 
 before(async () => {
   GlobalRegistrator.register();
   // Preact binds its event system to the host DOM; load it after happy-dom has installed that host.
+  ({ options: preactOptions } = await import("preact"));
   ({ act } = await import("preact/test-utils"));
   ({ mount } = await import("../dist/mount.js"));
 });
@@ -43,6 +47,42 @@ function replaceApply(doc: SpriteDocument, apply: (command: SpriteCommand) => Pr
   delayedDocument.apply = apply;
 }
 
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete: ((value: T) => void) | null = null;
+  const promise = new Promise<T>((resolve) => { complete = resolve; });
+  return {
+    promise,
+    resolve(value) {
+      if (complete === null) throw new Error("deferred promise resolver is not ready");
+      complete(value);
+    },
+  };
+}
+
+function holdPreactScheduling(): () => Promise<void> {
+  // Preact can flush effects on rerender as well as after paint; hold both queues through settlement.
+  const heldFrames: Array<() => void> = [];
+  const heldRenders: Array<() => void> = [];
+  const originalFrame = preactOptions.requestAnimationFrame;
+  const originalDebounce = preactOptions.debounceRendering;
+  preactOptions.requestAnimationFrame = (callback) => { heldFrames.push(callback); };
+  preactOptions.debounceRendering = (callback) => { heldRenders.push(callback); };
+  return async () => {
+    if (originalFrame === undefined) delete preactOptions.requestAnimationFrame;
+    else preactOptions.requestAnimationFrame = originalFrame;
+    if (originalDebounce === undefined) delete preactOptions.debounceRendering;
+    else preactOptions.debounceRendering = originalDebounce;
+    while (heldRenders.length > 0) heldRenders.shift()?.();
+    while (heldFrames.length > 0) heldFrames.shift()?.();
+    await setImmediate();
+  };
+}
+
 async function show(s: Setup, navigation?: ViewContext["navigation"]): Promise<ViewHandle> {
   let handle: ViewHandle | undefined;
   await act(() => { handle = mount(s.el, { document: s.doc, services: s.host, ...(navigation === undefined ? {} : { navigation }) }); });
@@ -58,6 +98,78 @@ async function input(el: HTMLElement, selector: string, value: string): Promise<
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+
+test("settlement waits for an immediately accepted sprite or character edit", { timeout: 1000 }, async () => {
+  for (const edit of ["sprite", "character"] as const) {
+    const s = await setup("character", `Chrs/${edit}-immediate-settlement.tem`, exampleCharacter());
+    const releasePreactScheduling = holdPreactScheduling();
+    const pendingEdits = createPendingEdits();
+    const apply = s.doc.apply.bind(s.doc);
+    const gate = deferred<ApplyResult>();
+    const started = deferred<void>();
+    let command: SpriteCommand | undefined;
+    let gateReleased = false;
+    let handle: ViewHandle | undefined;
+    try {
+      replaceApply(s.doc, async (candidate) => {
+        const isTarget = edit === "sprite"
+          ? candidate.type === "set-sprite-bases"
+          : candidate.type === "set-character-moves-enabled";
+        if (isTarget) {
+          command = candidate;
+          started.resolve();
+          return gate.promise;
+        }
+        return apply(candidate);
+      });
+      handle = mount(s.el, { document: s.doc, services: s.host, pendingEdits });
+
+      let verifyDeferredEdit = (): void => {};
+      let verifyAppliedEdit = (): void => {};
+      if (edit === "sprite") {
+        const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+        ok(xLabel !== undefined);
+        const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+        ok(x !== null);
+        const originalX = s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x;
+        ok(originalX !== undefined);
+        const nextX = originalX === -13 ? -14 : -13;
+        x.value = String(nextX);
+        x.dispatchEvent(new Event("change", { bubbles: true }));
+        verifyDeferredEdit = () => equal(s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x, originalX);
+        verifyAppliedEdit = () => equal(s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x, nextX);
+      } else {
+        const moves = s.el.querySelector<HTMLSelectElement>('select[aria-label="Character has special moves"]');
+        ok(moves !== null);
+        const originalMoves = s.doc.getSnapshot().character?.hasSpecialMoves;
+        ok(originalMoves !== undefined);
+        const nextMoves = originalMoves === 0 ? 1 : 0;
+        moves.value = String(nextMoves);
+        moves.dispatchEvent(new Event("change", { bubbles: true }));
+        verifyDeferredEdit = () => equal(s.doc.getSnapshot().character?.hasSpecialMoves, originalMoves);
+        verifyAppliedEdit = () => equal(s.doc.getSnapshot().character?.hasSpecialMoves, nextMoves);
+      }
+
+      let settled = false;
+      const waiting = pendingEdits.settle().then(() => { settled = true; });
+      await started.promise;
+      await setImmediate();
+      equal(settled, false, `${edit} settlement waits for the accepted edit before passive effects run`);
+      verifyDeferredEdit();
+      if (command === undefined) throw new Error(`${edit} edit did not reach the document`);
+      gate.resolve(await apply(command));
+      gateReleased = true;
+      await waiting;
+      equal(settled, true);
+      verifyAppliedEdit();
+    } finally {
+      if (!gateReleased) gate.resolve({ ok: false, rejection: { reason: "invalid", message: "test cleanup" } });
+      await releasePreactScheduling();
+      handle?.dispose();
+      s.el.remove();
+    }
+  }
+});
 
 test("characters and items share accessible stance, filename assignment and numeric polygon editing", async () => {
   for (const entry of CASES) {
