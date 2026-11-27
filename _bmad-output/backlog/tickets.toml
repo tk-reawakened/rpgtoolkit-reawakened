@@ -11,4 +11,5 @@
 # IDs 45–48 map #3612–#3615.
 # IDs 49 and 50 map #3620 and #3621.
 # IDs 51–54 map #3622–#3625.
-next_id = 55
+# IDs 55–57 map #3626, #3627 and #3588 (PR #3534 browser proof failures).
+next_id = 58

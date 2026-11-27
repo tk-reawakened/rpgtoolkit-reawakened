@@ -288,12 +288,19 @@ test("paint, touch up, reshape, save, safely recover and play a native terrain s
   await cell(2, 1).click();
   await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
   await expect(cell(0, 1)).toHaveAccessibleName(/base/);
-  const bytes = async (path: string) => new Uint8Array(await page.evaluate(async (path) => {
-    let dir = (window as ProofWindow).__tkrTestFolder!;
-    const parts = path.split("/");
-    for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part);
-    return [...new Uint8Array(await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
-  }, path));
+  const readBytes = (path: string, settling: boolean) => page.evaluate(async ({ path, settling }) => {
+    try {
+      let dir = (window as ProofWindow).__tkrTestFolder!;
+      const parts = path.split("/");
+      for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part);
+      return [...new Uint8Array(await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+    } catch (error) {
+      // The generated board can be absent briefly while the editor replaces it. Reopen it on the next poll.
+      if (settling && error instanceof DOMException && error.name === "NotFoundError") return null;
+      throw error;
+    }
+  }, { path, settling });
+  const bytes = async (path: string) => new Uint8Array((await readBytes(path, false))!);
   await editor.getByRole("button", { name: "Preview build", exact: true }).click();
   const canvas = editor.getByRole("img", { name: "Compiled scene preview" });
   await expect(canvas).toBeVisible();
@@ -307,8 +314,10 @@ test("paint, touch up, reshape, save, safely recover and play a native terrain s
   expect(new TextDecoder().decode(await bytes(scenePath))).toContain("# Keep this comment");
   const board = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
   expect(board.tileMatrix.slice(0, 8).map((i) => board.lut[i])).toEqual(["pond.tst3", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), "", "", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), ""]);
-  const savedTile = async (x: number, y: number) => {
-    const next = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
+  const savedTile = async (x: number, y: number, settling = true) => {
+    const raw = await readBytes("Boards/pond.brd", settling);
+    if (raw === null) return null;
+    const next = unwrap(readBoard(new BinaryReader(new Uint8Array(raw))));
     return next.lut[next.tileMatrix[y * 4 + x]!];
   };
   await editor.getByRole("radio", { name: "Manual tile" }).check();
@@ -329,7 +338,7 @@ test("paint, touch up, reshape, save, safely recover and play a native terrain s
   await expect(cell(1, 0)).toHaveAccessibleName(/terrain water/);
   await editor.getByRole("radio", { name: "Manual empty" }).check();
   await cell(3, 2).click();
-  expect(await savedTile(3, 2)).toBe("pond.tst3");
+  expect(await savedTile(3, 2, false)).toBe("pond.tst3");
   await editor.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator(".tkr-run-current .tkr-run-snapshot")).toContainText("Board test at Boards/pond.brd");
   await expect.poll(() => savedTile(3, 2)).toBe("");
