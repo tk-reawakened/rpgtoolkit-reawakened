@@ -4,6 +4,7 @@
 // in-memory folder; expected bytes are patched by hand at the offsets of the committed annotated listings
 // (docs/spec/examples/listings/fireball.spc.txt, burn.ste.txt).
 import { deepEqual, equal, ok } from "node:assert/strict";
+import { BinaryReader, readMainFile, writeMainFile } from "@tk-reawakened/core";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -54,13 +55,13 @@ function userStorage(): { getItem(key: string): string | null; setItem(key: stri
   };
 }
 
-async function open() {
+async function open(options: NonNullable<Parameters<typeof createFolderProject>[2]> = {}) {
   const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
   root.put("Main/example.gam", gam);
   root.put(SPC, fireball);
   root.put(STE, burn);
-  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:battle-data", name: "Battle data" }, { userSettings: userStorage() });
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:battle-data", name: "Battle data" }, { userSettings: userStorage(), ...options });
   document.body.replaceChildren();
   const element = document.createElement("div");
   document.body.append(element);
@@ -160,5 +161,116 @@ test("Open hands over the exact openable program file path checked from Media, n
     deepEqual(web.workspace.documents().map((document) => document.identity.path).sort(), [BKG, PROGRAM], "the exact checked path opened");
     deepEqual(root.read(PROGRAM), new TextEncoder().encode('message("hello")\n'), "the program bytes were not rewritten");
     equal(element.textContent?.includes("Game/Prg/"), false, "no reserved-folder rewrite was tried");
+  } finally { bench.dispose(); }
+});
+
+test("a mounted fight background picks and auditions from the same game after a nested game appears", { timeout: 1000 }, async () => {
+  const outer = "Game/Example";
+  const inner = `${outer}/Inner`;
+  const main = readMainFile(new BinaryReader(gam, "Main/example.gam"));
+  ok(main.ok);
+  const nested = writeMainFile({ ...main.value, projectPath: inner, gameTitle: "Inner" });
+  ok(nested.ok);
+  const wav = (sample: number): Uint8Array => {
+    const bytes = new Uint8Array(46);
+    const view = new DataView(bytes.buffer);
+    bytes.set(new TextEncoder().encode("RIFF"), 0);
+    bytes.set(new TextEncoder().encode("WAVEfmt "), 8);
+    bytes.set(new TextEncoder().encode("data"), 36);
+    for (const [offset, value] of [[4, 38], [16, 16], [24, 8_000], [28, 16_000], [40, 2]] as const) view.setUint32(offset, value, true);
+    for (const [offset, value] of [[20, 1], [22, 1], [32, 2], [34, 16]] as const) view.setUint16(offset, value, true);
+    view.setInt16(44, sample, true);
+    return bytes;
+  };
+  const outerTrack = wav(2_000);
+  const played: Uint8Array[] = [];
+  const { root, web, element, bench } = await open({
+    dialogs: {
+      ask: async (question) => question.choices.find(({ id }) => id === "use")?.id ?? question.cancel,
+      pickSavePath: async () => null,
+    },
+    createAudioOutput: () => ({ play: async (bytes) => { played.push(bytes); return { ok: true }; }, stop() {} }),
+  });
+  try {
+    const path = `${inner}/Bkrounds/forest.bkg`;
+    root.put(path, example("Bkrounds/forest.bkg"));
+    root.put(`${outer}/Media/battle.wav`, outerTrack);
+    root.put(`${outer}/Media/outer.wav`, wav(4_000));
+    root.put(`${inner}/Media/battle.wav`, wav(6_000));
+    root.put(`${inner}/Media/inner.wav`, wav(8_000));
+    await bench.openPath(path);
+    await until(() => editor(element)?.getAttribute("data-tkr-editor") === "Fight background", "the fight background is mounted with the outer game");
+    root.put("Main/nested.gam", nested.value);
+
+    await click(button(element, "Choose battle music"));
+    const picker = element.querySelector('[role="dialog"][aria-modal="true"]');
+    ok(picker !== null, "the music picker opened");
+    await until(() => picker.querySelector('[role="option"]') !== null, `the picker loaded its music options: ${picker.textContent}`);
+    const options = [...picker.querySelectorAll<HTMLElement>('[role="option"]')];
+    deepEqual(options.map((option) => option.textContent), ["battle.wav", "outer.wav"], "the picker's files belong to the same game as the still-mounted form");
+    await click(options[0]!);
+    await click(button(element, "Use battle.wav…"));
+    await until(() => field(element, "Battle music file").value === "battle.wav", "the music reference was applied");
+
+    await click(button(element, "Play battle music"));
+    await until(() => played.length > 0, "the audition reads the selected reference");
+    deepEqual(played, [outerTrack], "audition uses the same recording the picker offered, not the new game's same-named file");
+
+    // Reopening the existing document through Save As refreshes the declared owners but keeps its mounted view.
+    // Focus another background first, so the Run menu must fall back to this tab's own audition target.
+    const other = `${outer}/Bkrounds/other.bkg`;
+    root.put(other, example("Bkrounds/forest.bkg"));
+    await bench.openPath(other);
+    await until(() => bench.tabs.getSnapshot().active === web.workspace.documents().find((doc) => doc.identity.path === other)?.identity.key, "the other background is active");
+    field(element, "Battle music file").focus();
+    const background = web.workspace.documents().find((doc) => doc.identity.path === path);
+    ok(background !== undefined);
+    equal(await bench.openDocument(background), null);
+    await settle(act);
+    await click(button(element, "Application menu"));
+    const run = [...element.querySelectorAll<HTMLElement>('[role="menuitem"][aria-haspopup="true"]')].find((item) => item.firstElementChild?.textContent === "Run");
+    ok(run !== undefined, "the Run menu is available");
+    await click(run);
+    const play = [...element.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.trim() === "Play battle music");
+    ok(play !== undefined, "the Run menu offers music audition");
+    await click(play);
+    await until(() => played.length === 2, "the Run menu auditions the selected reference");
+    deepEqual(played[1], outerTrack, "a layout refresh does not change the mounted tab's chosen recording in the Run menu");
+  } finally { bench.dispose(); }
+});
+
+test("a special move can choose the status effect of a newly declared nested game", { timeout: 1000 }, async () => {
+  const { root, web, element, bench } = await open({
+    dialogs: {
+      ask: async (question) => question.choices.find(({ id }) => id === "use")?.id ?? question.cancel,
+      pickSavePath: async () => null,
+    },
+  });
+  try {
+    const inner = "Game/Example/Inner";
+    const move = `${inner}/${SPC}`;
+    const status = `${inner}/StatusE/inner.ste`;
+    root.put(move, fireball);
+    root.put(status, burn);
+    root.put("Game/Example/StatusE/outer.ste", burn);
+    await bench.openPath(move);
+    await until(() => editor(element)?.getAttribute("data-tkr-editor") === "Special move", "the nested move is mounted");
+    const main = readMainFile(new BinaryReader(gam, "Main/example.gam"));
+    ok(main.ok);
+    const nested = writeMainFile({ ...main.value, projectPath: inner, gameTitle: "Inner" });
+    ok(nested.ok);
+    root.put("Main/nested.gam", nested.value);
+
+    await click(button(element, "Choose status effect"));
+    const picker = element.querySelector('[role="dialog"][aria-modal="true"]');
+    ok(picker !== null);
+    await until(() => picker.querySelector('[role="option"]') !== null, "the status effect picker lists its options");
+    const options = [...picker.querySelectorAll<HTMLElement>('[role="option"]')];
+    deepEqual(options.map((option) => option.textContent), ["inner.ste"], "the picker refreshes the nested game's ownership");
+    await click(options[0]!);
+    await click(button(element, "Use inner.ste…"));
+    await until(() => !button(element, "Open status effect").disabled, "the chosen nested status link resolves");
+    await click(button(element, "Open status effect"));
+    await until(() => web.workspace.documents().some((doc) => doc.identity.path === status), "Open reaches exactly the chosen nested status document");
   } finally { bench.dispose(); }
 });

@@ -247,6 +247,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     (knownLayouts === null ? null : projectLayoutOwnerForDocumentPath(path, knownLayouts)) ?? fallbackOwnerForPath(path);
   const ownersByDocument = new Map<string, ProjectLayoutOwner>();
   const ownerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    // A mounted fight background's links and audition controls share one layout. Refreshing the list of
+    // declared games must not make its picker or Run menu point at a different recording (#3619).
+    if (kindForPath(path)?.id === "battle-background") {
+      const { key } = createDocumentIdentity(project.project.id, path);
+      const mountedOwner = views.has(key) ? ownersByDocument.get(key) : undefined;
+      if (mountedOwner !== undefined) return mountedOwner;
+    }
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
@@ -274,12 +281,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
   });
   /**
-   * Ownership read from the game files as they are now. `layouts()` answers from the first read for the rest of the
-   * session, which is right for a mount but wrong for a pick or a refresh: a `.gam` may have moved or nested a game since
-   * (#3536). Only those two ask this.
+   * Resolve current game declarations without replacing the layouts already in use by mounted editors.
+   * Native skins use this for both picking and refreshing their preview (#3536).
    */
   const freshOwnerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
-    const owner = projectLayoutOwnerForDocumentPath(path, await refreshLayouts());
+    const owner = projectLayoutOwnerForDocumentPath(path, await declaredProjectLayouts(project, main));
     // No game declares this path any more, so it is loose and its folders are the project root. The startup layout is
     // deliberately not restored here: a skin whose game went away must read the root folders, and the picker with it.
     return owner ?? { mainPath: null, layout: { projectFolder: "" } };
@@ -1095,7 +1101,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return result;
     },
     async pickAsset(request, originPath) {
-      const owner = await freshOwnerForPath(originPath ?? main ?? "");
+      const path = originPath ?? main ?? "";
+      const owner = kindForPath(path)?.id === "battle-background" ? await ownerForPath(path) : await freshOwnerForPath(path);
       const doc = element.ownerDocument;
       const before = doc.activeElement;
       const picker = createAssetPicker({
