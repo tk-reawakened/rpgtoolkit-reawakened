@@ -400,27 +400,18 @@ export async function runVscodeBoardUpgradeProof(
     throw new Error("The fetched village board must be a tile-coordinate vector board");
   }
 
-  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".monaco-workbench")).toBeVisible();
-  const restoredBoardTabs = page.locator('[role="tab"][data-resource-name$=".brd"]');
-  while (await restoredBoardTabs.count() > 0) {
-    const restoredBoardTab = restoredBoardTabs.first();
-    const resourceName = await restoredBoardTab.getAttribute("data-resource-name");
-    if (resourceName === null) throw new Error("Restored board tab has no logical data-resource-name identity");
-    await restoredBoardTab.click();
-    await expect(restoredBoardTab).toHaveAttribute("aria-selected", "true");
-    const restoredBoardTabCount = await restoredBoardTabs.count();
-    // The tab intercepts clicks on its close affordance in the VS Code web host (#3491).
-    await closeActiveEditor(page, expect);
-    await expect.poll(async () =>
-      page.getByRole("tab").evaluateAll((tabs, expectedResourceName) =>
-        tabs.some((tab) => tab.getAttribute("data-resource-name") === expectedResourceName),
-        resourceName,
-      ),
-    ).toBe(false);
-    await expect(restoredBoardTabs).toHaveCount(restoredBoardTabCount - 1);
-  }
-  await expect(restoredBoardTabs).toHaveCount(0);
+  // Close the legacy proof's editors in this workbench. Reloading to clear them can
+  // restore a second board panel after the empty-tab check, leaving an unreachable
+  // settlement target even though the active panel acknowledges the guard (#3519).
+  await runCommand(page, expect, "View: Close All Editors");
+  await expect(page.locator('[role="tab"][data-resource-name$=".brd"]')).toHaveCount(0);
+  const activateBoardTab = async (path: string, title: string): Promise<Frame> => {
+    const name = path.split("/").at(-1)!;
+    const tab = page.locator(`[role="tab"][data-resource-name="${name}"]`);
+    await expect(tab).toHaveCount(1);
+    await tab.click();
+    return waitForBoardUpgradeEditorFrame(page, title, name, [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  };
   await openNativeQuickOpenFile(page, expect, sourcePath);
   let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
@@ -432,8 +423,7 @@ export async function runVscodeBoardUpgradeProof(
   await page.keyboard.press("Enter");
   await page.keyboard.type("// Pending authored edit; board-copy cancel and write failure must preserve it.");
   await expect(pendingScriptEditor).toContainText("Pending authored edit");
-  await openNativeQuickOpenFile(page, expect, sourcePath);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  boardFrame = await activateBoardTab(sourcePath, "source board before coordinate upgrade");
   const verifyPendingScriptAndReturnToBoard = async (path: string, title: string): Promise<void> => {
     const quickInput = page.locator(".quick-input-widget");
     if (await quickInput.isVisible()) {
@@ -443,8 +433,7 @@ export async function runVscodeBoardUpgradeProof(
     await openNativeQuickOpenFile(page, expect, scriptPath);
     await expect(pendingScriptEditor).toContainText("Pending authored edit");
     expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
-    await openNativeQuickOpenFile(page, expect, path);
-    boardFrame = await waitForBoardUpgradeEditorFrame(page, title, path.split("/").at(-1)!, [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+    boardFrame = await activateBoardTab(path, title);
   };
   const preview = page.locator(".monaco-dialog-box").filter({ hasText: "Convert tile coordinates to pixels" });
   const openPreview = async (): Promise<void> => {
@@ -531,8 +520,7 @@ export async function runVscodeBoardUpgradeProof(
   await openNativeQuickOpenFile(page, expect, scriptPath);
   await expect(pendingScriptEditor).toContainText("Pending authored edit");
   expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
-  await openNativeQuickOpenFile(page, expect, copyPath);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "pixel copy before runner launch", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  boardFrame = await activateBoardTab(copyPath, "pixel copy before runner launch");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   const pendingScriptTab = page.getByRole("tab", { name: /start\.prg/ });
   await pendingScriptTab.click();
