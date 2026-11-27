@@ -43,6 +43,23 @@ function replaceApply(doc: SpriteDocument, apply: (command: SpriteCommand) => Pr
   delayedDocument.apply = apply;
 }
 
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let complete: ((value: T) => void) | null = null;
+  const promise = new Promise<T>((resolve) => { complete = resolve; });
+  return {
+    promise,
+    resolve(value) {
+      if (complete === null) throw new Error("deferred promise resolver is not ready");
+      complete(value);
+    },
+  };
+}
+
 async function show(s: Setup, navigation?: ViewContext["navigation"]): Promise<ViewHandle> {
   let handle: ViewHandle | undefined;
   await act(() => { handle = mount(s.el, { document: s.doc, services: s.host, ...(navigation === undefined ? {} : { navigation }) }); });
@@ -59,24 +76,64 @@ async function input(el: HTMLElement, selector: string, value: string): Promise<
   });
 }
 
-test("sprite and character submissions register before the editor mount returns", async () => {
-  for (const entry of CASES) {
-    const s = await setup(entry.kind, entry.path, entry.bytes);
-    let registrations = 0;
-    const pendingEdits = createPendingEdits();
-    const register = pendingEdits.register.bind(pendingEdits);
-    pendingEdits.register = (work) => {
-      registrations += 1;
-      return register(work);
-    };
-    const handle = mount(s.el, { document: s.doc, services: s.host, pendingEdits });
-    try {
-      equal(registrations, entry.kind === "character" ? 2 : 1);
-    } finally {
-      handle.dispose();
-      s.el.remove();
+test("settlement waits for sprite and character edits accepted immediately after mount", { timeout: 5000 }, async () => {
+  const s = await setup("character", "Chrs/immediate-settlement.tem", exampleCharacter());
+  const pendingEdits = createPendingEdits();
+  const apply = s.doc.apply.bind(s.doc);
+  const spriteGate = deferred<ApplyResult>();
+  const characterGate = deferred<ApplyResult>();
+  const spriteStarted = deferred<void>();
+  const characterStarted = deferred<void>();
+  let spriteCommand: SpriteCommand | undefined;
+  let characterCommand: SpriteCommand | undefined;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "set-sprite-bases") {
+      spriteCommand = command;
+      spriteStarted.resolve();
+      return spriteGate.promise;
     }
-  }
+    if (command.type === "set-character-moves-enabled") {
+      characterCommand = command;
+      characterStarted.resolve();
+      return characterGate.promise;
+    }
+    return apply(command);
+  });
+  const handle = mount(s.el, { document: s.doc, services: s.host, pendingEdits });
+  const xLabel = [...s.el.querySelectorAll("label")].find((label) => label.textContent === "Point 1 X");
+  ok(xLabel !== undefined);
+  const x = s.el.querySelector<HTMLInputElement>(`#${xLabel.htmlFor}`);
+  ok(x !== null);
+  const originalX = s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x;
+  ok(originalX !== undefined);
+  const nextX = originalX === -13 ? -14 : -13;
+  x.value = String(nextX);
+  x.dispatchEvent(new Event("change", { bubbles: true }));
+  const moves = s.el.querySelector<HTMLSelectElement>('select[aria-label="Character has special moves"]');
+  ok(moves !== null);
+  const originalMoves = s.doc.getSnapshot().character?.hasSpecialMoves;
+  ok(originalMoves !== undefined);
+  const nextMoves = originalMoves === 0 ? 1 : 0;
+  moves.value = String(nextMoves);
+  moves.dispatchEvent(new Event("change", { bubbles: true }));
+
+  let settled = false;
+  const waiting = pendingEdits.settle().then(() => { settled = true; });
+  await Promise.resolve();
+  equal(settled, false, "settlement waits for both edits accepted before passive effects can run");
+  await Promise.all([spriteStarted.promise, characterStarted.promise]);
+  equal(s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x, originalX, "the deferred sprite edit has not been applied");
+  equal(s.doc.getSnapshot().character?.hasSpecialMoves, originalMoves, "the deferred character edit has not been applied");
+
+  if (spriteCommand === undefined || characterCommand === undefined) throw new Error("both immediate edits must reach the document");
+  spriteGate.resolve(await apply(spriteCommand));
+  characterGate.resolve(await apply(characterCommand));
+  await waiting;
+  equal(settled, true);
+  equal(s.doc.getSnapshot().vectorBases?.[0]?.points[0]?.x, nextX);
+  equal(s.doc.getSnapshot().character?.hasSpecialMoves, nextMoves);
+  handle.dispose();
+  s.el.remove();
 });
 
 test("characters and items share accessible stance, filename assignment and numeric polygon editing", async () => {
