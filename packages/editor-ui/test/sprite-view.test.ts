@@ -1,4 +1,6 @@
 import { after, before, test } from "node:test";
+import { setImmediate } from "node:timers/promises";
+import type { Options } from "preact";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, createPendingEdits, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
@@ -13,10 +15,12 @@ const CASES = [
 
 let mount: (el: HTMLElement, context: ViewContext) => ViewHandle;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
+let preactOptions: Options;
 
 before(async () => {
   GlobalRegistrator.register();
   // Preact binds its event system to the host DOM; load it after happy-dom has installed that host.
+  ({ options: preactOptions } = await import("preact"));
   ({ act } = await import("preact/test-utils"));
   ({ mount } = await import("../dist/mount.js"));
 });
@@ -60,6 +64,25 @@ function deferred<T>(): Deferred<T> {
   };
 }
 
+function holdPreactScheduling(): () => Promise<void> {
+  // Preact can flush effects on rerender as well as after paint; hold both queues through settlement.
+  const heldFrames: Array<() => void> = [];
+  const heldRenders: Array<() => void> = [];
+  const originalFrame = preactOptions.requestAnimationFrame;
+  const originalDebounce = preactOptions.debounceRendering;
+  preactOptions.requestAnimationFrame = (callback) => { heldFrames.push(callback); };
+  preactOptions.debounceRendering = (callback) => { heldRenders.push(callback); };
+  return async () => {
+    if (originalFrame === undefined) delete preactOptions.requestAnimationFrame;
+    else preactOptions.requestAnimationFrame = originalFrame;
+    if (originalDebounce === undefined) delete preactOptions.debounceRendering;
+    else preactOptions.debounceRendering = originalDebounce;
+    while (heldRenders.length > 0) heldRenders.shift()?.();
+    while (heldFrames.length > 0) heldFrames.shift()?.();
+    await setImmediate();
+  };
+}
+
 async function show(s: Setup, navigation?: ViewContext["navigation"]): Promise<ViewHandle> {
   let handle: ViewHandle | undefined;
   await act(() => { handle = mount(s.el, { document: s.doc, services: s.host, ...(navigation === undefined ? {} : { navigation }) }); });
@@ -79,6 +102,7 @@ async function input(el: HTMLElement, selector: string, value: string): Promise<
 test("settlement waits for an immediately accepted sprite or character edit", { timeout: 1000 }, async () => {
   for (const edit of ["sprite", "character"] as const) {
     const s = await setup("character", `Chrs/${edit}-immediate-settlement.tem`, exampleCharacter());
+    const releasePreactScheduling = holdPreactScheduling();
     const pendingEdits = createPendingEdits();
     const apply = s.doc.apply.bind(s.doc);
     const gate = deferred<ApplyResult>();
@@ -128,9 +152,9 @@ test("settlement waits for an immediately accepted sprite or character edit", { 
 
       let settled = false;
       const waiting = pendingEdits.settle().then(() => { settled = true; });
-      await Promise.resolve();
-      equal(settled, false, `${edit} settlement waits for the accepted edit before passive effects run`);
       await started.promise;
+      await setImmediate();
+      equal(settled, false, `${edit} settlement waits for the accepted edit before passive effects run`);
       verifyDeferredEdit();
       if (command === undefined) throw new Error(`${edit} edit did not reach the document`);
       gate.resolve(await apply(command));
@@ -140,6 +164,7 @@ test("settlement waits for an immediately accepted sprite or character edit", { 
       verifyAppliedEdit();
     } finally {
       if (!gateReleased) gate.resolve({ ok: false, rejection: { reason: "invalid", message: "test cleanup" } });
+      await releasePreactScheduling();
       handle?.dispose();
       s.el.remove();
     }
