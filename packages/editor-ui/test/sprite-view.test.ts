@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createPendingEdits, openSpriteDocument, type ApplyResult, type SpriteActorKind, type SpriteCommand, type SpriteDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { ViewContext, ViewHandle } from "../src/mount.ts";
 import { exampleCharacter, exampleItem } from "./fixtures.ts";
@@ -58,6 +58,26 @@ async function input(el: HTMLElement, selector: string, value: string): Promise<
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+
+test("sprite and character submissions register before the editor mount returns", async () => {
+  for (const entry of CASES) {
+    const s = await setup(entry.kind, entry.path, entry.bytes);
+    let registrations = 0;
+    const pendingEdits = createPendingEdits();
+    const register = pendingEdits.register.bind(pendingEdits);
+    pendingEdits.register = (work) => {
+      registrations += 1;
+      return register(work);
+    };
+    const handle = mount(s.el, { document: s.doc, services: s.host, pendingEdits });
+    try {
+      equal(registrations, entry.kind === "character" ? 2 : 1);
+    } finally {
+      handle.dispose();
+      s.el.remove();
+    }
+  }
+});
 
 test("characters and items share accessible stance, filename assignment and numeric polygon editing", async () => {
   for (const entry of CASES) {

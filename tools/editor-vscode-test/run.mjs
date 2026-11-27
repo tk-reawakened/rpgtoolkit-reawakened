@@ -93,6 +93,7 @@ if (designProof && (designOutput === undefined || !designOutput.startsWith("/") 
   throw new Error("TKR_EDITOR_DESIGN_OUT must be an absolute destination outside the repository root");
 }
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
+const spriteProof = process.env.TKR_VSCODE_SPRITE_PROOF === "1";
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const nativeClipProof = process.env.TKR_VSCODE_NATIVE_CLIP_PROOF === "1";
 const nativeSceneProof = process.env.TKR_VSCODE_NATIVE_SCENE_PROOF === "1";
@@ -607,6 +608,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite,
       });
       console.log("VS Code saved creator-test command, actual frame, source link, snapshot hashes and headless parity proof passed");
+    } else if (spriteProof) {
+      await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
+      console.log("vscode.dev sprite save/reopen proof passed");
     } else if (animationProof) {
       await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
       console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");

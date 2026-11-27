@@ -1633,6 +1633,9 @@ export async function runVscodeSpriteWebProof(
   await south.fill("Misc/vscode-web-proof.anm");
   await south.press("Tab");
   await expect(view.getByText("Graphics change recorded. Save the document to keep it.", { exact: true })).toBeVisible();
+  // Save All only visits dirty custom documents; the first accepted sprite edit must be visible to the workbench.
+  const spriteTab = page.getByRole("tab").filter({ hasText: spritePath.split("/").at(-1)! }).first();
+  await expect(spriteTab).toHaveClass(/dirty/);
   const north = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("North animation file");
   await north.fill("Misc/vscode-web-proof.gif");
   await north.press("Tab");
