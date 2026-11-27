@@ -62,3 +62,21 @@ void test("a failed read mounts nothing and a later refresh can still mount", as
   equal(mounts, 1);
   ok(lifecycle.mounted);
 });
+void test("disposing while inventory is pending prevents a late mount and later refresh reads", async () => {
+  const read = deferred();
+  let loads = 0;
+  let mounts = 0;
+  const lifecycle = createTerrainSceneMount(async () => {
+    loads += 1;
+    await read.promise;
+    return true;
+  }, () => { mounts += 1; });
+  const startup = lifecycle.start();
+  lifecycle.dispose();
+  read.resolve(true);
+  await startup;
+  await lifecycle.refresh();
+  equal(loads, 1, "disposed views do not start another inventory read");
+  equal(mounts, 0, "a read finishing after disposal cannot mount");
+  equal(lifecycle.mounted, false);
+});

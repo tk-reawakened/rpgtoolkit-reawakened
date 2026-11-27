@@ -268,7 +268,7 @@ test("erase reshapes marked neighbors after the brush has been cleared", async (
   s.dispose();
 });
 
-test("dropping a tile from the selected short set retains its warning metadata", async () => {
+test("dropping a tile from the selected short set retains same-source warning metadata across the Tiles alias", async () => {
   const s = await setup();
   await choose(s, "AUTOTILES_village.tst1", undefined, { autotileTileCount: 9 });
   await keyboard(s, { key: "a" });
@@ -277,5 +277,20 @@ test("dropping a tile from the selected short set retains its warning metadata",
   await click(s, s.centre);
   equal(s.session.getSnapshot().selection?.autotileTileCount, 9);
   match(notes(s).join(" "), /fewer than 52/);
+  s.dispose();
+});
+
+test("dropping from a different tileset reads its actual count instead of keeping the old warning", async () => {
+  const s = await setup();
+  await act(() => { s.session.update({ autotileMarks: ["village.tst"] }); });
+  await choose(s, "Tiles\\village.tst1");
+  await click(s, s.centre);
+  await choose(s, "AUTOTILES_village.tst1", undefined, { autotileTileCount: 9 });
+  await keyboard(s, { key: "a" });
+  await act(() => { s.el.querySelector<HTMLButtonElement>('[data-tool="dropper"]')!.click(); });
+  await click(s, s.centre);
+  equal(s.session.getSnapshot().selection?.reference, "Tiles\\village.tst1");
+  equal(s.session.getSnapshot().selection?.autotileTileCount, 2);
+  match(notes(s).join(" "), /fewer than 52, so shapes 3, 4, 5/);
   s.dispose();
 });

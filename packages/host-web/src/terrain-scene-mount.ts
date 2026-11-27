@@ -8,19 +8,28 @@ export interface TerrainSceneMount {
   start(): Promise<void>;
   /** A reactivation's re-read: supersedes any read still in flight and mounts if the editor is not mounted yet. */
   refresh(): Promise<void>;
+  /** Prevents pending reads from mounting after the owning view is disposed. */
+  dispose(): void;
   readonly mounted: boolean;
 }
 
 export function createTerrainSceneMount(load: () => Promise<boolean>, mount: () => void): TerrainSceneMount {
   let reads = 0;
   let mounted = false;
+  let disposed = false;
   const run = async (): Promise<void> => {
+    if (disposed) return;
     const mine = ++reads;
     const ok = await load();
     // Only the newest read may act: an older one that finishes late is about inputs the newer read already replaced.
-    if (!ok || mine !== reads || mounted) return;
+    if (!ok || mine !== reads || mounted || disposed) return;
     mounted = true;
     mount();
   };
-  return { start: run, refresh: run, get mounted() { return mounted; } };
+  return {
+    start: run,
+    refresh: run,
+    dispose() { disposed = true; reads += 1; },
+    get mounted() { return mounted; },
+  };
 }

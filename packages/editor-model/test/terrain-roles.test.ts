@@ -240,3 +240,81 @@ test("a failed inventory read clears the roles and says why, so older rules are 
   deepEqual(cleared.assetTiles, []);
   deepEqual(cleared.problems, ["Tiles/pond.tkrtst: rules[0] must name a palette member"]);
 });
+test("scene inventory classifies every build tile-owner route and ignores ambiguous owners", async () => {
+  const tileset = (name: string): string => `contract: tileset
+version: 1.0.0-pre.2
+name: ${name}
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles: [{tile: Tiles/water.tkrtle}]
+terrains:
+  - id: water
+    name: Water
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: partial
+    sync: independent
+    rules: [{id: east, when: {e: same}, use: {tile: Tiles/water.tkrtle}}]
+outputBinding: {target: Tiles/${name}.tst, detail: 1, slots: [{slot: 1, tile: Tiles/water.tkrtle}]}
+`;
+  const tile = JSON.stringify({
+    contract: "tile", version: "1.0.0-pre.1", name: "Water", projection: "2d", role: "floor",
+    visual: { transparent: { mode: "alpha" }, sample: { file: "Bitmap/missing.bin", rect: [0, 0, 32, 32] } },
+  });
+  const files = {
+    "Tiles/one.tkrtst": new TextEncoder().encode(tileset("One")),
+    "Tiles/water.tkrtle": new TextEncoder().encode(tile),
+  };
+  const scenes = [
+    ["tilePalette", `[{id: ground}]`, `tilePalette: [{}, {tile: Tiles/water.tkrtle}]`],
+    ["tileOverrides", `[{id: ground}]`, `tileOverrides: [{floor: ground, cell: [0, 0], tile: {tile: Tiles/water.tkrtle}}]`],
+    ["walkableTiles", `[{id: ground, boundarySources: {walkableTiles: [{tile: Tiles/water.tkrtle}]}}]`, ""],
+  ] as const;
+  for (const [route, floors, source] of scenes) {
+    const storage = createMemoryPlatformServices({ files });
+    const text = `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors: ${floors}
+${source}
+`;
+    const result = await loadTerrainSceneProjectInventory(storage.fs, "Boards/pond.tkrscn", text);
+    ok(!result.ok, `${route} makes the referenced tileset's missing artwork blocking`);
+    if (!result.ok) ok(result.problems.some(({ path }) => path === "Bitmap/missing.bin"), `${route} failed for missing artwork`);
+  }
+
+  const unusedStorage = createMemoryPlatformServices({ files });
+  const unused = await loadTerrainSceneProjectInventory(unusedStorage.fs, "Boards/pond.tkrscn", `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors: [{id: ground}]
+`);
+  ok(unused.ok, "an unused tileset's missing artwork remains nonblocking");
+  if (unused.ok) equal(unused.tilesets.size, 1, "the tileset was successfully inventoried");
+
+  const duplicateStorage = createMemoryPlatformServices({ files: {
+    ...files,
+    "Tiles/two.tkrtst": new TextEncoder().encode(tileset("Two")),
+  } });
+  const duplicate = await loadTerrainSceneProjectInventory(duplicateStorage.fs, "Boards/pond.tkrscn", `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors: [{id: ground}]
+tilePalette: [{tile: Tiles/water.tkrtle}]
+`);
+  ok(duplicate.ok, "a duplicated tile owner is not classified as used, matching the build's ambiguous-owner behavior");
+  if (duplicate.ok) equal(duplicate.tilesets.size, 2, "both owners were successfully inventoried");
+
+  const regionStorage = createMemoryPlatformServices({ files });
+  const region = await loadTerrainSceneProjectInventory(regionStorage.fs, "Boards/pond.tkrscn", `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors: [{id: ground}]
+terrainRegions: [{id: pond, floor: ground, terrain: {tileset: Tiles/one.tkrtst, terrain: water}, coverage: {shape: tile-grid, spans: [[0, 0, 1]]}}]
+`);
+  ok(!region.ok, "terrainRegions directly mark their tileset as used");
+  if (!region.ok) ok(region.problems.some(({ path }) => path === "Bitmap/missing.bin"), "terrainRegions fail for missing artwork");
+});

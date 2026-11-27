@@ -97,8 +97,51 @@ test("legacy slots, name recognition in any case and folder, and explicit marks 
   equal(autotileSourceForTile("terrain\\ordinary.tst1", new Set(["terrain\\ordinary.tst"])), "terrain\\ordinary.tst");
   equal(autotileSourceForTile("terrain\\ordinary.tan", new Set(["terrain\\ordinary.tst"])), null);
   equal(autotileSourceForTile("terrain\\ordinary.tst1"), null);
-  equal(normalizeAutotileSource("Tiles/grass.tst"), "grass.tst");
+  equal(normalizeAutotileSource("Tiles/Grass.tst"), "Grass.tst");
   equal(autotileSourceForTile("Tiles\\grass.tst1", new Set(["grass.tst"])), "Tiles\\grass.tst");
+});
+
+test("named autotile identities stay case-sensitive through board edits and undo", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const lowercase = "Tiles\\AUTOTILES_grass.tst";
+  const uppercase = "Tiles\\AUTOTILES_Grass.tst";
+  s.brush = { kind: "tile", tile: `${lowercase}14`, label: "lowercase grass" };
+  await click(s, c);
+  s.brush = { kind: "tile", tile: `${uppercase}14`, label: "uppercase grass" };
+  await click(s, { x: c.x + 1, y: c.y });
+  equal(tile(s, c.x, c.y), `${lowercase}51`);
+  equal(tile(s, c.x + 1, c.y), `${uppercase}51`);
+  ok(s.doc.undo().ok);
+  equal(tile(s, c.x, c.y), `${lowercase}51`);
+  equal(tile(s, c.x + 1, c.y), "");
+});
+
+test("marked Tiles/ aliases connect with and without Shift while retaining board reference spelling", async () => {
+  for (const shift of [false, true]) {
+    const s = rig("2d");
+    const c = centreOf(s);
+    const prefixed = "Tiles/grass.tst";
+    const unprefixed = "grass.tst";
+    s.markedSources = new Set([unprefixed]);
+    s.autotile = false;
+    s.brush = { kind: "tile", tile: `${prefixed}14`, label: "prefixed grass" };
+    await click(s, c);
+    s.brush = { kind: "tile", tile: `${unprefixed}14`, label: "unprefixed grass" };
+    await click(s, { x: c.x + 1, y: c.y });
+    s.autotile = true;
+    s.brush = { kind: "tile", tile: `${unprefixed}14`, label: "marked unprefixed grass" };
+    await click(s, { x: c.x + 1, y: c.y }, shift ? { shift: true } : none);
+    deepEqual(
+      [tile(s, c.x, c.y), tile(s, c.x + 1, c.y)],
+      ["Tiles/grass.tst48", "grass.tst50"],
+    );
+    ok(s.doc.undo().ok);
+    deepEqual(
+      [tile(s, c.x, c.y), tile(s, c.x + 1, c.y)],
+      ["Tiles/grass.tst14", "grass.tst14"],
+    );
+  }
 });
 
 test("a set shorter than 52 tiles names the shapes it cannot draw, and unused slots are never named", () => {

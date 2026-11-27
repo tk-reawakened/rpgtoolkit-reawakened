@@ -195,7 +195,35 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
   }
   const parsedScene = text === undefined ? null : readScene(text);
   const usedTilesets = new Set<string>();
-  if (parsedScene?.ok) for (const region of parsedScene.scene.terrainRegions ?? []) usedTilesets.add(identity(region.terrain.tileset));
+  const owners = new Map<string, string[]>();
+  const tilesetsByIdentity = new Map<string, Tileset>();
+  for (const [path, tileset] of result.tilesets) {
+    const pathKey = identity(path);
+    if (!tilesetsByIdentity.has(pathKey)) tilesetsByIdentity.set(pathKey, tileset);
+    for (const member of tileset.tiles) {
+      const key = identity(member.tile);
+      const matches = owners.get(key) ?? [];
+      if (!matches.includes(path)) matches.push(path);
+      owners.set(key, matches);
+    }
+  }
+  const useOwnedTile = (reference: { readonly tile?: string }): void => {
+    if (reference.tile === undefined) return;
+    const matches = owners.get(identity(reference.tile)) ?? [];
+    if (matches.length === 1) usedTilesets.add(identity(matches[0]!));
+  };
+  if (parsedScene?.ok) {
+    const scene = parsedScene.scene;
+    for (const entry of scene.tilePalette ?? []) useOwnedTile(entry);
+    for (const override of scene.tileOverrides ?? []) useOwnedTile(override.tile);
+    for (const floor of scene.floors) for (const reference of floor.boundarySources?.walkableTiles ?? []) useOwnedTile(reference);
+    for (const region of scene.terrainRegions ?? []) {
+      const key = identity(region.terrain.tileset);
+      const entry = tilesetsByIdentity.get(key);
+      const recipe = entry?.terrains?.find((candidate) => candidate.id === region.terrain.terrain);
+      if (recipe?.resolver.provider === "builtin" && recipe.resolver.id === "neighbour-match" && recipe.resolver.version === "1.0.0") usedTilesets.add(key);
+    }
+  }
   const content = await tilesetContentRevisions(fs, result, usedTilesets);
   if (!content.ok) return content;
   const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));

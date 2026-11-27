@@ -12,11 +12,21 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
   const status = container.ownerDocument.createElement("p");
   status.setAttribute("role", "status");
   status.textContent = "Loading terrain assets…";
+  const retry = container.ownerDocument.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Retry loading terrain assets";
+  retry.hidden = true;
   const content = container.ownerDocument.createElement("div");
-  container.append(status, content);
+  container.append(status, retry, content);
   let mounted: ViewHandle | null = null;
   let disposed = false;
   let busy = false;
+  let refreshInventory = (): void => {};
+  retry.addEventListener("click", () => {
+    retry.hidden = true;
+    status.textContent = "Retrying terrain assets…";
+    refreshInventory();
+  });
   const fs = project.services.fs;
   let recoveryNotice: string | null = null;
   const report = (message: string): void => {
@@ -74,7 +84,12 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
     if (disposed || mine !== read) return false;
     // A failed read clears the roles instead of leaving the last good ones on screen as current.
     assets.set(terrainSceneAssets(inventory));
-    if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return false; }
+    if (!inventory.ok) {
+      retry.hidden = false;
+      report(`Terrain asset inventory failed: ${inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`);
+      return false;
+    }
+    retry.hidden = true;
     report(inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
     owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
     return true;
@@ -128,11 +143,15 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       } }),
     });
   };
-  // Mounting belongs to the latest successful read, not to the first: a reactivation's refresh can supersede startup.
   const lifecycle = createTerrainSceneMount(load, mount);
-  void lifecycle.start().catch((error: unknown) => report(String(error)));
+  refreshInventory = () => { void lifecycle.refresh().catch((error: unknown) => report(String(error))); };
+  void lifecycle.start().catch((error: unknown) => {
+    if (disposed) return;
+    retry.hidden = false;
+    report(`Terrain asset inventory failed: ${String(error)}`);
+  });
   return {
-    dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); },
+    dispose() { disposed = true; lifecycle.dispose(); unregisterConflictReview(); mounted?.dispose(); status.remove(); retry.remove(); content.remove(); },
     /** The workbench re-shows a retained view here: re-read the tilesets so its rules are never the ones from before a recipe edit. */
     refreshAssets() { void lifecycle.refresh(); },
   };

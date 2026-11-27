@@ -25,13 +25,7 @@ export function autotileSource(reference: string): string | null {
 /** Source identity for marked sets, whose browser paths may omit the reserved Tiles/ root. */
 export function normalizeAutotileSource(source: string): string {
   const path = source.replaceAll("/", "\\");
-  return (path.slice(0, 6).toLowerCase() === "tiles\\" ? path.slice(6) : path).toLowerCase();
-}
-
-function sourceForTileReference(reference: string, source: string): string {
-  const prefix = /^Tiles[\\/]/i.exec(reference)?.[0].replaceAll("/", "\\") ?? "";
-  const path = source.replaceAll("/", "\\");
-  return `${prefix}${path.slice(0, 6).toLowerCase() === "tiles\\" ? path.slice(6) : path}`;
+  return path.slice(0, 6).toLowerCase() === "tiles\\" ? path.slice(6) : path;
 }
 
 /** Resolve a named or explicitly marked source for one tile reference. */
@@ -39,7 +33,7 @@ export function autotileSourceForTile(reference: string, markedSources?: Readonl
   const named = autotileSource(reference);
   if (named !== null) return named;
   if (markedSources !== undefined) {
-    for (const source of markedSources) if (slotOf(reference, source) !== null) return sourceForTileReference(reference, source);
+    for (const source of markedSources) if (slotOf(reference, source) !== null) return reference.replace(/\d+$/, "");
   }
   return null;
 }
@@ -144,7 +138,7 @@ export function paintAutotileStroke(
       const key = candidate.y * board.grid.width + candidate.x;
       const existing = overlay.get(key) ?? boardTileAt(board, layer, candidate.x, candidate.y);
       const source = autotileSourceForTile(existing ?? "", markedSources);
-      if (source === null || (isolated !== null && source !== isolated)) continue;
+      if (source === null || (isolated !== null && normalizeAutotileSource(source) !== normalizeAutotileSource(isolated))) continue;
       const slot = shapeAt(board, layer, candidate, source, overlay);
       if (slotOf(existing, source) === slot) continue;
       const reshaped = `${source}${slot}`;

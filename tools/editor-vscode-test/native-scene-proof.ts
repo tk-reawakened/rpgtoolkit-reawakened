@@ -151,20 +151,47 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
 }
 
 /**
- * The recipe an open scene reads is edited and **saved** in VS Code, and the scene's role panel and preview must follow it
- * (#3533): the saved bytes are what the host re-reads, so a panel left on the pre-save rules would be stale advice.
+ * Exercise inventory ordering through the actual VS Code custom-editor provider and webview: initial failure is superseded
+ * by a saved success before readiness, then successful reads are superseded by failures after readiness and disposal.
  */
-export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>, writeBacking: (path: string, bytes: Uint8Array) => Promise<void>): Promise<void> {
+type ReadResultGate = { readonly reached: Promise<void>; readonly completed: Promise<void>; release(): void };
+export async function runVscodeTerrainRoleRefreshProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  writeBacking: (path: string, bytes: Uint8Array) => Promise<void>,
+  pauseReadResult: (path: string) => ReadResultGate,
+): Promise<void> {
   const recipePath = "Tiles/roles.tkrtst";
   const originalRecipe = await readBacking(recipePath);
-  // The failure exists before the provider creates the webview, so this proves its initialize message carries problems.
-  await writeBacking(recipePath, new TextEncoder().encode("not a tileset\n"));
-  await openNativeQuickOpenFile(page, expect, NATIVE_ROLES_SCENE_PATH);
-  // Two native scenes are open by now; the roles scene is the one with a 4 x 3 grid (the first is 2 x 2).
+  const saveRecipeHeader = async (header: string): Promise<void> => {
+    await openNativeQuickOpenFile(page, expect, recipePath);
+    const tab = page.getByRole("tab").filter({ hasText: "roles.tkrtst" }).first();
+    await expect(tab).toBeVisible();
+    await page.locator(".monaco-editor:visible .view-lines").first().click();
+    await page.keyboard.press("ControlOrMeta+p");
+    const goTo = page.locator(".quick-input-widget input:visible");
+    await expect(goTo).toHaveCount(1);
+    await goTo.fill(":1");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".quick-input-widget")).toBeHidden({ timeout: 10_000 });
+    await page.keyboard.press("End");
+    await page.keyboard.press("Shift+Home");
+    await page.keyboard.insertText(header);
+    await expect(tab).toHaveClass(/dirty/);
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(tab).not.toHaveClass(/dirty/);
+    await expect.poll(async () => new TextDecoder().decode(await readBacking(recipePath)).startsWith(`${header}\n`)).toBe(true);
+  };
   const rolesScene = async (): Promise<Frame> => {
     let found: Frame | undefined;
     await expect.poll(async () => {
       for (const frame of page.frames()) {
+        const parent = frame.parentFrame();
+        if (parent === null) continue;
+        const element = await frame.frameElement().catch(() => null);
+        if (element === null || !await element.isVisible().catch(() => false)) continue;
         if (await frame.getByRole("button", { name: /^Cell 3, 2:/ }).isVisible().catch(() => false)) { found = frame; return true; }
       }
       return false;
@@ -172,18 +199,82 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
     if (found === undefined) throw new Error("The roles-proof scene is not showing");
     return found;
   };
+
+  await saveRecipeHeader("not a tileset");
+  const startupFailure = pauseReadResult(`/${recipePath}`);
+  try {
+    await openNativeQuickOpenFile(page, expect, NATIVE_ROLES_SCENE_PATH);
+    await startupFailure.reached;
+    // Repair the recipe through its real VS Code editor while the startup inventory still holds the malformed bytes.
+    await saveRecipeHeader("contract: tileset");
+    await page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" }).first().click();
+    let view = await rolesScene();
+    const tileset = view.getByRole("combobox", { name: "Tileset", exact: true });
+    const terrain = view.getByRole("combobox", { name: "Terrain", exact: true });
+    await expect(tileset.getByRole("option", { name: "Tiles/roles.tkrtst", exact: true })).toHaveCount(1, { timeout: 15_000 });
+    await tileset.selectOption({ label: "Tiles/roles.tkrtst" });
+    await terrain.selectOption({ label: "Shore" });
+    const recoveredRoles = view.getByRole("region", { name: "Native terrain roles" });
+    await expect(recoveredRoles).toContainText("Native terrain rules: Shore", { timeout: 15_000 });
+    startupFailure.release();
+    await startupFailure.completed;
+    await page.waitForTimeout(500);
+    await expect(recoveredRoles).toContainText("Native terrain rules: Shore");
+    await expect(view.getByRole("alert", { name: "Terrain rules unavailable" })).toHaveCount(0);
+  } finally {
+    startupFailure.release();
+  }
+
+  // A newer failure after readiness must clear roles even when a previous successful response completes last.
   let view = await rolesScene();
-  const unavailable = view.getByRole("alert", { name: "Terrain rules unavailable" });
-  await expect(unavailable).toContainText(/roles\.tkrtst|tileset/i);
-  const refresh = view.getByRole("button", { name: "Refresh terrain rules", exact: true });
-  const manualTile = view.getByRole("combobox", { name: "Manual tile", exact: true });
-  await expect(refresh).toBeVisible();
-  await expect(manualTile).toBeDisabled();
+  const refreshDuringFailure = view.getByRole("button", { name: "Refresh terrain rules", exact: true });
+  const staleSuccess = pauseReadResult(`/${recipePath}`);
+  await refreshDuringFailure.click();
+  try {
+    await staleSuccess.reached;
+    await saveRecipeHeader("not a tileset");
+    await page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" }).first().click();
+    view = await rolesScene();
+    const unavailable = view.getByRole("alert", { name: "Terrain rules unavailable" });
+    await expect(unavailable).toContainText(/roles\.tkrtst|tileset/i);
+    await expect(view.getByRole("region", { name: "Native terrain roles" })).toHaveCount(0);
+    staleSuccess.release();
+    await staleSuccess.completed;
+    await page.waitForTimeout(500);
+    await expect(view.getByRole("region", { name: "Native terrain roles" })).toHaveCount(0);
+    await expect(unavailable).toContainText(/roles\.tkrtst|tileset/i);
+  } finally {
+    staleSuccess.release();
+  }
+
+  // Disposal while a real read is held must prevent its late result from reaching the closed webview.
+  view = await rolesScene();
+  const disposedRead = pauseReadResult(`/${recipePath}`);
+  await view.getByRole("button", { name: "Refresh terrain rules", exact: true }).click();
+  try {
+    await disposedRead.reached;
+    await page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" }).first().click();
+    await page.keyboard.press("ControlOrMeta+w");
+    await expect(page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" })).toHaveCount(0);
+    disposedRead.release();
+    await disposedRead.completed;
+    await page.waitForTimeout(500);
+  } finally {
+    disposedRead.release();
+  }
+
   await writeBacking(recipePath, originalRecipe);
-  await refresh.click();
+  await openNativeQuickOpenFile(page, expect, NATIVE_ROLES_SCENE_PATH);
+  view = await rolesScene();
+  const tileset = view.getByRole("combobox", { name: "Tileset", exact: true });
+  const terrain = view.getByRole("combobox", { name: "Terrain", exact: true });
+  await expect(tileset.getByRole("option", { name: "Tiles/roles.tkrtst", exact: true })).toHaveCount(1, { timeout: 15_000 });
+  await tileset.selectOption({ label: "Tiles/roles.tkrtst" });
+  await terrain.selectOption({ label: "Shore" });
   const recoveredRoles = view.getByRole("region", { name: "Native terrain roles" });
+  const manualTile = view.getByRole("combobox", { name: "Manual tile", exact: true });
   await expect(recoveredRoles).toContainText("Native terrain rules: Shore", { timeout: 15_000 });
-  await expect(unavailable).toHaveCount(0);
+  await expect(view.getByRole("alert", { name: "Terrain rules unavailable" })).toHaveCount(0);
   await expect(view.getByRole("status").filter({ hasText: "roles.tkrtst" })).toHaveCount(0);
   await expect(manualTile).toBeEnabled();
   await expect(manualTile).toHaveValue("0");
@@ -193,8 +284,6 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
   await expect(view.getByRole("button", { name: /^Cell 0, 0:.*roles-water\.tkrtle/ })).toBeVisible();
   await view.getByRole("radio", { name: "Clear override", exact: true }).check();
   await view.getByRole("button", { name: /^Cell 0, 0:/ }).click();
-  await view.getByRole("combobox", { name: "Tileset", exact: true }).selectOption("Tiles/roles.tkrtst");
-  await view.getByRole("combobox", { name: "Terrain", exact: true }).selectOption({ label: "Shore" });
   const roles = view.getByRole("region", { name: "Native terrain roles" });
   await expect(roles).toContainText("Native terrain rules: Shore");
   await expect(roles).toContainText("Four neighbours, partial coverage: 8 of 16 neighbourhoods have a tile");
@@ -241,11 +330,43 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
   await view.getByRole("button", { name: "Preview build", exact: true }).click();
   const previewImage = view.getByRole("img", { name: "Compiled scene preview" });
   await expect(previewImage).toBeVisible({ timeout: 15_000 });
+  const countColour = (red: number, green: number, blue: number): Promise<number> => previewImage.evaluate((element, rgb) => {
+    const canvas = element as HTMLCanvasElement;
+    const context = canvas.getContext("2d");
+    if (context === null) throw new Error("The scene preview has no 2D canvas context.");
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] === rgb[0] && pixels[i + 1] === rgb[1] && pixels[i + 2] === rgb[2] && pixels[i + 3] === 255) count += 1;
+    }
+    return count;
+  }, [red, green, blue]);
+  await expect.poll(() => countColour(20, 80, 160), { message: "the first preview contains the original water pixels" }).toBeGreaterThan(0);
   const imagePath = "Tiles/roles-sheet.png";
   const originalImage = await readBacking(imagePath);
-  const changedPixels = new Uint8Array(64 * 32 * 4);
-  for (let offset = 0; offset < changedPixels.length; offset += 4) changedPixels.set([30, 160, 60, 255], offset);
-  await writeBacking(imagePath, encodeScenePng({ w: 64, h: 32, rgba: changedPixels }));
-  await expect(previewImage).toHaveCount(0, { timeout: 15_000 });
-  await writeBacking(imagePath, originalImage);
+  try {
+    const changedPixels = new Uint8Array(64 * 32 * 4);
+    for (let offset = 0; offset < changedPixels.length; offset += 4) changedPixels.set([30, 160, 60, 255], offset);
+    await writeBacking(imagePath, encodeScenePng({ w: 64, h: 32, rgba: changedPixels }));
+    // External writes bypass the virtual provider, so explicitly deliver its corresponding filesystem event.
+    await page.keyboard.press("ControlOrMeta+Shift+P");
+    const command = page.locator(".quick-input-widget");
+    const input = command.locator("input:visible");
+    await expect(input).toHaveCount(1);
+    await input.fill(">Test: Notify Scene Image Changed");
+    await expect(page.getByRole("option", { name: /^Test: Notify Scene Image Changed(?:,|$)/ }).first()).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(command).toBeHidden();
+    await expect(previewImage).toHaveCount(0, { timeout: 15_000 });
+    await view.getByRole("button", { name: "Preview build", exact: true }).click();
+    await expect(previewImage).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => countColour(30, 160, 60), { message: "the rebuilt preview contains the changed source pixels" }).toBeGreaterThan(0);
+    expect(await countColour(20, 80, 160)).toBe(0);
+  } finally {
+    await writeBacking(imagePath, originalImage);
+  }
+  const rolesTab = page.getByRole("tab").filter({ hasText: "roles-proof.tkrscn" }).first();
+  await rolesTab.click();
+  await page.keyboard.press("ControlOrMeta+s");
+  await expect(rolesTab).not.toHaveClass(/dirty/);
 }

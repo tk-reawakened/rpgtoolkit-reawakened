@@ -1,4 +1,4 @@
-import type { Colorref } from "@tk-reawakened/core";
+import { readTileset, type Colorref } from "@tk-reawakened/core";
 import {
     BOARD_TOOLS,
     DEFAULT_EDITOR_PREFERENCES,
@@ -239,6 +239,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     };
   }, []);
 
+  const tileCountRequest = useRef(0);
   const markedSources = useMemo(() => new Set(autotileMarks.map((path) => path.replaceAll("/", "\\"))), [autotileMarks]);
   const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling, markedSources });
   const brush = brushFor(brushSelection, stamp);
@@ -320,23 +321,32 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         const source = tileSourceOf(tile);
         const context = latest.current.browser;
         if (source === null || context === undefined) return false;
-        const selected = context.session.getSnapshot().selection;
-        const previousSource = selected?.boardTile == null ? null : tileSourceOf(selected.boardTile);
-        const autotileTileCount = previousSource !== null
-          && normalizeAutotileSource(previousSource.file) === normalizeAutotileSource(source.file)
-          ? selected?.autotileTileCount
-          : undefined;
+        const selection = context.session.getSnapshot().selection;
+        const previousSource = selection?.boardTile == null ? null : tileSourceOf(selection.boardTile);
+        const normalizedSource = normalizeAutotileSource(source.file);
+        const sameSource = previousSource !== null && normalizeAutotileSource(previousSource.file) === normalizedSource;
         const picked = {
           kind: "tiles" as const,
           path: referencePath(context.layout, "tiles", source.file),
           reference: tile,
           label: source.label,
           boardTile: tile,
-          ...(autotileTileCount === undefined ? {} : { autotileTileCount }),
+          ...(sameSource && selection?.autotileTileCount !== undefined ? { autotileTileCount: selection.autotileTileCount } : {}),
           // The shared browser's selection says whether it is a stamp; a tile is not one.
           stamp: null,
         };
+        const request = ++tileCountRequest.current;
         context.session.update({ selection: picked });
+        if (picked.autotileTileCount === undefined) {
+          void context.fs.read(picked.path).then((result) => {
+            if (!result.ok || request !== tileCountRequest.current) return;
+            const parsed = readTileset(result.value, picked.path);
+            if (!parsed.ok) return;
+            const current = context.session.getSnapshot().selection;
+            if (current?.kind !== "tiles" || current.path !== picked.path || current.reference !== picked.reference) return;
+            context.session.update({ selection: { ...current, autotileTileCount: parsed.value.tiles.length } });
+          });
+        }
         return true;
       },
     }),

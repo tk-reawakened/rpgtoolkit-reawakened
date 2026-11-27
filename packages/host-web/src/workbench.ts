@@ -71,6 +71,7 @@ import {
 import { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type BattleBackgroundAuditionTarget, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { rootFolderOf } from "./language.ts";
+import type { BrowserSession } from "@tk-reawakened/editor-ui";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -242,6 +243,34 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
+  const contextualBrowserSession: BrowserSession = {
+    getSnapshot: () => sessionForActiveGame().getSnapshot(),
+    update: (update) => sessionForActiveGame().update(update),
+    subscribe(listener) {
+      let current = sessionForActiveGame();
+      let unsubscribeSession = current.subscribe(listener);
+      const unsubscribeTabs = tabs.subscribe(() => {
+        const next = sessionForActiveGame();
+        if (next === current) return;
+        unsubscribeSession();
+        current = next;
+        unsubscribeSession = current.subscribe(listener);
+        listener([]);
+      });
+      return () => {
+        unsubscribeTabs();
+        unsubscribeSession();
+      };
+    },
+  };
+  function sessionForActiveGame(): BrowserSession {
+    const activeKey = tabs.getSnapshot().active;
+    const entry = activeKey === null ? undefined : views.get(activeKey);
+    const owner = entry === undefined
+      ? null
+      : ownersByDocument.get(entry.document.identity.key) ?? fallbackOwnerForPath(entry.document.identity.path);
+    return project.browserSessionForGame(owner?.mainPath ?? main);
+  }
   const backgroundTarget = (document: BattleBackgroundDocument, controls: AuditionControls, layout: ProjectLayout): BattleBackgroundAuditionTarget => ({
     controls,
     reference: (field) => document.getSnapshot()[field],
@@ -1004,7 +1033,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       },
       set: (name) => { void services.settings.set("user", RUN_SETUP_SETTING, name); },
     },
-    browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
+    browser: { session: contextualBrowserSession, fs: services.fs, layout: projectLayout, openSource },
     onReturnFromVisit: async () => {
       const returned = await visits.returnFromVisit();
       if (!returned.ok) return returned.message;
