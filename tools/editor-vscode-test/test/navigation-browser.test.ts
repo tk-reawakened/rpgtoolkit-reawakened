@@ -209,7 +209,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     dialogs.files.push({ name: "hero.png", bytes: pickedBytes });
     dialogs.answers.push("copy");
     await click(button(element, "Choose a file from outside the project…"));
-    deepEqual(await completed(chosen, "copying finishes the asset picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(await completed(chosen, "copying finishes the asset picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
 
     const writesBeforeSelection = control.tick;
@@ -218,7 +218,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     dialogs.answers.push("use");
     await click(element.querySelector('[role="option"]'));
     await click(button(element, "Use hero.png…"));
-    deepEqual(await completed(existing, "choosing an existing reference finishes the picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(await completed(existing, "choosing an existing reference finishes the picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
     equal(control.tick, writesBeforeSelection, "choosing an existing reference creates and writes no file");
 
@@ -231,7 +231,7 @@ test("an outside asset is copied into its reserved folder only after the user ag
     option.focus();
     equal(document.activeElement, option, "the loaded option has keyboard focus");
     await key(document.activeElement, "Enter");
-    deepEqual(await completed(readOnlyChoice, "keyboard selection finishes the picker"), { chosen: true, reference: "hero.png" }, "keyboard selection needs no project write");
+    deepEqual(await completed(readOnlyChoice, "keyboard selection finishes the picker"), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } }, "keyboard selection needs no project write");
     deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
     equal(control.tick, writesBeforeSelection, "read-only selection changes no file revision");
   } finally {
@@ -284,4 +284,142 @@ test("the layout is kept as identifiers and restored by a new workbench on the s
   await until(() => again.querySelector("#tkr-panel-game") !== null, `so does the Game panel; stored layout: ${stored.ok ? String(stored.value) : "none"}; panels now: ${JSON.stringify(second.layout.getPanels().map((panel) => [panel.id, panel.visible, panel.size]))}`);
   notEqual(second.layout.getPanels().find((panel) => panel.id === "game")?.visible, false);
   second.dispose();
+});
+
+// #3536: the browser host read the game files once per session, so a picker or a refresh after a `.gam` was added could
+// name the folders as they were before. A nested game that appears while the workbench is open must own its folders at
+// once, for the picker and for the mounted skin's own refresh alike.
+test("a game added after mounting owns its folders at once for the picker and the skin refresh", async () => {
+  const { BinaryReader, readMainFile, writeMainFile } = await import("@tk-reawakened/core");
+  // A BMP of the given size, so a preview's own sentence says which folder's picture was drawn.
+  const bmp = (width: number, height: number): Uint8Array => {
+    const row = Math.ceil(width * 3 / 4) * 4;
+    const bytes = new Uint8Array(54 + row * height);
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x42, 0x4d]);
+    view.setUint32(2, bytes.length, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, width, true);
+    view.setInt32(22, height, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, row * height, true);
+    return bytes;
+  };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put("Main/example.gam", gam);
+  // The outer game's picture, and a nested folder that will gain its own game file and a differently sized picture.
+  root.put("Game/Example/Bitmap/window.png", bmp(1, 1));
+  root.put("Game/Example/Inner/Bitmap/window.png", bmp(2, 1));
+  root.put("Game/Example/Inner/Bitmap/nested.png", bmp(1, 1));
+  root.put("Game/Example/Inner/Misc/inner.tkrskin", new TextEncoder().encode("contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/window.png\n"));
+  const dialogs = new ScriptedDialogs();
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:ownership", name: "Ownership" }, { dialogs, userSettings: userStorage() });
+  document.body.replaceChildren();
+  const element = document.createElement("div");
+  document.body.append(element);
+  const source = readMainFile(new BinaryReader(gam, "Main/example.gam"));
+  ok(source.ok);
+  const bench = await benchFor(web, element);
+  try {
+    const listed = async (pending: Promise<unknown>): Promise<string[]> => {
+      await until(() => element.querySelectorAll('[role="option"]').length > 0, "the picker lists the owning game's pictures");
+      const options = [...element.querySelectorAll('[role="option"]')].map((node) => node.textContent ?? "");
+      dialogs.answers.push("cancel");
+      await click(button(element, "Cancel"));
+      await completed(pending, "cancelling finishes the picker");
+      return options;
+    };
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Inner/Misc/inner.tkrskin")), ["window.png"], "the outer game owns the folder first");
+
+    // The skin is open, drawing the outer game's 1 × 1 picture.
+    const openSkin = async (): Promise<void> => {
+      for (const folder of ["Game", "Example", "Inner", "Misc"]) await key(row(element, folder), "ArrowRight");
+      await key(row(element, "inner.tkrskin"), "Enter");
+    };
+    const skin = () => element.querySelector('.tkr-editor-slot [aria-label="Native skin authoring"]');
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("1 × 1 pixels"), `the preview starts on the outer game's picture: ${skin()?.textContent ?? "no skin"}`);
+
+    // The nested game file appears while that tab is mounted, as New game would write it.
+    const nested = writeMainFile({ ...source.value, projectPath: "Game/Example/Inner", gameTitle: "Inner" });
+    ok(nested.ok);
+    root.put("Main/nested.gam", nested.value);
+
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Inner/Misc/inner.tkrskin")), ["nested.png", "window.png"], "the picker names the nested game's folder at once, without reopening the project");
+
+    // Another tab and back: the host refreshes the mounted skin, whose preview must now draw the nested game's 2 × 1 picture.
+    await key(row(element, "Main"), "ArrowRight");
+    await key(row(element, "example.gam"), "Enter");
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("2 × 1 pixels"), `the refresh draws the nested game's picture: ${skin()?.textContent ?? "no skin"}`);
+  } finally {
+    bench.dispose();
+  }
+});
+
+// #3536: when the fresh scan finds no game declaring a path, the startup layout must not be restored. A skin whose game
+// was removed is loose: its folders are the project root, and the picker and the preview must say the same thing.
+test("a game leaving ownership makes its skin loose, at the root for the picker and the preview", async () => {
+  const bmp = (width: number, height: number): Uint8Array => {
+    const row = Math.ceil(width * 3 / 4) * 4;
+    const bytes = new Uint8Array(54 + row * height);
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x42, 0x4d]);
+    view.setUint32(2, bytes.length, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, width, true);
+    view.setInt32(22, height, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, row * height, true);
+    return bytes;
+  };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put("Main/example.gam", gam);
+  root.put("Game/Example/Bitmap/game.png", bmp(1, 1));
+  root.put("Game/Example/Misc/loose.tkrskin", new TextEncoder().encode("contract: skin\nversion: 1.0.0-pre.1\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/window.png\n"));
+  // The root folders the skin must fall back to, and the picture they hold.
+  root.put("Bitmap/root.png", bmp(1, 1));
+  root.put("Bitmap/window.png", bmp(2, 1));
+  const dialogs = new ScriptedDialogs();
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:loose", name: "Loose" }, { dialogs, userSettings: userStorage() });
+  document.body.replaceChildren();
+  const element = document.createElement("div");
+  document.body.append(element);
+  // The launch the real host makes: the running game names Game/Example as the project's folders.
+  let made!: ReturnType<typeof createWorkbench>;
+  await act(() => { made = createWorkbench(web, element, { projectLayout: { projectFolder: "Game/Example" }, main: "Main/example.gam" }); });
+  await settle(act);
+  const bench = made;
+  try {
+    const listed = async (pending: Promise<unknown>): Promise<string[]> => {
+      await until(() => element.querySelectorAll('[role="option"]').length > 0, "the picker lists something");
+      const options = [...element.querySelectorAll('[role="option"]')].map((node) => node.textContent ?? "");
+      dialogs.answers.push("cancel");
+      await click(button(element, "Cancel"));
+      await completed(pending, "cancelling finishes the picker");
+      return options;
+    };
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Misc/loose.tkrskin")), ["game.png"], "the game owns the folder first");
+
+    // The game file goes away: nothing declares Game/Example any more.
+    root.put("Main/example.gam", null);
+    deepEqual(await listed(bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "a picture" }, "Game/Example/Misc/loose.tkrskin")), ["root.png", "window.png"], "the loose skin's picker reads the root folders, not the startup layout's");
+
+    // The mounted skin previews the same root folders: its 2 × 1 root picture, not the game's 1 × 1 one.
+    const openSkin = async (): Promise<void> => {
+      for (const folder of ["Game", "Example", "Misc"]) await key(row(element, folder), "ArrowRight");
+      await key(row(element, "loose.tkrskin"), "Enter");
+    };
+    const skin = () => element.querySelector('.tkr-editor-slot [aria-label="Native skin authoring"]');
+    await openSkin();
+    await until(() => (skin()?.textContent ?? "").includes("2 × 1 pixels"), `the preview reads the root picture: ${skin()?.textContent ?? "no skin"}`);
+  } finally {
+    bench.dispose();
+  }
 });

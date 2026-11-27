@@ -33,6 +33,7 @@
   "contributes": {
     "commands": [
       { "command": "tkr.editorWebProof.openProjectFile", "title": "Test: Open Proof Project File" },
+      { "command": "tkr.editorWebProof.notifySceneImageChanged", "title": "Test: Notify Scene Image Changed" },
       { "command": "tkr.editorWebProof.openScriptMultiRoot", "title": "Test: Open Script Proof Multi-root Workspace" },
       { "command": "tkr.editorWebProof.armScriptProjectSetting", "title": "Test: Arm Script Proof Project Setting" },
       { "command": "tkr.editorWebProof.armScriptFolderRemoval", "title": "Test: Arm Script Proof Folder Removal" },

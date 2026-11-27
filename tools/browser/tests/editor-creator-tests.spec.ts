@@ -212,6 +212,10 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const input = page.getByRole("textbox", { name: /^Program text/ });
   await expect(page.locator("#settings .monaco-editor:visible .view-lines")).toBeVisible();
   await expect(page.getByRole("tab", { name: CREATOR_TEST_SPEC_PATH, exact: true })).toBeVisible();
+  // A saved spec keeps its source editor and reveal; the TOOL-12 cards render beneath it (#3568).
+  const fixtureCards = page.getByRole("region", { name: "Visual test fixture editor", exact: true });
+  await expect(fixtureCards).toBeVisible();
+  await expect(fixtureCards.getByText(/Fixture at source line/)).toBeVisible();
   // The spec file itself can also be read by editor, history and file-stat work. Gate the byte read of an
   // otherwise unused file in the real inventory so the hold cannot be consumed by opening the program.
   await page.evaluate(async ({ project, probe }) => {

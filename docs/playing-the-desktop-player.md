@@ -43,6 +43,14 @@ records the package's path, its `sha256`, its size and the game's settings. The 
 before it opens an entry, so a package swapped on disk is refused with a message naming both values instead of launching
 whatever is there now.
 
+**Install, play and remove.** When the player starts with no game chosen, it lists what is installed and offers
+**Install setup ZIP…**. Choose the reviewed `.setup.zip` an author sent you; the player checks the descriptor's SHA-256
+and byte size against the package inside, copies only that verified package into its library, and refuses a mismatch
+with the reason. **Play** runs an installed game. **Remove** deletes the library registration and the package copy and
+keeps your saves; it asks first. Installing is registering: no installer program runs, nothing is downloaded, and no
+administrator rights are needed. The setup ZIP is unsigned, so its hash proves the file was not damaged in transit, not
+who made it.
+
 ## Where the two files live
 
 | Platform | Application-data directory |

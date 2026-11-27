@@ -49,6 +49,7 @@ import {
   type CreateBoardResult,
   type NewBoardSettings,
   type LayoutModel,
+  type AssetContent,
   type PickOutcome,
   type ProjectLayout,
   type ProjectTree,
@@ -63,6 +64,7 @@ import {
   projectLayoutOwnerForDocumentPath,
   resolveReservedFolderPath,
   createCommandRegistry,
+  type CommandRegistry,
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
   type ProjectLayoutOwner,
@@ -71,6 +73,7 @@ import {
 import { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type BattleBackgroundAuditionTarget, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { rootFolderOf } from "./language.ts";
+import type { BrowserSession } from "@tk-reawakened/editor-ui";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -83,12 +86,21 @@ export interface WorkbenchOptions {
   readonly projectLayout?: ProjectLayout;
   /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
   readonly main?: string;
+  /** Live host Help commands, including commands registered by the currently mounted help panel. */
+  readonly helpCommands?: CommandRegistry;
 }
+
+/** The kinds whose files a linked Open can show in their own editor tab here; a picture or sound file is not one of them. */
+const LINKED_EDITOR_KINDS = ["board", "program", "item", "character", "tile-bitmap", "animation", "special-move", "status-effect"] as const;
+type LinkedEditorKind = (typeof LINKED_EDITOR_KINDS)[number];
+const isLinkedEditorKind = (kind: string | undefined): kind is LinkedEditorKind => (LINKED_EDITOR_KINDS as readonly (string | undefined)[]).includes(kind);
 
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
 export interface PickAssetRequest {
   readonly kind: AssetKind;
   readonly extensions: readonly string[];
+  /** Also offer files outside `extensions` whose own bytes the field accepts (audio: a WAV or MIDI header). */
+  readonly content?: AssetContent;
   readonly field: string;
   /** The picker's title, when it should say more than the field. */
   readonly title?: string;
@@ -239,9 +251,55 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     (knownLayouts === null ? null : projectLayoutOwnerForDocumentPath(path, knownLayouts)) ?? fallbackOwnerForPath(path);
   const ownersByDocument = new Map<string, ProjectLayoutOwner>();
   const ownerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    // A mounted fight background's links and audition controls share one layout. Refreshing the list of
+    // declared games must not make its picker or Run menu point at a different recording (#3619).
+    if (kindForPath(path)?.id === "battle-background") {
+      const { key } = createDocumentIdentity(project.project.id, path);
+      const mountedOwner = views.has(key) ? ownersByDocument.get(key) : undefined;
+      if (mountedOwner !== undefined) return mountedOwner;
+    }
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
+  // Fight backgrounds keep the same mounted owner for their assets, the shell dock and the Run menu (#3619, #3621).
+  const shellOwnerForPath = (path: string): ProjectLayoutOwner => {
+    const active = tabs.getSnapshot().active;
+    const entry = active === null ? undefined : views.get(active);
+    if (entry?.document.kind === "battle-background" && entry.document.identity.path === path) {
+      const owner = ownersByDocument.get(entry.document.identity.key);
+      if (owner !== undefined) return owner;
+    }
+    return ownerForPathSync(path);
+  };
+  const contextualBrowserSession: BrowserSession = {
+    getSnapshot: () => sessionForActiveGame().getSnapshot(),
+    update: (update) => sessionForActiveGame().update(update),
+    subscribe(listener) {
+      let current = sessionForActiveGame();
+      let unsubscribeSession = current.subscribe(listener);
+      const unsubscribeTabs = tabs.subscribe(() => {
+        const next = sessionForActiveGame();
+        if (next === current) return;
+        unsubscribeSession();
+        current = next;
+        unsubscribeSession = current.subscribe(listener);
+        listener([]);
+      });
+      return () => {
+        unsubscribeTabs();
+        unsubscribeSession();
+      };
+    },
+  };
+  function sessionForActiveGame(): BrowserSession {
+    const active = tabs.getSnapshot().active;
+    const document = active === null ? undefined : views.get(active)?.document;
+    if (document === undefined) return project.browserSessionForGame(main);
+    const { key, path } = document.identity;
+    if (document.kind === "battle-background") return project.browserSessionForGame(shellOwnerForPath(path).mainPath);
+    const owner = ownersByDocument.get(key) ?? fallbackOwnerForPath(path);
+    return project.browserSessionForGame(owner.mainPath ?? main);
+  }
   const backgroundTarget = (document: BattleBackgroundDocument, controls: AuditionControls, layout: ProjectLayout): BattleBackgroundAuditionTarget => ({
     controls,
     reference: (field) => document.getSnapshot()[field],
@@ -265,6 +323,16 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       }
     },
   });
+  /**
+   * Resolve current game declarations without replacing the layouts already in use by mounted editors.
+   * Native skins use this for both picking and refreshing their preview (#3536).
+   */
+  const freshOwnerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    const owner = projectLayoutOwnerForDocumentPath(path, await declaredProjectLayouts(project, main));
+    // No game declares this path any more, so it is loose and its folders are the project root. The startup layout is
+    // deliberately not restored here: a skin whose game went away must read the root folders, and the picker with it.
+    return owner ?? { mainPath: null, layout: { projectFolder: "" } };
+  };
   /** The audition controls of the board tab in front, or none when the front tab is not a board. */
   const activeAudition = (): AuditionControls | null => {
     const active = tabs.getSnapshot().active;
@@ -377,12 +445,20 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             layout: owner.layout,
+            canOpen: (path) => isLinkedEditorKind(kindForPath(path)?.id),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
               const layout = document.kind === "main" ? projectLayout : owner.layout;
-              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation" && kind !== "special-move" && kind !== "status-effect") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              if (!isLinkedEditorKind(kind)) return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              // A battle-data form hands over the project path of the file it checked, the very path `canOpen` judged: open exactly that file, never a reserved-folder rewrite of it.
+              if (document.kind === "special-move" || document.kind === "status-effect" || document.kind === "battle-background") {
+                const checked = await visits.visit(document, path);
+                if (!checked.ok) return "message" in checked.error ? checked.error.message : checked.error.error.message;
+                await show(checked.document);
+                return null;
+              }
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : kind === "special-move" ? "specialMoves" : kind === "status-effect" ? "statusEffects" : "animations";
-              // The battle-data forms hand over the project-relative path of the file they checked; every other caller hands over the stored reference.
+              // Every other caller hands over the stored reference (or a path inside its folder).
               const inFolder = path.toLowerCase().startsWith(referencePath(layout, folder, "").toLowerCase());
               const target = kind === "animation" || (kind === "tile-bitmap" && inFolder) || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
@@ -419,7 +495,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           }, owner.mainPath, importBoard, (operation) => {
             const command = boardUpgradeCommands.find(({ id }) => id === `board.upgrade.${operation}`);
             if (command !== undefined) void command.run();
-          }, auditionFor(document)), shownIn: container };
+          }, auditionFor(document), () => freshOwnerForPath(document.identity.path).then((current) => current.layout)), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -985,12 +1061,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tabs,
     tree,
     projectLayout,
-    projectLayoutForPath: (path) => path === null ? projectLayout : ownerForPathSync(path).layout,
-    mainForPath: (path) => path === null ? main : ownerForPathSync(path).mainPath,
+    projectLayoutForPath: (path) => path === null ? projectLayout : shellOwnerForPath(path).layout,
+    mainForPath: (path) => path === null ? main : shellOwnerForPath(path).mainPath,
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
     extraCommands: [...auditionCommands, ...battleBackgroundCommands, ...scriptCommands, ...boardUpgradeCommands],
+    ...(options.helpCommands === undefined ? {} : { contextCommands: options.helpCommands }),
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {
@@ -1004,7 +1081,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       },
       set: (name) => { void services.settings.set("user", RUN_SETUP_SETTING, name); },
     },
-    browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
+    browser: { session: contextualBrowserSession, fs: services.fs, layout: projectLayout, openSource },
     onReturnFromVisit: async () => {
       const returned = await visits.returnFromVisit();
       if (!returned.ok) return returned.message;
@@ -1068,7 +1145,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return result;
     },
     async pickAsset(request, originPath) {
-      const owner = await ownerForPath(originPath ?? main ?? "");
+      const path = originPath ?? main ?? "";
+      const owner = kindForPath(path)?.id === "battle-background" ? await ownerForPath(path) : await freshOwnerForPath(path);
       const doc = element.ownerDocument;
       const before = doc.activeElement;
       const picker = createAssetPicker({
@@ -1076,6 +1154,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         layout: owner.layout,
         kind: request.kind,
         extensions: request.extensions,
+        ...(request.content === undefined ? {} : { content: request.content }),
         field: request.field,
       });
       const overlay = doc.createElement("div");

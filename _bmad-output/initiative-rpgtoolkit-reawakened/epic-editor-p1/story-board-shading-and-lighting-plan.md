@@ -125,3 +125,15 @@ An editor preview or Convert built to the spec would not match what the runner r
 - `pnpm --filter @tk-reawakened/editor-model test` -- expected: pass (package name to be confirmed from `package.json`)
 - `pnpm --filter @tk-reawakened/editor-ui test` -- expected: pass
 - `pnpm check` -- expected: lint, types and guard-rail checks pass; golden tests unchanged (G5)
+
+## Closure evidence
+
+The owner merged [#3359](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3359) at `7deb850a8d04b996ef99f32a0076d61996bea368` and closed [#1737](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1737); its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45048182978/job/137289308316) passed.
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| A board with both light and shade saves, reopens and renders in the runner | `board-preview.test.ts` checks the editor preview equals the engine's `viewbrd` for a board with shade and a light, and that each can be hidden. |
+| Cancellation and supported undo preserve the editable light before an explicit bake | Undo after Convert preserves the light, and the real Chromium proof reads saved bytes back. **Cancellation is not implemented**: Convert submits immediately, so this clause remains open in #3578. |
+| Per-node colour, cast layer and explicit conversion | Implemented in `board-lights.ts` and `board-shade-tools.ts`, with a "Lights and shading" panel and canvas commands; the golden changes for the corrected engine rules are explained in the PR. |
+
+The independent audit found this story is **not** ready to close. The runner golden independently proves light-plus-shade rendering, and Convert plus Undo works, but the approved plan requires cancelling a bake while preserving the editable light, and the shipped Convert submits immediately with no preview or cancel path. The Chromium proof moves the light through the numeric field, not by dragging. This remains in review, and [#3578](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3578) tracks the missing bake step. The engine's deferred white/black swap remains [#3358](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3358), which is not part of this story's acceptance.

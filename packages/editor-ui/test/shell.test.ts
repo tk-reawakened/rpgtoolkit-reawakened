@@ -2,25 +2,29 @@
 // as the other view tests: the Files and Game panels, the tab strip, the resizable workbench and the asset picker.
 // Assertions are on the DOM and on bytes. Every action is driven from the keyboard as well as by button.
 import { afterEach, after, before, test } from "node:test";
+import { createHash } from "node:crypto";
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
+  asMainDocument,
   createAssetPicker,
   createDocumentIdentity,
   openProgramDocument,
   createDocumentWorkspace,
   createLayoutModel,
   DEFAULT_WORKBENCH_PANELS,
+  prepareGamePackage,
   createProjectTree,
   createTabs,
   type AnyDocument,
   type Launcher,
 } from "@tk-reawakened/editor-model";
-import type { Launch } from "@tk-reawakened/platform-services";
+import { platformOk, type Launch } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { exampleBoard, exampleMain } from "./fixtures.ts";
+import { exampleBoard, exampleCharacter, exampleMain } from "./fixtures.ts";
 
 type Index = typeof import("../src/index.ts");
+let mount: Index["mount"];
 let mountShell: Index["mountShell"];
 let mountAssetPicker: Index["mountAssetPicker"];
 let mountEmptyExplorer: Index["mountEmptyExplorer"];
@@ -30,7 +34,7 @@ const shellDisposers: Array<() => void> = [];
 before(async () => {
   GlobalRegistrator.register();
   ({ act } = await import("preact/test-utils"));
-  ({ mountShell, mountAssetPicker, mountEmptyExplorer } = await import("@tk-reawakened/editor-ui"));
+  ({ mount, mountShell, mountAssetPicker, mountEmptyExplorer } = await import("@tk-reawakened/editor-ui"));
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -72,6 +76,8 @@ interface ShellOverrides {
   readonly projectLayout?: { readonly projectFolder: string };
   readonly main?: string;
   readonly mainForPath?: (path: string | null) => string | null;
+  /** Route the browser's package action through the real model preflight for a draft-guard regression. */
+  readonly useRealPackagePreflight?: boolean;
 }
 
 async function setup(
@@ -121,6 +127,16 @@ async function setup(
         });
       },
       onPackage: async (mainPath, version) => {
+        if (overrides.useRealPackagePreflight) {
+          const packageExport = {
+            sha256: async (bytes: Uint8Array) => platformOk(createHash("sha256").update(bytes).digest("hex")),
+            downloadFile: async () => { throw new Error("preflight must not download a package"); },
+          };
+          const prepared = await prepareGamePackage({ workspace, services: { ...host, packageExport }, mainPath, version });
+          if (!prepared.ok) return { ok: false, message: prepared.message };
+          packageCalls.push(`${mainPath}@${version}`);
+          return { ok: true, prepared: prepared.value };
+        }
         packageCalls.push(`${mainPath}@${version}`);
         return {
           ok: true,
@@ -346,6 +362,58 @@ test("panels show, hide and resize from drawer collapse icons and the keyboard, 
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
+
+test("package preflight withholds review for an unapplied settings title and resumes after discard", async () => {
+  const s = await setup(["folderWrite", "openExternal"], {
+    ...FILES,
+    "Prg/start.prg": new TextEncoder().encode("wait()\n"),
+    "Chrs/ada.tem": exampleCharacter(),
+  }, { useRealPackagePreflight: true });
+  await click(row(s.el, "Main"));
+  await key(row(s.el, "Main"), "ArrowRight");
+  await click(row(s.el, "example.gam"));
+  await key(row(s.el, "example.gam"), "Enter");
+  await settle();
+  const settings = s.editorSlot()!;
+  const mainDocument = asMainDocument(s.opened.find((candidate) => candidate.kind === "main")!);
+  const pendingEdits = s.workspace.pendingEdits(mainDocument);
+  const settingsView = mount(settings, {
+    document: mainDocument,
+    services: s.host,
+    pendingEdits,
+  });
+  shellDisposers.push(() => settingsView.dispose());
+  const title = settings.querySelector<HTMLInputElement>('input[id$="-gameTitle"]')!;
+  await act(() => {
+    title.value = "Unapplied package title";
+    title.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  equal((await pendingEdits.settle("guard")).ok, true, "a save guard still accepts applied settings while this draft is staged");
+
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /editor still holds edits/);
+  equal(s.el.querySelector(".tkr-files-package-result"), null, "no inventory or approval is offered");
+  equal(title.value, "Unapplied package title", "refused preflight leaves the field draft staged");
+  equal(mainDocument.getSnapshot().dirty, false, "the settings draft was not applied to the document");
+  deepEqual(s.packageCalls, [], "the rejected preflight never offers a prepared package");
+
+  s.host.answerQuestions("cancel", "revert");
+  await act(async () => {
+    deepEqual(await s.workspace.revert(mainDocument), { ok: false, reason: "cancelled" });
+  });
+  equal(title.value, "Unapplied package title", "cancelling Revert leaves the draft");
+  await act(async () => { equal((await s.workspace.revert(mainDocument)).ok, true); });
+  equal(title.value, "Example Game", "confirmed Revert drops the draft and leaves the saved title");
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  equal(s.el.querySelector(".tkr-files-package-result") === null, false, "discarded draft permits a fresh inventory review");
+  deepEqual(s.packageCalls, ["Main/example.gam@1.2.3"]);
+});
+
 test("package preflight displays its inventory and requires review before any download, and never writes into the project", async () => {
   const s = await setup();
   await click(button(s.el, "Package game…"));
@@ -393,6 +461,24 @@ test("changing the release version invalidates the prepared inventory and its co
   await act(() => { version.value = "2.0.0"; version.dispatchEvent(new Event("input", { bubbles: true })); });
   equal(s.el.querySelector(".tkr-files-package-result"), null);
   match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /Release version changed\. Prepare and review the package again\./);
+});
+
+test("preparing the package again clears the earlier inventory approval", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  const reviewed = s.el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(() => { reviewed.checked = true; reviewed.dispatchEvent(new Event("change", { bubbles: true })); });
+  equal(button(s.el, "Download game.tpk").disabled, false);
+  await click(button(s.el, "Prepare package"));
+  await settle();
+  deepEqual(s.packageCalls, ["Main/example.gam@1.2.3", "Main/example.gam@1.2.3"]);
+  equal(s.el.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked, false, "the earlier approval is cleared");
+  equal(button(s.el, "Download game.tpk").disabled, true, "downloads wait for a fresh review");
+  equal([...s.el.querySelectorAll("button")].some((candidate) => candidate.textContent === "Build setup ZIP for review" && !candidate.hasAttribute("disabled")), false, "the setup build also waits for a fresh review");
 });
 
 test("package release version remains visible and actionable after closing and reopening the panel", async () => {
@@ -448,7 +534,7 @@ test("the picker lists the folder and its folders, confirms before it chooses, a
   deepEqual(done, [], "cancelling the confirmation chooses nothing and leaves the picker open");
   host.answerQuestions("use");
   await key(document.activeElement ?? el, "Enter");
-  deepEqual(done, [{ chosen: true, reference: "sub\\b.png" }]);
+  deepEqual(done, [{ chosen: true, reference: "sub\\b.png", layout: { projectFolder: "" } }]);
 
   const second = pickerSetup(createMemoryPlatformServices({ files: { "Bitmap/a.png": new Uint8Array([1]) } }));
   await settle();
@@ -466,7 +552,7 @@ test("the picker copies a file in from outside after agreement, or explains why 
   const subfolder = el.querySelector<HTMLInputElement>('input[type="text"]')!;
   await act(() => { subfolder.value = "people"; subfolder.dispatchEvent(new Event("input", { bubbles: true })); });
   await click(button(el, "Choose a file from outside the project…"));
-  deepEqual(done, [{ chosen: true, reference: "people\\hero.png" }]);
+  deepEqual(done, [{ chosen: true, reference: "people\\hero.png", layout: { projectFolder: "" } }]);
   deepEqual(host.bytesOf("Bitmap/people/hero.png"), new Uint8Array([9, 9]));
 
   const none = createMemoryPlatformServices({ capabilities: ["folderWrite"] });

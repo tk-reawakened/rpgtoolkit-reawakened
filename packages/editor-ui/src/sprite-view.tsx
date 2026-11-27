@@ -1,6 +1,6 @@
 import { createEditTracker, kindForPath, classifyImageReference, projectLayoutForDocumentPath, referencePath, reservedFolder, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type AssetKind, type PendingEdits, type PickOutcome, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
-import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
@@ -191,7 +191,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits, pick
   const snapshot = useDocumentSnapshot(doc);
   // Counts every edit from the moment it is accepted until the document answers, queued ones included (#2613).
   const submitted = useRef(createEditTracker());
-  useEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
+  useLayoutEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
   const [formId] = useState(() => { viewsMade += 1; return `sprite-${viewsMade}`; });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [template, setTemplate] = useState("");

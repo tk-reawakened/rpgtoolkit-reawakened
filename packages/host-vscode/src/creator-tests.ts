@@ -26,8 +26,18 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
   context.subscriptions.push(workspaceRemoval, { dispose: () => {
     for (const [key] of projects) disposeProject(key);
   } });
-  context.subscriptions.push(vscode.commands.registerCommand(COMMAND, async () => {
-    const root = await chooseWorkspace();
+  context.subscriptions.push(vscode.commands.registerCommand(COMMAND, async (value?: unknown) => {
+    const request = typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+    const preferredDocument = typeof request?.uri === "string" ? vscode.Uri.parse(request.uri) : undefined;
+    let runSeed: number | undefined;
+    if (request?.run === true) {
+      if (typeof request.seed !== "number" || !Number.isSafeInteger(request.seed) || request.seed < 0 || request.seed > 4_294_967_295) {
+        void vscode.window.showWarningMessage("The saved-test seed must be a whole number from 0 to 4,294,967,295.");
+        return;
+      }
+      runSeed = request.seed;
+    }
+    const root = await chooseWorkspace(preferredDocument);
     if (root === undefined) return;
     if (!vscode.workspace.workspaceFolders?.some((folder) => folder.uri.toString() === root.toString())) {
       void vscode.window.showErrorMessage("The selected workspace folder is no longer open.");
@@ -37,6 +47,7 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
     const existing = projects.get(key);
     if (existing !== undefined) {
       existing.panel.reveal(vscode.ViewColumn.Beside);
+      if (runSeed !== undefined) await existing.controller.run({ seed: runSeed, name: "" });
       return;
     }
     const host = {
@@ -109,16 +120,17 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
     const surface: ProjectSurface = { controller, panel, dispose: new vscode.Disposable(cleanup) };
     projects.set(key, surface);
     publish();
+    if (runSeed !== undefined) await controller.run({ seed: runSeed, name: "" });
   }));
 }
 
-async function chooseWorkspace(): Promise<vscode.Uri | undefined> {
+async function chooseWorkspace(preferredDocument?: vscode.Uri): Promise<vscode.Uri | undefined> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
     void vscode.window.showErrorMessage("Open a workspace folder before running saved tests.");
     return undefined;
   }
-  const active = vscode.window.activeTextEditor?.document.uri;
+  const active = preferredDocument ?? vscode.window.activeTextEditor?.document.uri;
   const activeFolder = active === undefined ? undefined : vscode.workspace.getWorkspaceFolder(active);
   if (activeFolder !== undefined) return activeFolder.uri;
   if (folders.length === 1) return folders[0]!.uri;

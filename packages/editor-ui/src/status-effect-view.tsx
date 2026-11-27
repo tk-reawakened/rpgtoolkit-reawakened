@@ -27,8 +27,8 @@ export function StatusEffectView(props: StatusEffectViewProps): JSX.Element {
   const form = useBattleDataForm(props, "status effect", (latest, edit) => edit.type !== "hold-field-text" && latest[edit.field] ===
     (edit.type === "set-status-effect-flag" ? edit.enabled : edit.value));
   const { snapshot } = form;
-  const { fs, pickAsset, open, capabilities } = props;
-  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };
+  const { fs, pickAsset, open, canOpen, capabilities } = props;
+  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }), ...(canOpen === undefined ? {} : { canOpen }) };
   const programFile = useLinkedFile(fs, snapshot.identity.projectId, snapshot.identity.path, "programs", snapshot.program, [".prg"], "exact");
   const raw = snapshot.rawFlags;
   const flag = (field: StatusEffectFlagField, label: string, checked: boolean): JSX.Element => (

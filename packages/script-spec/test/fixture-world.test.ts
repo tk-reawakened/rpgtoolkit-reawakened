@@ -26,6 +26,27 @@ const file = (path: string, text: string, revision?: string) => ({
   ...(revision === undefined ? {} : { revision }),
 });
 
+test("a maximal inventory key still resolves after adding the Item folder and extension", () => {
+  const key = `${"a".repeat(128)}/${"b".repeat(126)}`;
+  const path = `Item/${key}.itm`;
+  const world = createFixtureWorld([
+    file("Boards/wall.brd", "board"),
+    file(path, "item"),
+  ], fixture({ party: [], inventory: { [key]: 1 }, files: [] }));
+
+  equal(world.byKey.get(path.toLowerCase())?.sourcePath, path);
+});
+
+test("fixture world picks the first full source path among case-folded overlay duplicates", () => {
+  const world = createFixtureWorld([
+    file("Boards/wall.brd", "project board"),
+    file(".tkr-tests/boards/WALL.brd", "later overlay"),
+    file(".TKR-Tests/boards/wall.brd", "first overlay"),
+  ], fixture({ party: [], inventory: {}, files: [] }));
+
+  equal(world.byKey.get("boards/wall.brd")?.sourcePath, ".TKR-Tests/boards/wall.brd");
+});
+
 test("fixture world shares overlay precedence across the restricted asset and program inventory", () => {
   const world = createFixtureWorld([
     file("Boards/wall.brd", "project board"),

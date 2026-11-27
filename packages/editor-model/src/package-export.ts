@@ -182,10 +182,34 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   const exportService: PackageExportService | undefined = options.services.packageExport;
   if (exportService === undefined) return failure("This host does not provide package export support.");
 
-  const saves = await options.workspace.saveAll();
-  const saveFailures = saves.filter(({ result }) => !result.ok);
-  if (saveFailures.length > 0) {
-    return failure(`Save open documents before packaging: ${saveFailures.map(({ result }) => result.ok ? "" : result.failure.message).join("; ")}`);
+  // Packaging reads saved bytes and never saves for the author: a save would commit edits the author may have
+  // cancelled the export to keep unsaved. A document's snapshot alone is not enough — a view can hold accepted edits the
+  // model has not received yet, or text typed but not applied — so the preflight settles each view's submitted work
+  // into the model (never to disk) and refuses on anything it still finds.
+  const unsaved: string[] = [];
+  const buffered: string[] = [];
+  const unsettled: string[] = [];
+  for (const document of options.workspace.documents()) {
+    const pending = options.workspace.pendingEdits(document);
+    let handedOver: { readonly ok: true } | { readonly ok: false; readonly message: string } | undefined;
+    if (pending.busy()) {
+      const settled = await pending.settle("query");
+      handedOver = settled.ok ? { ok: true } : { ok: false, message: settled.message };
+    }
+    const snapshot = document.getSnapshot();
+    if (snapshot.dirty || snapshot.conflict !== null) {
+      unsaved.push(document.identity.path);
+    } else if (pending.busy() || pending.holdsDraft()) {
+      buffered.push(document.identity.path);
+    }
+    if (handedOver !== undefined && !handedOver.ok) unsettled.push(`${document.identity.path} (${handedOver.message})`);
+  }
+  if (unsaved.length > 0) {
+    return failure(`Save these open documents before packaging: ${unsaved.join(", ")}. Packaging does not save them for you.`);
+  }
+  if (buffered.length > 0 || unsettled.length > 0) {
+    const names = [...buffered, ...unsettled].join("; ");
+    return failure(`The editor still holds edits for ${names} that are not on disk. Finish or save them, then package again; packaging does not save them for you.`);
   }
 
   const collected = await collectFiles(options.services.fs, options.mainPath, options.inventoryFilter ?? isExcluded);

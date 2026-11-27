@@ -511,7 +511,7 @@ export async function runVscodeCreatorAcceptanceProof(
   await closeActiveEditor();
 
   // The real reviewed export: the contributed command, its file dialog, its version question and its review modal.
-  const openPackageCommand = async (): Promise<void> => {
+  const openPackageCommand = async (expectPreflight = true): Promise<void> => {
     const packagePalette = await palette();
     await packagePalette.fill(">RPG Toolkit: Package game");
     const packageRow = page.getByRole("option", { name: /^RPG Toolkit: Package game(?:,|$)/ });
@@ -519,12 +519,18 @@ export async function runVscodeCreatorAcceptanceProof(
     await packageRow.click();
     const filePath = page.getByRole("textbox", { name: "Folder path" });
     await expect(filePath).toBeVisible({ timeout: 20_000 });
+    const packagePath = `/${projectPath(MAIN)}`;
+    const lastSlash = packagePath.lastIndexOf("/");
+    const directory = packagePath.slice(0, lastSlash + 1);
+    const game = widget.getByRole("option", { name: new RegExp(`^${escapeRegExp(packagePath.slice(lastSlash + 1))}(?:,|$)`) });
+    // The enabled OK button can navigate instead of opening a file whose listing hasn't loaded yet.
+    // Select the actual .gam row after VS Code has loaded the requested directory.
     await expect(async () => {
-      await filePath.fill(`/${projectPath(MAIN)}`);
-      await expect(filePath).toHaveValue(`/${projectPath(MAIN)}`, { timeout: 1_000 });
-      await expect(page.getByRole("button", { name: "Choose game to package", exact: true })).toBeEnabled({ timeout: 1_000 });
+      if (await filePath.inputValue() !== directory) await filePath.fill(directory);
+      await expect(game).toBeVisible({ timeout: 1_000 });
+      await expect(filePath).toHaveValue(directory, { timeout: 1_000 });
     }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
-    await page.getByRole("button", { name: "Choose game to package", exact: true }).click();
+    await game.click();
     await expect(widget).toBeVisible({ timeout: 15_000 });
     await expect(widget).toContainText("Enter the release version", { timeout: 15_000 });
     const version = widget.getByRole("textbox");
@@ -532,8 +538,26 @@ export async function runVscodeCreatorAcceptanceProof(
     await version.fill(RELEASE_VERSION);
     await expect(version).toHaveValue(RELEASE_VERSION);
     await version.press("Enter");
-    await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 20_000 });
+    if (expectPreflight) {
+      await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 20_000 });
+    } else {
+      const refusal = page.getByRole("dialog", { name: /game settings still hold unapplied text/ });
+      await expect(refusal).toBeVisible({ timeout: 20_000 });
+      await expect(refusal).toContainText(`${MAIN}: game settings still hold unapplied text`);
+      await expect(page.getByText(/Preflight passed:/)).toBeHidden();
+    }
   };
+
+  // An active Settings view with typed-but-unapplied text must refuse before offering review.
+  await openPath(MAIN);
+  const packageGuardSettings = await activeFrame(".tkr-settings");
+  const packageGuardTitle = packageGuardSettings.getByRole("textbox", { name: "Game title" });
+  await packageGuardTitle.fill("Unapplied package draft");
+  await expect(packageGuardTitle).toHaveValue("Unapplied package draft");
+  await openPackageCommand(false);
+  await expect(packageGuardTitle).toHaveValue("Unapplied package draft");
+  await packageGuardSettings.getByRole("button", { name: "Cancel changes" }).click();
+  await expect(packageGuardTitle).toHaveValue(GAME_TITLE);
 
   await openPackageCommand();
   // Cancelling the review produces no release.

@@ -15,7 +15,7 @@ type NativeClipApplyResult =
   | { readonly ok: false; readonly rejection: { readonly reason: "invalid"; readonly message: string } };
 
 
-const INITIAL_BROWSER_STATE = { selection: null, path: null, scrollTop: 0 } as const;
+const INITIAL_BROWSER_STATE = { selection: null, path: null, scrollTop: 0, autotileMarks: [] } as const;
 
 /** A native text editor adapter: the TextDocument remains the only mutable source and VS Code owns its undo history. */
 export function createNativeClipTextEditorProvider(

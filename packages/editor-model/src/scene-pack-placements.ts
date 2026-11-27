@@ -25,6 +25,8 @@ export type TerrainScenePack = {
   readonly name: string;
   readonly projection: SceneProjection;
   readonly assets: readonly TerrainScenePackAsset[];
+  /** Hash of the pack document and its referenced artwork, used to expire scene previews. */
+  readonly revision: string;
   /** True when the pack is outside this game and only listed because the scene already names it. */
   readonly external?: boolean;
 };

@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
-import { createCheckpointGroups, createDocumentWorkspace, createSceneBuildOwnership, createSceneBuildOwnershipStorage, encodeScenePng, prepareGamePackage, prepareTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/index.ts";
+import { createCheckpointGroups, createDocumentWorkspace, createSceneBuildOwnership, createSceneBuildOwnershipStorage, encodeScenePng, prepareGamePackage, prepareGameSetup, prepareTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformOk } from "@tk-reawakened/platform-services";
-import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
+import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, readZip, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
 
 function authoredMain(startupPrg = "start.prg", initBoard = "start.brd", initChar = "", gameTitle = "A Test Game"): Uint8Array {
   const result = writeMainFile({ ...newProjectMainFile(), gameTitle, startupPrg, initBoard, initChar });
@@ -35,6 +35,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     "Main/other.gam": utf8Encode("not the selected game"),
     "Saved/save.sav": utf8Encode("save"),
     "Prg/smoke.spec.prg": utf8Encode("test only"),
+    "Prg/visual-fixtures.spec.prg": utf8Encode("TOOL-12 saved fixture source"),
     [scriptSpecPath]: utf8Encode("test-only library"),
     "Notes/editor.tkrscn": utf8Encode("editor scene outside the game's Boards folder"),
     "Tiles/editor.tkrTst": utf8Encode("editor tiles"),
@@ -42,6 +43,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     ".tkr-history/snapshot.bin": utf8Encode("history"),
     ".TKR-Tests/Boards/wall.brd": utf8Encode("fixture board"),
     ".TKR-Tests/Prg/helper.prg": utf8Encode("fixture helper"),
+    ".TKR-Tests/Prg/visual-fixtures.spec.prg": utf8Encode("TOOL-12 source in the reserved test overlay"),
   };
 }
 
@@ -61,7 +63,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Media/Prg/script-spec/startup.prg", "Prg/script-spec-extra/startup.prg", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/visual-fixtures.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg", ".TKR-Tests/Prg/visual-fixtures.spec.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -86,6 +88,92 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   equal(descriptor["size"], prepared.package.bytes.byteLength);
   equal(descriptor["title"], "A Test Game");
   equal(descriptor["version"], "1.2.3");
+  workspace.dispose();
+});
+
+test("packaging refuses unsaved documents instead of saving them for the author", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok);
+  if (!opened.ok) return;
+  ok(opened.document.apply({ type: "set-game-title", title: "Unsaved title" }).ok);
+  equal(opened.document.getSnapshot().dirty, true, "the edit is unsaved");
+  const before = host.bytesOf("Main/demo.gam");
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+  equal(outcome.ok, false);
+  if (!outcome.ok) {
+    match(outcome.message, /Save these open documents before packaging: Main\/demo\.gam/);
+    match(outcome.message, /does not save them for you/);
+  }
+  equal(opened.document.getSnapshot().dirty, true, "packaging never saved the document");
+  deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  workspace.dispose();
+});
+
+test("packaging refuses a view's buffered accepted edits even when the snapshot is clean", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok);
+  if (!opened.ok) return;
+  const unregister = workspace.pendingEdits(opened.document).register({ busy: () => true, idle: async () => {}, holdsDraft: () => false });
+  try {
+    equal(opened.document.getSnapshot().dirty, false, "the model has not received the view's edits yet");
+    const before = host.bytesOf("Main/demo.gam");
+    const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+    equal(outcome.ok, false);
+    if (!outcome.ok) {
+      match(outcome.message, /still holds edits for Main\/demo\.gam/);
+      match(outcome.message, /does not save them for you/);
+    }
+    equal(opened.document.getSnapshot().dirty, false, "packaging never wrote a document");
+    deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  } finally {
+    unregister();
+    workspace.dispose();
+  }
+});
+
+test("packaging refuses a view's held draft text even when the snapshot is clean", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const opened = await workspace.open("Main/demo.gam");
+  ok(opened.ok);
+  if (!opened.ok) return;
+  const unregister = workspace.pendingEdits(opened.document).register({ busy: () => false, idle: async () => {}, holdsDraft: () => true });
+  try {
+    equal(opened.document.getSnapshot().dirty, false, "typed text is not applied to the document");
+    const before = host.bytesOf("Main/demo.gam");
+    const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.0" });
+    equal(outcome.ok, false);
+    if (!outcome.ok) {
+      match(outcome.message, /still holds edits for Main\/demo\.gam/);
+      match(outcome.message, /does not save them for you/);
+    }
+    equal(opened.document.getSnapshot().dirty, false, "packaging never applied or wrote the draft");
+    deepEqual(host.bytesOf("Main/demo.gam"), before, "the file on disk is unchanged");
+  } finally {
+    unregister();
+    workspace.dispose();
+  }
+});
+
+test("game setup is one reviewed ZIP containing the unchanged package, matching descriptor, and instructions", async () => {
+  const { workspace, services } = packageHost(authoredFiles());
+  const preparedPackage = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3" });
+  ok(preparedPackage.ok, preparedPackage.ok ? "" : preparedPackage.message);
+  const originalPackage = preparedPackage.value.package.bytes.slice();
+  const originalDescriptor = preparedPackage.value.descriptor.bytes.slice();
+  const setup = prepareGameSetup(preparedPackage.value);
+  ok(setup.ok, setup.ok ? "" : setup.message);
+  equal(setup.value.artifact.fileName, "A-Test-Game.setup.zip");
+  const entries = readZip(setup.value.artifact.bytes, setup.value.artifact.fileName);
+  ok(entries.ok, entries.ok ? "" : entries.error.message);
+  deepEqual(entries.value.map(({ path }) => path), ["A-Test-Game.tpk", "A-Test-Game.tpk.json", "README.txt"]);
+  deepEqual(entries.value[0]?.bytes, originalPackage);
+  deepEqual(entries.value[1]?.bytes, originalDescriptor);
+  match(utf8Decode(entries.value[2]!.bytes), /choose Install/);
+  match(utf8Decode(entries.value[2]!.bytes), /cannot install or sign/);
+  deepEqual(preparedPackage.value.package.bytes, originalPackage);
+  deepEqual(preparedPackage.value.descriptor.bytes, originalDescriptor);
   workspace.dispose();
 });
 
@@ -332,7 +420,7 @@ test("a leaky inventory cannot hand the author an archive holding an excluded fi
   // Every excluded class is really present in the project and really reaches the inventory, as a broken filter would let it.
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3", inventoryFilter: () => false });
   ok(!outcome.ok, "the export is refused");
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/visual-fixtures.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg", ".TKR-Tests/Prg/visual-fixtures.spec.prg"]) {
     ok(outcome.message.includes(path), `${path} is named in the refusal: ${outcome.message}`);
   }
   match(outcome.message, /archive it produced holds files that must never be packaged/);

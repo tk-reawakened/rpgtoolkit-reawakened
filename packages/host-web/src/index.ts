@@ -1,8 +1,8 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
-import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForLayout } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, createDocumentIdentity, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForLayout } from "@tk-reawakened/editor-model";
 import type { AudioOutputApi, Capability, ClipboardService, DialogService, ImageExportService, LanguageService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { audioOutputFromApi, bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type AuditionPanel, type BattleBackgroundViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpecialMoveViewDocument, type SpriteViewDocument, type StatusEffectViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type AuditionPanel, type BattleBackgroundViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type NativeSkinViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpecialMoveViewDocument, type SpriteViewDocument, type StatusEffectViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
@@ -25,8 +25,10 @@ export interface WebProject {
   readonly project: ProjectHandle;
   readonly sessionCopy: boolean;
   readonly workspace: DocumentWorkspace;
-  /** Browser selection and scroll are retained per this project, shared only by its mounted views. */
+  /** Default browser state for views without an owning game; game views use `browserSessionForGame`. */
   readonly browserSession: BrowserSession;
+  /** Browser navigation and marks, retained separately for each owning main game in this project. */
+  browserSessionForGame(mainPath: string | null): BrowserSession;
   /** The code editor program views use (Monaco on the editor page); a plain text area when the page gives none. */
   readonly codeEditor: TextSurfaceFactory | null;
   /** Where this project's runs show their player; a workbench sets its own tab, and `null` floats the player over the page. */
@@ -35,6 +37,19 @@ export interface WebProject {
   deactivate(): void;
 }
 
+function browserSessionResolver(projectId: string, fallback: BrowserSession): (mainPath: string | null) => BrowserSession {
+  const sessions = new Map<string, BrowserSession>();
+  return (mainPath) => {
+    if (mainPath === null) return fallback;
+    const key = createDocumentIdentity(projectId, mainPath).key;
+    let session = sessions.get(key);
+    if (session === undefined) {
+      session = createBrowserSession();
+      sessions.set(key, session);
+    }
+    return session;
+  };
+}
 /** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
 export interface WebProjectOptions {
   readonly dialogs?: DialogService;
@@ -239,7 +254,8 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
     ...(language === undefined ? {} : { language }),
   };
-  const made = { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: (presenter: RunPresenter | null) => { runPresenter = presenter; }, deactivate: () => { active = false; workspace.dispose(); } };
+  const browserSession = createBrowserSession();
+  const made = { services, project, sessionCopy: false, workspace, browserSession, browserSessionForGame: browserSessionResolver(project.id, browserSession), codeEditor: options.codeEditor ?? null, setRunPresenter: (presenter: RunPresenter | null) => { runPresenter = presenter; }, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
   return made;
 }
@@ -312,7 +328,8 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     ...(clipboard === null ? {} : { clipboard }),
     ...(audioOutput === null ? {} : { audioOutput }),
   };
-  const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
+  const browserSession = createBrowserSession();
+  const made = { services, project, sessionCopy: true, workspace, browserSession, browserSessionForGame: browserSessionResolver(project.id, browserSession), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
   return made;
 }
@@ -379,10 +396,11 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, projectLayo
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;
+  if (document.kind === "skin") return document as unknown as NativeSkinViewDocument;
+  if (document.kind === "battle-background") return document as unknown as BattleBackgroundViewDocument;
   if (document.kind === "native-tile" || document.kind === "native-asset-pack") return document as unknown as NativeGeometryViewDocument;
   if (document.kind === "special-move") return document as unknown as SpecialMoveViewDocument;
   if (document.kind === "status-effect") return document as unknown as StatusEffectViewDocument;
-  if (document.kind === "battle-background") return document as unknown as BattleBackgroundViewDocument;
   if (document.kind === "animation") {
     const animation = asAnimationDocument(document);
     const view: AnimationViewDocument = {
@@ -510,6 +528,8 @@ export function mountDocumentView(
   runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"],
   /** The board's background-music audition and its palette commands, created by the caller; the view disposes the audition with itself. */
   audition?: AuditionPanel,
+  /** Where this document's folders are now; the host re-resolves them when a mounted view is refreshed. */
+  resolveLayout?: () => Promise<ProjectLayout>,
 ): DocumentView {
   const browserLayout = projectLayout;
   let mounted: ViewHandle | null = null;
@@ -534,8 +554,9 @@ export function mountDocumentView(
       : mount(container, {
       document: viewDocumentFor(project, document, browserLayout, importBoard, runUpgradeCommand),
       services: project.services,
-      browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
+      browser: { session: project.browserSessionForGame(main), fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      ...(resolveLayout === undefined ? {} : { resolveLayout }),
       ...(document.kind !== "animation" ? {} : { animationAuthoring: createAnimationAuthoring(webCheckpointEnvironment(project, document.identity.key), asAnimationDocument(document), async () => {
         const saved = await document.save();
         return saved.ok ? platformOk(undefined) : platformError("io-error", saved.failure.message);

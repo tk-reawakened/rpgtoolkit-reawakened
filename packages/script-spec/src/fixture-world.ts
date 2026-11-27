@@ -1,6 +1,6 @@
 import { assetKey } from "@tk-reawakened/core";
 import { sha256Hex } from "./sha256.ts";
-import { FixtureError, type FixtureDefinition } from "./fixture.ts";
+import { FixtureError, fixturePath, type FixtureDefinition } from "./fixture.ts";
 
 export type FixtureWorldInputFile = {
   readonly path: string;
@@ -29,6 +29,15 @@ export type FixtureWorld = {
 
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const normalize = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
+const OVERLAY_ROOT = ".tkr-tests";
+
+/** Candidate host paths in fixture-world order. The reserved overlay tree is not ordinary project data. */
+export function fixtureWorldLookupPaths(path: string): readonly string[] {
+  const projectPath = fixturePath(path, "fixture-world path");
+  const overlayPath = `${OVERLAY_ROOT}/${projectPath}`;
+  const key = assetKey(projectPath);
+  return key === OVERLAY_ROOT || key.startsWith(`${OVERLAY_ROOT}/`) ? [overlayPath] : [overlayPath, projectPath];
+}
 
 function inventoryPath(item: string): string {
   return `Item/${item.toLowerCase().endsWith(".itm") ? item : `${item}.itm`}`;
@@ -45,7 +54,7 @@ export function createFixtureWorld(files: readonly FixtureWorldInputFile[], fixt
   for (const file of [...files].sort((left, right) => compare(normalize(left.path), normalize(right.path)))) {
     const sourcePath = normalize(file.path);
     const segments = sourcePath.split("/");
-    const overlay = segments[0]?.toLowerCase() === ".tkr-tests";
+    const overlay = assetKey(segments[0] ?? "") === assetKey(OVERLAY_ROOT);
     const path = overlay ? segments.slice(1).join("/") : sourcePath;
     if (path === "") continue;
     const key = assetKey(path);

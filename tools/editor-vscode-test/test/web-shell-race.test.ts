@@ -40,6 +40,7 @@ describe("browser shell lifecycle races", { concurrency: false }, () => {
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
+export const createWebSettings = real.createWebSettings;
 import { readFileSync } from 'node:fs';
 const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)})));
 export const A = real.createSessionCopy('game.gam', data);
@@ -156,6 +157,7 @@ test("failed and later opens clean stale documents only after same-workspace acq
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
+export const createWebSettings = real.createWebSettings;
 import { readFileSync } from 'node:fs';
 const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)})));
 export const A = real.createSessionCopy('game.gam', data, { dialogs: { ask: async () => 'discard', pickSavePath: async () => null } });
@@ -339,6 +341,7 @@ test("a stale same-project candidate cannot activate after the newer open fails"
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
+export const createWebSettings = real.createWebSettings;
 import { readFileSync } from 'node:fs';
 const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)})));
 export const A = real.createSessionCopy('A.gam', data);
@@ -470,6 +473,7 @@ export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const newWebProject = real.newWebProject;
 export const createSessionCopy = real.createSessionCopy;
+export const createWebSettings = real.createWebSettings;
 export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;

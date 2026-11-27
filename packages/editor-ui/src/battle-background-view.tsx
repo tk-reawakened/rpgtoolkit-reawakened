@@ -22,8 +22,8 @@ export function BattleBackgroundView(props: BattleBackgroundViewProps): JSX.Elem
   }, [props.audition]);
   const form = useBattleDataForm(props, "fight background", (latest, edit) => edit.type !== "hold-field-text" && latest[edit.field] === edit.value);
   const { snapshot } = form;
-  const { fs, pickAsset, open, layout } = props;
-  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }), ...(layout === undefined ? {} : { layout }) };
+  const { fs, pickAsset, open, canOpen, layout } = props;
+  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }), ...(canOpen === undefined ? {} : { canOpen }), ...(layout === undefined ? {} : { layout }) };
   const identity = snapshot.identity;
   const image = useLinkedFile(fs, identity.projectId, identity.path, "bitmaps", snapshot.image, IMAGE_EXTENSIONS, "exact", layout);
   const music = useLinkedFile(fs, identity.projectId, identity.path, "media", snapshot.music, [".wav", ".mid", ".midi"], "exact", layout);
@@ -33,6 +33,7 @@ export function BattleBackgroundView(props: BattleBackgroundViewProps): JSX.Elem
   const cantDo = useLinkedFile(fs, identity.projectId, identity.path, "media", snapshot.cantDoSound, [".wav", ".mid", ".midi"], "exact", layout);
   const field = (id: "image" | "music" | "selectSound" | "chooseSound" | "readySound" | "cantDoSound", label: string, value: string, kind: "bitmaps" | "media", extensions: readonly string[], linked: typeof image): JSX.Element => <Link
     form={form} id={id} label={label} value={value} kind={kind} extensions={extensions} navigation={navigation} linked={linked}
+    {...(kind === "media" ? { content: "audio" as const } : {})}
     command={(next) => ({ type: "set-battle-background-text", field: id, value: next })}
   />;
   return <main class="tkr-battle-data-editor" aria-label="Fight background" onFocusCapture={() => props.audition?.onFocus?.()} onPointerDownCapture={() => props.audition?.onFocus?.()}>
