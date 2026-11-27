@@ -42,6 +42,15 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: 
       try { const target = await file(parts); const source = await target.getFile(); return platformOk(new Uint8Array(await source.arrayBuffer())); }
       catch (error) { return fail(error, path); }
     },
+    async readPrefix(path, maxBytes) {
+      const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) return platformError("invalid-request", "Prefix length must be a non-negative safe integer.");
+      try {
+        const target = await file(parts);
+        const source = await target.getFile();
+        return platformOk(new Uint8Array(await source.slice(0, maxBytes).arrayBuffer()));
+      } catch (error) { return fail(error, path); }
+    },
     async write(path, bytes) {
       const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
       let target: FileSystemFileHandle | undefined;

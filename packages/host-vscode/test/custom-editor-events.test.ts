@@ -12,8 +12,8 @@ test("custom editor change notifications reach each registered view type without
   };
   deepEqual(
     DOCUMENT_KINDS_BY_VIEW_TYPE["tkr.gameSettings"],
-    ["main", "character", "item"],
-    "the game-settings manifest provider owns .gam, .tem, and .itm edits",
+    ["main", "character", "item", "skin"],
+    "the game-settings manifest provider owns .gam, .tem, .itm, and .tkrskin edits",
   );
   const registrations = Object.entries(DOCUMENT_KINDS_BY_VIEW_TYPE);
   const received = new Map<string, Event[]>();
@@ -22,7 +22,7 @@ test("custom editor change notifications reach each registered view type without
     events.push(event);
     received.set(viewType, events);
   }));
-  const edits: Event[] = ["main", "character", "item", "board", "tileset", "tile-bitmap", "animation", "font", "special-move", "status-effect", "battle-background"]
+  const edits: Event[] = ["main", "character", "item", "skin", "board", "tileset", "tile-bitmap", "animation", "font", "special-move", "status-effect", "battle-background"]
     .map((kind) => ({ document: { model: { kind } }, label: `${kind} edit` }));
 
   for (const edit of edits) for (const listener of sourceListeners) listener(edit);
@@ -41,6 +41,7 @@ test("custom editor change notifications reach each registered view type without
   for (const subscription of subscriptions) subscription.dispose();
   equal(sourceListeners.length, 0);
 });
+
 void test("coalesced edit keys are namespaced only when string-valued", () => {
   const edit = { type: "edit", command: { type: "edit-field" }, requestId: "edit-1", coalesce: "fight background:music:1" } as const;
   const firstRealm = scopeEditorHostRequest(edit, "webview:1");

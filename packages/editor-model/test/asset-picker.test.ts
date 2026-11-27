@@ -2,7 +2,7 @@
 // outside is copied in and never over another file, and nothing is attached until the user confirms.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { platformError } from "@tk-reawakened/platform-services";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { copyIntoReservedFolder, createAssetPicker, linkFor, listCandidates, referencePath, reservedFolder, unusableName } from "../src/index.ts";
 import { projectLayoutForDocumentPath, projectLayoutOwnerForDocumentPath } from "../src/reserved-folders.ts";
@@ -190,7 +190,7 @@ test("selecting changes nothing until it is confirmed, and cancelling leaves the
   ok(host.questions[0]?.message.includes("the hero's picture"));
 
   host.answerQuestions("use");
-  deepEqual(await chooser.confirm(), { chosen: true, reference: "sub\\b.png" });
+  deepEqual(await chooser.confirm(), { chosen: true, reference: "sub\\b.png", layout: ROOT }, "the outcome names the folders the reference was read from");
   equal(chooser.getSnapshot().phase, "closed");
 });
 
@@ -226,7 +226,7 @@ test("choosing a file from outside copies it in only after the user agrees", asy
 
   host.answerFilePicks({ name: "hero.png", bytes: bytes(1, 2, 3) });
   host.answerQuestions("copy");
-  deepEqual(await chooser.pickOutside("people"), { chosen: true, reference: "people\\hero.png" });
+  deepEqual(await chooser.pickOutside("people"), { chosen: true, reference: "people\\hero.png", layout: ROOT });
   deepEqual(host.bytesOf("Bitmap/people/hero.png"), bytes(1, 2, 3));
   deepEqual(host.filePickRequests[0], { title: "Choose a file for the hero's picture", extensions: [".png"] });
 });
@@ -247,4 +247,71 @@ test("a folder that cannot be read is shown in the picker's message", async () =
   await chooser.refresh();
   ok(chooser.getSnapshot().message?.includes("no access"));
   deepEqual(chooser.getSnapshot().candidates, []);
+});
+
+// The bytes that make a file a WAV or a MIDI to the game, whatever it is called (docs/spec/engine/audio-media.md#audio-format-policy).
+const wavBytes = bytes(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69);
+const midiBytes = bytes(77, 84, 104, 100);
+const AUDIO_FILES = {
+  "Media/battle.mp3": wavBytes,
+  "Media/sub/theme.ogg": midiBytes,
+  "Media/tagged.mp3": bytes(73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0),
+  "Media/claimed.wav": bytes(1, 2, 3),
+  "Media/notes.txt": bytes(4),
+};
+
+test("an audio field also lists a WAV or MIDI kept under another name, judged by its first bytes", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const byExtension = await listCandidates(host.fs, ROOT, "media", [".wav", ".mid", ".midi"]);
+  deepEqual(byExtension.candidates.map((candidate) => candidate.reference), ["claimed.wav"], "the extension list alone hides a valid WAV named .mp3");
+  const byContent = await listCandidates(host.fs, ROOT, "media", [".wav", ".mid", ".midi"], "audio");
+  deepEqual(byContent.candidates.map((candidate) => candidate.reference), ["battle.mp3", "claimed.wav", "sub\\theme.ogg"], "bytes that are not a header stay out; a listed extension is kept as it was");
+  deepEqual(byContent.failures, []);
+});
+test("content candidate checks prefer bounded header reads when the host supports them", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const reads: { path: string; length: number }[] = [];
+  const fs = {
+    list: host.fs.list.bind(host.fs),
+    read: async () => { throw new Error("whole-file read should not be used"); },
+    readPrefix: async (path: string, length: number) => {
+      reads.push({ path, length });
+      const file = await host.fs.read(path);
+      return file.ok ? platformOk(file.value.slice(0, length)) : file;
+    },
+  };
+  const listed = await listCandidates(fs, ROOT, "media", [".wav", ".mid", ".midi"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["battle.mp3", "claimed.wav", "sub\\theme.ogg"]);
+  deepEqual(reads, [
+    { path: "Media/battle.mp3", length: 12 },
+    { path: "Media/tagged.mp3", length: 12 },
+    { path: "Media/notes.txt", length: 12 },
+    { path: "Media/sub/theme.ogg", length: 12 },
+  ]);
+});
+
+
+test("a file that cannot be read for its header is reported, not silently dropped", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const fs = { list: host.fs.list.bind(host.fs), read: (path: string) => path === "Media/battle.mp3" ? Promise.resolve(platformError("permission-denied", "no access")) : host.fs.read(path) };
+  const listed = await listCandidates(fs, ROOT, "media", [".wav"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["claimed.wav", "sub\\theme.ogg"]);
+  equal(listed.failures[0]?.path, "Media/battle.mp3");
+});
+
+test("a host that cannot read files lists by extension only", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const listed = await listCandidates({ list: host.fs.list.bind(host.fs) }, ROOT, "media", [".wav"], "audio");
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["claimed.wav"]);
+});
+
+test("the picker offers a mismatched-name WAV and chooses it as listed, without renaming it", async () => {
+  const host = createMemoryPlatformServices({ files: AUDIO_FILES });
+  const chooser = createAssetPicker({ services: host, layout: ROOT, kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" });
+  await chooser.refresh();
+  ok(chooser.getSnapshot().candidates.some((candidate) => candidate.reference === "battle.mp3"));
+  chooser.select("battle.mp3");
+  host.answerQuestions("use");
+  deepEqual(await chooser.confirm(), { chosen: true, reference: "battle.mp3", layout: ROOT });
+  deepEqual(host.bytesOf("Media/battle.mp3"), wavBytes, "the file is untouched");
 });

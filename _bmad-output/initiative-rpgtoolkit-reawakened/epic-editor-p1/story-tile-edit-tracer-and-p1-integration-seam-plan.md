@@ -3,7 +3,7 @@ title: 'Tile edit tracer and P1 integration seam'
 type: feature
 ticket: 1
 created: '2026-11-22'
-status: built
+status: done
 baseline_revision: 025c41609b6940fbc574d4bdb4707032ea30b0d2
 route: full
 route_source: auto
@@ -76,3 +76,16 @@ lenses_ran: [hosts, ui-and-proofs]
 - Run affected test typechecks and focused document/tileset browser tests. Use the existing real-host integration lanes; no extra duplicate browser lane.
 
 Local results on Node 24.21.0: Chromium `editor-artwork.spec.ts` 3/3; packaged VS Code Web `run.mjs` with the example game passed cancel and keep lanes including the board-to-tile journey; focused editor-ui, host-vscode, host-web, kind-conformance and harness tests, TypeScript builds and test typechecks, scoped lint, dependency graph, provenance and help-content check.
+
+## Closure evidence
+
+The owner merged [#3341](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3341) at `0c0084efb3f532d254e727fbd80615803b66eb45` on 2026-11-22 and closed [#1727](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1727). Its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/44976940765/job/137070375105) passed.
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| Open a real tileset, edit one pixel in the shared document, save and reopen | Chromium `editor-artwork.spec.ts` includes the keyboard tile visit, the asymmetric pixel across two views, save with a column-major byte oracle, and reopen. |
+| Both hosts show the saved pixel on the intended board | Packaged VS Code Web proof passed the cancel and keep lanes including the board-to-tile journey; the browser board return paints and checks composed pixels. |
+| Undo/redo and reopening preserve one document identity | Browser proof covers undo/redo and the board return; the VS Code visit sends the tile to one view and reports a file opened without the artwork editor (#3339). |
+| Brush selection alone changes nothing | Tile selection is view state only in the shared `SourceVisit`, and the proof visits without an edit. |
+
+The deferred low-priority edge remains [#3340](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3340).

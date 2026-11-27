@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { listGame } from "@tk-reawakened/editor-model";
-import { isEditorHostRequest } from "@tk-reawakened/host-vscode/testing";
+import { canVisitPath, isEditorHostRequest } from "@tk-reawakened/host-vscode/testing";
 import type { NavigationHost } from "../conformance/vscode-host.ts";
 import type { Act } from "../conformance/view.ts";
 
@@ -20,9 +20,16 @@ const FILES = {
   "Misc/readme.txt": new Uint8Array([2]),
   "Bitmap/old.png": new Uint8Array([4]),
 };
+// A real WAV header under another logical name, and a plain WAV: the picker and a visit treat them by different rules.
+const AUDIO_FILES = {
+  ...FILES,
+  "Media/battle.mp3": new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]),
+  "Media/tone.WAV": new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]),
+  "Media/tagged.mp3": new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0, 0]),
+};
 
 let act: Act;
-let make: (desktop: boolean) => NavigationHost;
+let make: (desktop: boolean, files?: Record<string, Uint8Array>) => NavigationHost;
 
 before(async () => {
   GlobalRegistrator.register();
@@ -34,7 +41,7 @@ before(async () => {
     return run;
   };
   const { createVscodeNavigationHost } = await import("../conformance/vscode-host.ts");
-  make = (desktop) => createVscodeNavigationHost(desktop, gam, FILES, act);
+  make = (desktop, files = FILES) => createVscodeNavigationHost(desktop, gam, files, act);
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -114,25 +121,60 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       host.script.picks.push("outside");
       host.script.files.push({ name: "hero.png", bytes: new Uint8Array([7, 7]) });
       host.script.answers.push("copy");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/hero.png"), new Uint8Array([7, 7]));
       match(host.script.asked.at(-1) ?? "", /Copy hero\.png into Bitmap/);
 
       host.script.picks.push("file:old.png");
       host.script.answers.push("use");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/old.png"), new Uint8Array([4]), "choosing a file already in the folder writes nothing");
+    });
+
+    test("an audio pick also lists a header-valid WAV under another name, and the host says which links it can open (#3516, #3517)", async () => {
+      const host = make(desktop, AUDIO_FILES);
+      const tab = await host.open("Boards/village.brd");
+      host.script.picks.push(undefined);
+      await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], field: "the battle music" });
+      deepEqual(host.script.pickLists.at(-1)?.labels, ["tone.WAV", "Choose a file from outside the project…"], "by extension alone, the mislabelled WAV is hidden");
+      host.script.picks.push(undefined);
+      await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" });
+      deepEqual(host.script.pickLists.at(-1)?.labels, ["battle.mp3", "tone.WAV", "Choose a file from outside the project…"], "its header makes it a choice; bytes that are not audio stay out");
+      host.script.picks.push("file:battle.mp3");
+      host.script.answers.push("use");
+      deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3", layout: { projectFolder: "" } });
+
+      // What the webview offers as Open is what a visit really does: the host hands the file to VS Code's own `vscode.open`
+      // (`script.opened`; this fake only models documents the extension provides, so what VS Code then shows for a picture or a
+      // sound is VS Code's behaviour (its media preview does not register MIDI) and is not asserted), and refuses a file it would not hand over.
+      const origin = await host.open("Boards/village.brd");
+      for (const path of ["Bitmap/old.png", "Media/tone.WAV", "Boards/caves/mine.brd"]) {
+        ok(canVisitPath(path), `${path} is offered`);
+        host.script.opened.length = 0;
+        await origin.remote().visit(path);
+        deepEqual(host.script.opened, [path], `${path} is handed to VS Code to open`);
+      }
+      for (const path of ["Media/battle.mp3", "Misc/readme.txt"]) {
+        equal(canVisitPath(path), false, `${path} is not offered`);
+        host.script.opened.length = 0;
+        const refused = await origin.remote().visit(path);
+        ok(!refused.ok, `${path} has no editor to open`);
+        deepEqual(host.script.opened, [], `${path} is never handed to VS Code`);
+      }
     });
 
     test("a webview cannot ask for an asset kind, a path or a shape the host did not offer", () => {
       const good = { type: "pick-asset", requestId: "r", request: { kind: "bitmaps", extensions: [".png"], field: "a picture" } };
       ok(isEditorHostRequest(good));
+      ok(isEditorHostRequest({ ...good, request: { kind: "media", extensions: [".wav"], content: "audio", field: "music" } }));
       for (const request of [
         { kind: "../etc", extensions: [], field: "x" },
         { kind: "constructor", extensions: [], field: "x" },
         { kind: "bitmaps", extensions: "png", field: "x" },
         { kind: "bitmaps", extensions: [1], field: "x" },
         { kind: "bitmaps", extensions: [], field: "" },
+        { kind: "media", extensions: [], content: "video", field: "x" },
+        { kind: "media", extensions: [], content: 1, field: "x" },
         null,
       ]) {
         equal(isEditorHostRequest({ ...good, request }), false, JSON.stringify(request));

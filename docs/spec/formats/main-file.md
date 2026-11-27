@@ -147,7 +147,7 @@ The block is the game's **default** binding table, not the player's ([ACT-6](../
 
 **T-64 Native skin document (OWNER; ruled 2026-11-25, [ADR 0045 3A](../../adr/0045-visual-source-skin-and-setup-delivery-contracts.md#owner-decisions)).** The editor saves the window and button graphics you choose in a native skin document and previews them in the editor only. It does not change the game's appearance.
 
-The **Native Skin** document owns the two graphic references and optional label. The 14.4 plan owns the on-disk spelling; this ruling allocates no file extension or serialization. Preview is labelled “Preview only: the engine does not use skins yet”. Selection and preview are not edits. Save with the same version and preserve unknown residue; retain the draft on a failed save. Read and preserve legacy fields 35 (`skinButton`) and 36 (`skinWindow`) unchanged: saving a Native Skin document never writes them. This contract needs no runtime consumer.
+The native document is a separate source of truth; its name, shape, editor-only preview, and preservation rules are defined by [Native Skin](native-skin.md). Neither choosing nor saving it writes these legacy `.gam` fields.
 
 ## Compatibility notes
 

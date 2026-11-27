@@ -1,5 +1,5 @@
 import { BinaryReader, readMainFile } from "@tk-reawakened/core";
-import { mainSettingsOf, referencePath, type CommandRegistry, type MainSettings, type ProjectLayout, type WorkbenchCommand } from "@tk-reawakened/editor-model";
+import { audioContentOf, mainSettingsOf, referencePath, type CommandRegistry, type MainSettings, type ProjectLayout, type WorkbenchCommand } from "@tk-reawakened/editor-model";
 import type { AudioOutputService, AuditionFormat, FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
@@ -16,12 +16,15 @@ export interface BoardAudition {
 
 export type AuditionOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string };
 
-/** The audition format of a background-music reference, judged from its extension. Other formats never reach the host. */
-export function auditionFormatOf(reference: string): AuditionOutcome<AuditionFormat> {
-  const name = reference.trim().toLowerCase();
-  if (name.endsWith(".wav")) return { ok: true, value: "wav" };
-  if (name.endsWith(".mid") || name.endsWith(".midi")) return { ok: true, value: "midi" };
-  return { ok: false, message: `Audition plays .wav, .mid and .midi files. "${reference.trim()}" is none of these.` };
+/**
+ * The audition format of a file, judged from its own first bytes and never from its name, as the game does
+ * (`docs/spec/engine/audio-media.md#audio-format-policy`). Bytes that are neither a WAV nor a Standard MIDI File never
+ * reach the host.
+ */
+export function auditionFormatOf(reference: string, bytes: Uint8Array): AuditionOutcome<AuditionFormat> {
+  const format = audioContentOf(bytes);
+  if (format !== null) return { ok: true, value: format };
+  return { ok: false, message: `Audition plays WAV and MIDI files, judged by their contents. "${reference.trim()}" is neither: its first bytes are not a WAV or MIDI header.` };
 }
 
 export interface AuditionInput {
@@ -34,17 +37,18 @@ export interface AuditionInput {
 }
 
 /**
- * Reads the audio file from the board owner's Media folder. A Main file is only read for a MIDI audition's configured
- * SoundFont; without one, playback uses the host's bundled bank.
+ * Reads the audio file from the board owner's Media folder and decides its format from the bytes. A Main file is only
+ * read for a MIDI audition's configured SoundFont; without one, playback uses the host's bundled bank. A refusal leaves
+ * the reference as it was.
  */
 export async function loadAuditionInput(audition: BoardAudition, reference: string, resolvedPath?: string): Promise<AuditionOutcome<AuditionInput>> {
-  const name = reference.trim();
+  const name = resolvedPath === undefined ? reference.trim() : reference;
   if (name === "") return { ok: false, message: "Set a background music file first." };
-  const format = auditionFormatOf(name);
-  if (!format.ok) return format;
   const layout = audition.layout;
   const bytes = await audition.fs.readProject(audition.projectId, resolvedPath ?? referencePath(layout, "media", name));
   if (!bytes.ok) return { ok: false, message: `Could not read "${name}" from the project's Media folder.` };
+  const format = auditionFormatOf(name, bytes.value);
+  if (!format.ok) return format;
   const soundFont: AuditionOutcome<SoundFontChoice> =
     format.value === "midi" && audition.main !== null
       ? await readSoundFont(audition, audition.main, layout)

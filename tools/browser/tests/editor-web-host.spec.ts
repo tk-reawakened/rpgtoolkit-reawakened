@@ -1435,6 +1435,13 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
     }).toPass({ timeout: 15_000, intervals: [100, 250, 500, 1_000] });
   };
   await assertAuthoredTilePixels();
+  // This run has proved the upgraded board. Release it before the independent authoring checks:
+  // rendering an inactive game throughout conversion competes with the editor on CI (#3597).
+  const stopRun = async (): Promise<void> => {
+    await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  };
+  await stopRun();
   await page.getByRole("tab", { name: scriptPath }).click();
   await scriptEditor.locator(".view-line").first().click();
   await page.keyboard.press("Control+A");
@@ -1556,7 +1563,7 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   await assertAuthoredTilePixels();
   // Release the active runner before the final backing-store snapshot; its runtime file reads can hold the browser
   // provider's per-file read path while the proof is checking the persisted source, conversion copies, and script.
-  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+  await stopRun();
   const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy, script }) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");

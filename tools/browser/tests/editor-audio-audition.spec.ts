@@ -148,7 +148,7 @@ test("editor auditions real WAV and configured-bank MIDI and Stop silences both 
 
   await field.fill("unsupported.ogg");
   await play.click();
-  await expect(group.getByRole("alert")).toContainText("Audition plays .wav, .mid and .midi files");
+  await expect(group.getByRole("alert")).toHaveText('Audition plays WAV and MIDI files, judged by their contents. "unsupported.ogg" is neither: its first bytes are not a WAV or MIDI header.');
   await expect(page.locator(".tkr-board-state")).toHaveText("All changes saved");
   const onDisk = await page.evaluate(async ({ folder, paths }) => {
     const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder);

@@ -480,7 +480,7 @@ test("visual events edit, save, and run the same program in the real player", as
 });
 
 test("visual events preserve near-misses, edit only the message, and remove only its sequence", async ({ page }) => {
-  const source = '// before\n/*\nmwin("comment")\nwait()\nmwincls()\n*/\nmwin("lonely")\nwait()\nx = 1\nmwin("Original")\nwait()\nmwincls()\n// after';
+  const source = '// before\n/*\nmwin("comment")\nwait()\nmwincls()\n*/\nmwin("lonely")\nwait(0)\nx = y\nmwin("Original")\nwait()\nmwincls()\n// after';
   await installProject(page, [
     { path: "Main/example.gam", bytes: main },
     { path: PROGRAM, bytes: Array.from(Buffer.from(source, "utf8")) },
@@ -495,7 +495,7 @@ test("visual events preserve near-misses, edit only the message, and remove only
   await expect(opaque.first()).toContainText('// before');
   await expect(opaque.first()).toContainText('mwin("comment")');
   await expect(opaque.first()).toContainText('mwin("lonely")');
-  await expect(opaque.first()).toContainText("x = 1");
+  await expect(opaque.first()).toContainText("x = y");
   const editor = page.locator("#settings .monaco-editor");
   const programInput = editor.getByRole("textbox", { name: /^Program text/ });
   const oldBlock = opaque.filter({ hasText: "// after" });
@@ -559,6 +559,167 @@ test("visual events preserve near-misses, edit only the message, and remove only
   await page.keyboard.press("ControlOrMeta+z");
   await expect(message).toHaveValue("Updated");
 });
+test("structured visual events: every category, pointer, keyboard and numeric placement, ordering, one shared undo, save, and the real player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  const programPath = "Game/Example/Prg/start.prg";
+  const original = "// creator note\r\nvisits = visits + 1\r\n";
+  files[files.findIndex((file) => file.path === programPath)] = { path: programPath, bytes: Array.from(Buffer.from(original, "utf8")) };
+  await installProject(page, files);
+  await page.goto(PAGE);
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const folder of ["Game", "Example", "Prg"]) {
+    const row = page.getByRole("treeitem", { name: `${folder}, folder, closed`, exact: true });
+    await expect(row).toBeVisible();
+    await row.press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: /^start\.prg, program editor/ }).dblclick();
+  await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
+  await page.getByRole("button", { name: "Visual events", exact: true }).click();
+  const pane = page.getByRole("region", { name: "Visual events" });
+  await expect(pane).toBeVisible();
+  const text = () => editorText(page).then((value) => value.trimEnd());
+  const add = async (category: string, template: string): Promise<void> => {
+    await pane.getByLabel("Category", { exact: true }).selectOption(category);
+    await pane.getByLabel("Command", { exact: true }).selectOption(template);
+    await pane.getByRole("button", { name: "Add command", exact: true }).click();
+  };
+  const card = (name: string) => pane.getByRole("group", { name, exact: true });
+  const programInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+
+  // Text: a font size and a placed line of text.
+  await add("Text", "font-size");
+  await expect.poll(text).toBe("// creator note\nvisits = visits + 1\nfontsize(16)");
+  await add("Text", "text");
+  await card("Draw text").getByRole("textbox", { name: "Text", exact: true }).fill("Canvas proof");
+  await card("Draw text").getByRole("button", { name: "Apply Draw text" }).click();
+  await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(1, 1, "Canvas proof")');
+
+  // Pointer placement: the canvas item follows the pointer in whole cells and the card's own X and Y change.
+  const canvas = pane.getByRole("group", { name: /^Layout canvas/ });
+  const item = canvas.getByRole("button", { name: /^Draw text "Canvas proof"/ });
+  await item.scrollIntoViewIfNeeded();
+  const surface = (await canvas.boundingBox())!;
+  const start = (await item.boundingBox())!;
+  const cell = (16 / 640) * surface.width;
+  await page.mouse.move(start.x + 2, start.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 2 + cell * 1.5, start.y + 2 + cell, { steps: 4 });
+  await page.mouse.move(start.x + 2 + cell * 3, start.y + 2 + cell * 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(text).toContain('text(4, 3, "Canvas proof")');
+
+  // Keyboard placement: one unit with an arrow, ten with Shift.
+  await item.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(text).toContain('text(5, 3, "Canvas proof")');
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect.poll(text).toContain('text(5, 13, "Canvas proof")');
+
+  // Numeric placement, with a refusal that names the unit and range and leaves the program alone.
+  await pane.getByLabel("Placed X").fill("0");
+  await pane.getByRole("button", { name: "Apply placement" }).click();
+  await expect(pane.getByRole("alert")).toContainText(/X must be at least 1/);
+  await expect.poll(text).toContain('text(5, 13, "Canvas proof")');
+  await pane.getByLabel("Placed X").fill("2");
+  await pane.getByLabel("Placed Y").fill("2");
+  await pane.getByRole("button", { name: "Apply placement" }).click();
+  await expect.poll(text).toContain('text(2, 2, "Canvas proof")');
+
+  // One shared undo: the numeric placement is one step; redo restores it.
+  await programInput.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(text).toContain('text(5, 13, "Canvas proof")');
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(text).toContain('text(2, 2, "Canvas proof")');
+
+  // Every category adds a typed card with its generated code on show.
+  for (const [category, template, legend] of [
+    ["Display", "bitmap", "Draw bitmap"], ["Player", "player-stance", "Play player stance"], ["Fight", "fight", "Start a skill fight"],
+    ["Control", "condition", "If condition"], ["Items", "give-item", "Give item"], ["Variables", "set-variable", "Set variable"],
+    ["Input", "delay", "Delay"], ["Info", "get-gold", "Read gold"],
+  ] as const) {
+    await add(category, template);
+    await expect(card(legend)).toBeVisible();
+    await expect(card(legend).getByLabel("Generated code")).not.toBeEmpty();
+  }
+  // A typed asset input offers the shared picker; the chosen link is stored with its folder-relative path.
+  await card("Draw bitmap").getByRole("button", { name: "Choose bitmap file" }).click();
+  const picker = page.getByRole("dialog").last();
+  await picker.getByRole("option", { name: "forest.tbm", exact: true }).click();
+  await picker.getByRole("button", { name: "Use forest.tbm…", exact: true }).click();
+  await page.getByRole("button", { name: "Use it", exact: true }).click();
+  await card("Draw bitmap").getByRole("button", { name: "Apply Draw bitmap" }).click();
+  await expect.poll(text).toContain('bitmap("forest.tbm")');
+  for (const legend of ["Draw bitmap", "Play player stance", "Start a skill fight", "Give item"]) {
+    await card(legend).getByRole("button", { name: `Remove ${legend}` }).click();
+    await expect(card(legend)).toHaveCount(0);
+  }
+  await card("Set variable").getByRole("spinbutton", { name: "Number" }).fill("25");
+  await card("Set variable").getByRole("button", { name: "Apply Set variable" }).click();
+  await card("Delay").getByRole("spinbutton", { name: "Seconds" }).fill("0");
+  await card("Delay").getByRole("button", { name: "Apply Delay" }).click();
+  await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ndelay(0)\ngetgp(gold)');
+  await pane.getByRole("button", { name: "Move Read gold up" }).click();
+  await expect.poll(text).toBe('// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)');
+
+  // Insert a pixel-placed line before a chosen card, then the message that the player will wait on.
+  await pane.getByRole("button", { name: "Add Show message", exact: true }).click();
+  await pane.getByRole("textbox", { name: "Message", exact: true }).fill("Structured proof");
+  await pane.getByRole("textbox", { name: "Message", exact: true }).press("Enter");
+  await pane.getByLabel("Insert", { exact: true }).selectOption({ label: "Before line 10: Show message" });
+  await add("Text", "pixel-text");
+  await card("Draw text at pixels").getByRole("textbox", { name: "Text", exact: true }).fill("Pixel proof");
+  await card("Draw text at pixels").getByRole("button", { name: "Apply Draw text at pixels" }).click();
+  await pane.getByRole("option", { name: /Pixel proof/ }).click();
+  await pane.getByLabel("Placed X").fill("100");
+  await pane.getByLabel("Placed Y").fill("200");
+  await pane.getByRole("button", { name: "Apply placement" }).click();
+  const program = '// creator note\nvisits = visits + 1\nfontsize(16)\ntext(2, 2, "Canvas proof")\nif (gold > 10) {\n}\ngold = 25\ngetgp(gold)\ndelay(0)\npixeltext(100, 200, "Pixel proof")\nmwin("Structured proof")\nwait()\nmwincls()';
+  await expect.poll(text).toBe(program);
+
+  // The opaque handwritten line is untouched and the saved bytes keep the file's own CRLF endings.
+  await page.keyboard.press("ControlOrMeta+s");
+  const saved = await savedText(page, programPath, (value) => value.includes("Structured proof"));
+  expect(saved).toBe(`${program.replaceAll("\n", "\r\n")}\r\n`);
+  await expect(pane.getByRole("group", { name: "Code the builder does not edit", exact: true })).toContainText("// creator note");
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+
+  // The saved program runs in the real player and draws where the cards say.
+  await page.getByRole("button", { name: "New run setup" }).click();
+  const form = page.getByRole("dialog", { name: "New run setup" });
+  await form.getByRole("tab", { name: "Test program" }).click();
+  await form.getByRole("combobox", { name: "Program", exact: true }).selectOption(programPath);
+  await form.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
+  await form.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await form.getByRole("button", { name: "Test program", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  const drawn = async () => frame.locator("#screen").evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; x?: number; y?: number }> } } } | undefined;
+    return session?.engine.drawList().commands.filter((command) => command.kind === "text").map((command) => ({ text: command.text, x: command.x, y: command.y })) ?? [];
+  });
+  await expect.poll(drawn, { timeout: 30_000 }).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: "Canvas proof", x: 16, y: 16 }),
+    expect.objectContaining({ text: "Pixel proof", x: 100, y: 200 }),
+    expect.objectContaining({ text: "Structured proof" }),
+  ]));
+  await frame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await drawn()).map((entry) => entry.text).join(" "), { timeout: 30_000 }).not.toContain("Structured proof");
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+  expect(await violations(page)).toEqual([]);
+});
+
 test("a second program view uses the running project's language context", async ({ page }) => {
   const source = "function greet(name) {\n   mwin(name)\n}\n";
   await installProject(page, [

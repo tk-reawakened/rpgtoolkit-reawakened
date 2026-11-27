@@ -2,7 +2,7 @@
 type: feature
 title: "Special move and status effect editors"
 ticket: 10
-status: built
+status: done
 risk: high
 ---
 
@@ -72,3 +72,16 @@ Prerequisites: 13.1 (shared registration/lifecycle seam), 2.7 (battle formats) a
 **Resolution approved by the owner, 2026-11-25.** Typing is a document edit ([ADR 0022 D16](../../../docs/adr/0022-shared-editor-authoring-contracts.md#d16--typing-in-a-form-field-is-an-edit-3385)): one undoable gesture per field focus, text the file cannot store held in the document, and hot-exit backups refreshed as a gesture continues. It stays inside the public API: no synthetic edit, no no-op undo entry, no dirty flag and no timing guess. Branch `proto/3385-live-commit-fields` implements it, and the packaged VS Code for the Web proof (`TKR_VSCODE_BATTLE_DATA_PROOF=1`, `runVscodeBattleDataProof`) asserts the checks below and passes; reverting number fields to commit-on-blur fails it at its first step. The [owner amendment](../../../docs/adr/0022-shared-editor-authoring-contracts.md#owner-amendment-2026-11-25-3385) ruled on the two checks whose meaning changed: Undo/Redo follow text-editor rules (typing after an Undo replaces the redo branch), and autosave writes the value typed so far after its delay but never text the file cannot store. #3385 closes when that work merges into this story's pull request.
 
 **Required to clear the gate:** A real packaged host test shows native Save All commits a valid draft never blurred and refuses an invalid draft without writing; native Close on a draft-only tab offers Save/Don't Save/Cancel, a refused Save and Cancel keep the exact draft, and Don't Save drops it without editing disk or history. Test both clean and already-dirty documents, native Undo/Redo taking back and restoring a whole typing gesture, and real autosave modes writing the value typed so far after the delay and never text the file cannot store. Replace the blocker assertions with those positive checks before marking the draft ready.
+
+## Closure evidence
+
+The owner merged [#3362](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3362) at `ee4e6b99382b54545b96857f31b69cb5ca5a881e` and closed [#1735](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1735); its [required gate](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45716724186/job/139567979024) passed.
+
+| Acceptance clause | Observed evidence |
+|---|---|
+| Each format opens, edits, saves, reopens and loads through the real battle provider using authored enemy fixtures | The authored slime is taught the editor's saved move; the real fight uses it, applies the stored 10 damage and the linked status's stored rounds and 3 HP ticks once, consuming one round (5/5 engine cases). |
+| Correct inverted usability flags and signed values | Every T-57/T-58 field is implemented on the shared `BinaryDocument` lifecycle, with the flags and signed amounts covered by focused tests. |
+| Preserved untouched fields | The editors keep `minor`, residue and read-only text forms; CRLF descriptions are preserved. |
+| Enemy-authoring UI is not a prerequisite | No enemy editor is claimed; the authored fixture supplies the enemy. |
+
+The gate the blocker named is implemented and proven in the packaged VS Code for the Web proof: native Save All, held text refusal, Close choices, Undo/Redo gestures and autosave. The remaining cross-editor field-holding work is tracked separately as [#3477](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3477).

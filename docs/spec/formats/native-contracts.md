@@ -118,8 +118,9 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 | `.tkrtle` | `tile` | [native-tile.md](native-tile.md) |
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 | `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
+| `.tkrskin` | `skin` | [native-skin.md](native-skin.md) |
 
-The tileset contract is drafted pending owner approval; Jensen reviewed and merged the asset-pack and scene contracts. The animation clip is also registered. The registry grows with each new contract: when a contract is written, its extension is chosen by rule 1 and its row is added here and in `packages/native-data` in the same change. No extension is held for a contract that does not exist yet. A test fails when the code's registry and this table differ.
+The `.tkrskin` extension is the native skin document's unique registry spelling. A contract is added here and in `packages/native-data` in the same change that writes its page. A test fails when the code's registry and this table differ.
 
 A plugin block is not a document and has no extension, so a plugin that attaches data to a native document needs no row here. Only a contract that is a document of its own does ([block or document](#block-or-document)).
 
