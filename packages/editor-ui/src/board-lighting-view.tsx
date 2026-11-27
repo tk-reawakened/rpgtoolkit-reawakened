@@ -71,13 +71,14 @@ function drawConversion(canvas: HTMLCanvasElement, preview: LightConversionPrevi
 
 /** An open conversion review, for Escape to tell which one it belongs to when two boards are open side by side. */
 interface OpenReview {
-  readonly root: () => HTMLElement | null;
+  readonly root: () => HTMLDetailsElement | null;
 }
 
 /** Open reviews, oldest first: the last is the one most recently opened or focused. */
 const openReviews: OpenReview[] = [];
 
-const onScreen = (root: HTMLElement | null): root is HTMLElement => root !== null && root.isConnected && root.closest('[hidden], [inert], [aria-hidden="true"]') === null;
+const onScreen = (root: HTMLDetailsElement | null): root is HTMLDetailsElement =>
+  root !== null && root.open && root.isConnected && root.closest('[hidden], [inert], [aria-hidden="true"]') === null;
 
 /** The review an Escape belongs to: the one holding the key's target, else the most recent one still on screen. */
 function escapeOwner(target: Element | null): OpenReview | undefined {

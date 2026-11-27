@@ -377,5 +377,16 @@ test("two open reviews in two panes: Escape answers only the active one, and nev
   await escape(field);
   equal(review(a.root), null, "the open review answered the Escape");
   equal(document.activeElement, field, "focus stayed in the pane where the author was working");
+
+  // A collapsed disclosure is not visible even when neither it nor its ancestors has a hidden attribute.
+  await click(a.root, CONVERT);
+  await click(b.root, CONVERT);
+  const lightingB = b.root.querySelector<HTMLDetailsElement>(".tkr-board-lighting")!;
+  await act(() => { lightingB.open = false; (document.activeElement as HTMLElement | null)?.blur(); });
+  await escape(document.body);
+  equal(review(a.root), null, "the visible review answers before the newer, collapsed review");
+  equal((await escape(document.body)).defaultPrevented, false, "a collapsed review alone does not claim Escape");
+  await act(() => { lightingB.open = true; });
+  ok(review(b.root) !== null, "reopening the panel finds its review intact");
   deepEqual([fingerprint(a.doc), fingerprint(b.doc)], fingerprints, "no pane stored anything");
 });

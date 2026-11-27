@@ -206,8 +206,14 @@ test("production browser workbench: Convert reviews before baking, Cancel change
   await expect(centreX).toBeEnabled();
   await expect(centreX).toHaveValue("96");
 
-  // The Cancel button does the same by pointer; the saved file is byte-identical and still holds exactly the reviewed light.
+  // Escape while the native disclosure is closed does not dismiss the hidden review. Cancel then keeps the saved bytes.
   await convert.click();
+  await expect(review).toBeVisible();
+  const disclosure = panel.locator(":scope > summary");
+  await disclosure.click();
+  await expect(review).toBeHidden();
+  await page.keyboard.press("Escape");
+  await disclosure.click();
   await expect(review).toBeVisible();
   await review.getByRole("button", { name: "Cancel converting Light 1" }).click();
   await expect(review).toHaveCount(0);
