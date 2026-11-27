@@ -14,9 +14,10 @@
  * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; `query`
  * asks only for the dirty state, before a revert's question; `revert` drops text typed against the version being
  * discarded; `guard` hands over accepted edits without applying draft text and refuses if a view still holds any.
+ * `package-preflight` hands over accepted edits and lets a view refuse an export without changing its save policy.
  * A caller that passes nothing keeps the behaviour this registry had before the reason existed.
  */
-export type SettleReason = "explicit" | "autosave" | "guard" | "revert" | "query";
+export type SettleReason = "explicit" | "autosave" | "guard" | "revert" | "query" | "package-preflight";
 
 /**
  * What a settlement found: `ok` when nothing refused, else why not. `held` identifies text the view is holding;
@@ -35,9 +36,9 @@ export interface PendingEditWork {
   /** Resolves once `busy()` is false. It never rejects: an edit the document refused is reported by the view itself. */
   idle(reason?: SettleReason): Promise<void>;
   /**
-   * Work the host must not *save* through, for the reasons that judge it: an explicit save is refused by a field the file
-   * cannot store, and a `guard` by any text a field holds. A backup, a query or a revert still settle accepted edits and
-   * never apply or reject a draft, so they never refuse.
+   * Work the host must not save or package through, for the reasons that judge it: an explicit save is refused by a field
+   * the file cannot store, a `guard` by drafts that prevent a save, and `package-preflight` by drafts that prevent an export.
+   * A backup, query or revert never refuses a draft.
    */
   refusal?(reason: SettleReason | undefined): string | null;
   /** Whether the view holds text the document does not (typed but not yet applied), so closing or reverting must ask first. */

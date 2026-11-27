@@ -20,7 +20,7 @@ import { registerBoardUpgradeCommands } from "./board-upgrade-commands.ts";
 import { boardPreviewRootForLayout, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
-import { registerPackageGameCommand } from "./package-game-command.ts";
+import { registerGameSetupCommand, registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
@@ -73,7 +73,6 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   registerRunDebugger(context, runForProject);
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
-  registerPackageGameCommand(context);
   registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
@@ -211,6 +210,20 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  // Export asks the live settings document, if open, to hand over accepted edits without applying its draft.
+  // An unconfirmed hand-off refuses export, but a held settings draft does not change Save or Save As.
+  const settleLiveMain = async (uri: vscode.Uri): Promise<string | null> => {
+    const live = core.openDocument(uri);
+    if (live === undefined) return null;
+    const refusal = await live.settleViews("package-preflight");
+    if (refusal !== null) return refusal;
+    const snapshot = live.model.getSnapshot();
+    if (snapshot.conflict !== null) return "the selected main document has an unresolved save conflict";
+    if (snapshot.dirty) return "the selected main document still has unsaved changes; save it before exporting";
+    return null;
+  };
+  registerPackageGameCommand(context, settleLiveMain);
+  registerGameSetupCommand(context, settleLiveMain);
   registerImportBoardAsScene(context, core, hasDirtyTextDocument);
   registerBoardUpgradeCommands(context, core, hasDirtyTextDocument, {
     vscode,

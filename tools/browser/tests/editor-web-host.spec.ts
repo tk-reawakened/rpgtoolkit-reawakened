@@ -435,15 +435,23 @@ test("opening another session replaces only the old view and a failed open prese
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
   await title.fill("Unsaved title from prior view");
+  await expect(title).toHaveValue("Unsaved title from prior view");
 
   await fileInput.setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
+  const confirmation = page.getByRole("dialog");
+  await expect(confirmation).toContainText("Save the changes to example.gam before closing it?");
+  await confirmation.getByRole("button", { name: "Don't save", exact: true }).click();
+  await expect(page.locator("#host-status")).toContainText("main_minor4.gam (session copy; changes stay in memory)");
+  await expect(page.getByRole("tab", { name: "example.gam", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "main_minor4.gam", exact: true })).toBeVisible();
+  await expect(title).toHaveCount(1);
   await expect(title).toBeVisible();
   await expect(title).not.toHaveValue("Unsaved title from prior view");
-  await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
   const currentTitle = await title.inputValue();
 
   await fileInput.setInputFiles({ name: "broken.gam", mimeType: "application/octet-stream", buffer: Buffer.from([1, 2, 3]) });
-  await expect(page.locator("#host-status")).toContainText("broken.gam");
+  await expect(page.locator("#host-status")).toHaveText(/^(?!Opening\b).*broken\.gam/);
+  await expect(page.getByRole("tab", { name: "main_minor4.gam", exact: true })).toBeVisible();
   await expect(title).toBeVisible();
   await expect(title).toHaveValue(currentTitle);
 });

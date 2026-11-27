@@ -29,6 +29,7 @@
     "onCommand:tkr.upgradeBoardTileToPixel",
     "onCommand:tkr.upgradePreVectorBoard",
     "onCommand:tkr.packageGame",
+    "onCommand:tkr.packageGameSetup",
     "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
     "onCommand:tkr.insertProgramHeader",
@@ -130,6 +131,10 @@
       {
         "command": "tkr.packageGame",
         "title": "RPG Toolkit: Package game"
+      },
+      {
+        "command": "tkr.packageGameSetup",
+        "title": "RPG Toolkit: Save game setup ZIP…"
       },
       {
         "command": "tkr.returnFromBoard",
@@ -244,6 +249,11 @@
           "command": "tkr.packageGame",
           "when": "resourceExtname == .gam",
           "group": "navigation@7"
+        },
+        {
+          "command": "tkr.packageGameSetup",
+          "when": "resourceExtname == .gam",
+          "group": "navigation@8"
         }
       ]
     },

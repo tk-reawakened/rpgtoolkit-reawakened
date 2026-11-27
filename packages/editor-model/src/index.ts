@@ -635,6 +635,7 @@ export {
   type PreparedGamePackage,
 } from "./package-export.ts";
 export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
+export { prepareGameSetup, type GameSetupOutcome, type PreparedGameSetup } from "./game-setup.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {
