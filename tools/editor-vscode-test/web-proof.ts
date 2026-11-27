@@ -336,9 +336,32 @@ export async function runVscodeBoardUpgradeProof(
   await expect(legacySavePath).toBeVisible({ timeout: 15_000 });
   await legacySavePath.fill(`/${legacyCopyPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
+  let lastLegacySaveRead: { path: string; layout: string | null; error: string | null } = {
+    path: legacyCopyPath, layout: null, error: null,
+  };
   await expect.poll(async () => {
-    try { return decode(await readBacking(legacyCopyPath)).layout; } catch { return null; }
-  }, { timeout: 30_000 }).toBe("vector");
+    try {
+      const layout = decode(await readBacking(legacyCopyPath)).layout;
+      lastLegacySaveRead = { path: legacyCopyPath, layout, error: null };
+      return layout;
+    } catch (error) {
+      lastLegacySaveRead = {
+        path: legacyCopyPath,
+        layout: null,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      };
+      return null;
+    }
+  }, { timeout: 30_000 }).toBe("vector").catch(async (error: unknown) => {
+    const events = readEvents().filter((event) => event.path.endsWith(legacyCopyPath)).slice(-20);
+    const visibleUi = await page.locator(".monaco-workbench").ariaSnapshot({ timeout: 3_000 })
+      .then((snapshot) => snapshot.split("\n").filter((line) => /red\.upgraded|Folder path|quick input|pre-vector|notification|alert|dialog/i.test(line)).slice(-20))
+      .catch(() => "UI snapshot unavailable");
+    throw new Error(
+      `Pre-vector copy save did not produce a vector board: ${JSON.stringify({ read: lastLegacySaveRead, events, visibleUi })}`,
+      { cause: error },
+    );
+  });
   const upgradedLegacy = decode(await readBacking(legacyCopyPath));
   expect({ sizeX: upgradedLegacy.board.sizeX, sizeY: upgradedLegacy.board.sizeY, sizeL: upgradedLegacy.board.sizeL }).toEqual({ sizeX: 19, sizeY: 14, sizeL: 8 });
   expect(upgradedLegacy.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);

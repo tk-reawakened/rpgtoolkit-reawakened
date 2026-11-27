@@ -41,7 +41,7 @@ async function readProjectFile(fs: FixtureFileSystem, path: string): Promise<Fil
 /** Resolve board bounds with the same `.tkr-tests/` overlay precedence as the saved-test runner. */
 export async function resolveVisualFixtureBoardCoordinates(fs: FixtureFileSystem, path: string): Promise<BoardCoordinates | null> {
   if (!/\.brd$/i.test(path)) return null;
-  let candidates: readonly [string, string];
+  let candidates: readonly string[];
   try {
     candidates = fixtureWorldLookupPaths(path);
   } catch {

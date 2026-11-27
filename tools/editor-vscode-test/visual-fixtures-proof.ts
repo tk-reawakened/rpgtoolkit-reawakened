@@ -54,24 +54,23 @@ export function visualFixtureProofFiles(): readonly File[] {
   const files = createCreatorTestFiles().filter((file) => file.path !== ".tkr-tests/Prg/wall.spec.prg");
   const wall = files.find((file) => file.path === CREATOR_TEST_BOARD_PATH);
   if (wall === undefined) throw new Error("The visual-fixture proof needs the authored wall board.");
-  const empty = createEmptyBoard();
-  const door = writeBoard({
-    ...empty,
-    sizeX: 5,
-    sizeY: 3,
-    sizeL: 1,
-    tileMatrix: Array(15).fill(0),
-    tileRuns: [{ lutIndex: 0, count: 15, marker: true }],
-    layerTitles: ["", "Ground"],
-    vectors: [],
-    programs: [],
-    properties: { ...empty.properties, start: { x: 3, y: 2, layer: 1 } },
-  });
-  if (!door.ok) throw new Error(`Could not author visual-fixture destination board: ${door.error.message}`);
+  const proofBoard = (sizeX: number, sizeY: number): Uint8Array => {
+    const empty = createEmptyBoard();
+    const cells = sizeX * sizeY;
+    const result = writeBoard({
+      ...empty, sizeX, sizeY, sizeL: 1,
+      tileMatrix: Array(cells).fill(0),
+      tileRuns: [{ lutIndex: 0, count: cells, marker: true }],
+      layerTitles: ["", "Ground"],
+      properties: { ...empty.properties, start: { x: sizeX, y: sizeY - 1, layer: 1 } },
+    });
+    if (!result.ok) throw new Error(`Could not author a visual-fixture board: ${result.error.message}`);
+    return result.value;
+  };
   const source = [
     "// native visual fixture: opaque ASCII source line",
     'function handwrittenFixture() { preservedText = "yes" }',
-    'specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 2, facing: "E", gold: 25 })',
+    String.raw`specFixture({ board: "Boards\wall.brd", party: { length: 1, "0": "Chrs\Hero.tem" }, x: 1, y: 2, facing: "E", gold: 25 })`,
     'it("door opens onto its destination", () => {',
     '  expect(specValue("board")).toBe("boards/wall.brd")',
     '  expect(specValue("gold")).toBe(25)',
@@ -83,13 +82,14 @@ export function visualFixtureProofFiles(): readonly File[] {
   ].join("\r\n");
   return [
     ...files.map((file) => file.path === CREATOR_TEST_BOARD_PATH ? { ...file, bytes: boardWithDoor(file.bytes, true) } : file),
-    { path: DOOR_PATH, bytes: door.value },
+    { path: DOOR_PATH, bytes: proofBoard(5, 3) },
+    { path: ".tkr-tests/Boards/narrow.brd", bytes: proofBoard(2, 2) },
     { path: VISUAL_FIXTURE_PROOF_PATH, bytes: new TextEncoder().encode(source) },
   ];
 }
 
 /** The authored fixture line after the cards save it: the door region's board plus the fields the card cannot show. */
-const SAVED_FIXTURE = 'specFixture({"board":"Boards/wall.brd","party":{"0":"Chrs/Hero.tem","length":1},"x":1,"y":2,"facing":"E","gold":25,"layer":1,"seed":17})';
+const SAVED_FIXTURE = String.raw`specFixture({"board":"Boards\wall.brd","party":{"0":"Chrs\Hero.tem","length":1},"x":1,"y":2,"facing":"E","gold":25,"layer":1,"seed":17})`;
 const SAVED_WALL_CASE = [
   'it("wall stops at the authored boundary", () => {',
   '  specAction("right", 35)',
@@ -127,16 +127,22 @@ export async function runVscodeVisualFixturesProof(
   // The board-mode bridge labels the start fields from the real board rather than guessing units (#3574).
   await expect(fixture.getByRole("spinbutton", { name: "Start tile X (1–5)" })).toBeVisible({ timeout: 15_000 });
   await expect(fixture.getByRole("spinbutton", { name: "Start tile Y (1–3)" })).toBeVisible();
-  await fixture.getByRole("textbox", { name: "Board project path" }).fill("Boards/wall.brd");
-  await fixture.getByRole("textbox", { name: "Party character paths, comma separated" }).fill("Chrs/Hero.tem");
+  const boardPath = fixture.getByRole("textbox", { name: "Board project path" });
+  await expect(boardPath).toHaveValue(String.raw`Boards\wall.brd`);
+  await boardPath.fill("Boards/narrow.brd");
+  const narrowX = fixture.getByRole("spinbutton", { name: "Start tile X (1–2)" });
+  await narrowX.fill("4");
+  await fixture.getByRole("button", { name: "Save fixture card to source" }).click();
+  await expect(fixture.getByRole("alert")).toHaveText("This tile board places the party from 1 to 2 across and 1 to 2 down.");
+  await boardPath.fill(String.raw`Boards\wall.brd`);
+  await fixture.getByRole("textbox", { name: "Party character paths, comma separated" }).fill(String.raw`Chrs\Hero.tem`);
   await fixture.getByRole("spinbutton", { name: "Start tile X (1–5)" }).fill("1");
   await fixture.getByRole("spinbutton", { name: "Start tile Y (1–3)" }).fill("2");
   await fixture.getByRole("spinbutton", { name: "Layer" }).fill("1");
   await fixture.getByRole("spinbutton", { name: "Seed" }).fill("17");
   await fixture.getByRole("button", { name: "Save fixture card to source" }).click();
   await expect(fixture.getByText(/Fixture at source line/)).toBeVisible();
-  const refusal = fixture.getByRole("alert");
-  if (await refusal.count() > 0) throw new Error(`The fixture panel refused the card save: ${await refusal.first().innerText()}`);
+  await expect(fixture.getByRole("alert"), "the confirmed save clears the previous bounds refusal").toHaveCount(0);
   // A card edit keeps the authored `gold` the cards cannot show (#3569): save the source, then read the bytes back.
   await sourceTab.click();
   await page.keyboard.press("ControlOrMeta+S");
@@ -230,7 +236,7 @@ export async function runVscodeVisualFixturesProof(
   await openNativeQuickOpenFile(page, expect, VISUAL_FIXTURE_PROOF_PATH);
   await command("RPG Toolkit: Show Visual fixtures");
   const reopened = await fixtureFrame(page, expect);
-  await expect(reopened.getByRole("textbox", { name: "Board project path" })).toHaveValue("Boards/wall.brd");
+  await expect(reopened.getByRole("textbox", { name: "Board project path" })).toHaveValue(String.raw`Boards\wall.brd`);
   await expect(reopened.getByRole("spinbutton", { name: "Start tile X (1–5)" })).toHaveValue("1");
   await expect(reopened.getByText("wall stops at the authored boundary", { exact: true })).toBeVisible();
   await expect.poll(() => host.readBacking(VISUAL_FIXTURE_PROOF_PATH)).toEqual(new TextEncoder().encode(expectedSource));

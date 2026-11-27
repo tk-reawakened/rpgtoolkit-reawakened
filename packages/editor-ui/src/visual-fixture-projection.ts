@@ -122,7 +122,8 @@ function fixtureParty(value: unknown): { party: string[]; partyForm: "object" | 
 
 /**
  * Read a fixture call's plain literal: an RPGCode dictionary literal (bare or quoted keys, nested dictionaries,
- * arrays, strings, finite numbers) or its JSON spelling. Every field a card cannot show survives this parse.
+ * arrays, strings, finite numbers). Strings use RPGCode's no-escape, single-line syntax.
+ * Every field a card cannot show survives this parse.
  */
 function literalValue(text: string): unknown {
   let at = 0;
@@ -134,21 +135,16 @@ function literalValue(text: string): unknown {
   };
   const skipString = (): string => {
     if (text[at] !== '"') fail();
-    const start = at;
     at += 1;
+    const start = at;
     while (at < text.length && text[at] !== '"') {
-      if (text[at] === "\\") at += 1;
+      if (/[\r\n\0]/.test(text[at]!)) fail();
       at += 1;
     }
     if (at >= text.length) fail();
+    const value = text.slice(start, at);
     at += 1;
-    try {
-      const value: unknown = JSON.parse(text.slice(start, at));
-      if (typeof value !== "string") fail();
-      return value as string;
-    } catch {
-      return fail();
-    }
+    return value;
   };
   const value = (): unknown => {
     space();
@@ -209,10 +205,14 @@ function literalValue(text: string): unknown {
     }
     if (char === '"') return skipString();
     const rest = text.slice(at);
-    const literal = /^(?:-?\d+(?:\.\d+)?|true|false|null)/.exec(rest);
+    const literal = /^(?:-?\d+(?:\.\d+)?(?:e[+-]?\d+)?|true|false|null)/.exec(rest);
     if (literal !== null) {
       at += literal[0].length;
-      return literal[0] === "true" ? true : literal[0] === "false" ? false : literal[0] === "null" ? null : Number(literal[0]);
+      if (literal[0] === "true") return true;
+      if (literal[0] === "false") return false;
+      if (literal[0] === "null") return null;
+      const number = Number(literal[0]);
+      return Number.isFinite(number) ? number : fail();
     }
     return fail();
   };
@@ -265,38 +265,21 @@ function fixtureDefinition(line: string): VisualFixtureDefinition | null {
 }
 
 function actionCall(line: string): { action: string; ticks: number } | null {
-  const match = /^\s*specAction\(("(?:[^"\\]|\\.)*"),\s*(-?\d+)\)\s*;?\s*$/.exec(line);
+  const match = /^\s*specAction\(("[^"\r\n\0]*"),\s*(-?\d+)\)\s*;?\s*$/.exec(line);
   if (match === null) return null;
-  try {
-    const action: unknown = JSON.parse(match[1]!);
-    const ticks = Number(match[2]);
-    const normalized = typeof action === "string" ? action.toLowerCase() : "";
-    return Object.hasOwn(EDITABLE_ACTIONS, normalized) && Number.isInteger(ticks) && ticks >= 1 && ticks <= 1_000 ? { action: normalized, ticks } : null;
-  } catch {
-    return null;
-  }
+  const action = match[1]!.slice(1, -1).toLowerCase();
+  const ticks = Number(match[2]);
+  return Object.hasOwn(EDITABLE_ACTIONS, action) && Number.isInteger(ticks) && ticks >= 1 && ticks <= 1_000 ? { action, ticks } : null;
 }
 
 function quotedName(line: string): string | null {
-  const match = /^\s*(?:it|test)\(("(?:[^"\\]|\\.)*"),\s*\(\)\s*=>\s*\{\s*$/.exec(line);
-  if (match === null) return null;
-  try {
-    const name: unknown = JSON.parse(match[1]!);
-    return typeof name === "string" ? name : null;
-  } catch {
-    return null;
-  }
+  const match = /^\s*(?:it|test)\(("[^"\r\n\0]*"),\s*\(\)\s*=>\s*\{\s*$/.exec(line);
+  return match === null ? null : match[1]!.slice(1, -1);
 }
 
 function describeName(line: string): string | null {
-  const match = /^(\s*)(?:\w+\.)?describe\(("(?:[^"\\]|\\.)*"),\s*\(\)\s*=>\s*\{\s*$/.exec(line);
-  if (match === null) return null;
-  try {
-    const name: unknown = JSON.parse(match[2]!);
-    return typeof name === "string" ? name : null;
-  } catch {
-    return null;
-  }
+  const match = /^(\s*)(?:\w+\.)?describe\(("[^"\r\n\0]*"),\s*\(\)\s*=>\s*\{\s*$/.exec(line);
+  return match === null ? null : match[2]!.slice(1, -1);
 }
 
 /** Recognise only unambiguous single-line TOOL-5 cards; every other source line remains opaque and untouched. */
@@ -357,9 +340,27 @@ export function projectVisualFixtureSource(source: string): VisualFixtureProject
   return { fixture, cases, groups: groups.sort((left, right) => left.startLine - right.startLine), opaque, insert };
 }
 
-/** One RPGCode string literal, or `null` when the text holds a character the grammar cannot spell. */
 export function codeString(value: string): string | null {
   return /["\r\n\0]/.test(value) ? null : `"${value}"`;
+}
+
+function fixtureLiteral(value: unknown): string {
+  if (typeof value === "string") {
+    const literal = codeString(value);
+    if (literal === null) throw new Error("fixture contains text RPGCode cannot represent");
+    return literal;
+  }
+  if (value === null || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return String(value);
+  if (Array.isArray(value)) return `[${value.map(fixtureLiteral).join(",")}]`;
+  if (typeof value === "object") {
+    const members = Object.entries(value).map(([key, item]) => {
+      const literalKey = codeString(key);
+      if (literalKey === null) throw new Error("fixture contains a key RPGCode cannot represent");
+      return `${literalKey}:${fixtureLiteral(item)}`;
+    });
+    return `{${members.join(",")}}`;
+  }
+  throw new Error("fixture contains a value RPGCode cannot represent");
 }
 
 export function fixtureSource(definition: VisualFixtureDefinition): string {
@@ -376,7 +377,7 @@ export function fixtureSource(definition: VisualFixtureDefinition): string {
   if (definition.facing !== undefined) values["facing"] = definition.facing;
   const authored = (definition.order ?? []).filter((key) => Object.hasOwn(values, key));
   const keys = [...authored, ...Object.keys(values).filter((key) => !authored.includes(key))];
-  return `specFixture(${JSON.stringify(Object.fromEntries(keys.map((key) => [key, values[key]])))})`;
+  return `specFixture(${fixtureLiteral(Object.fromEntries(keys.map((key) => [key, values[key]])))})`;
 }
 
 /** Replace one recognised card line only; offsets and every other source byte stay with the document. */

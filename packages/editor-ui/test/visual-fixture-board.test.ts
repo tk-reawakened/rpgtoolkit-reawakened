@@ -70,3 +70,18 @@ test("visual fixture board bounds fall back to the project file when no overlay 
     height: 5,
   });
 });
+
+test("a logical path naming the reserved overlay does not read a physical overlay file as a project fallback", async () => {
+  const fs = memoryFileSystem([[".tkr-tests/Boards/wall.brd", board(9, 7)]]);
+  deepEqual(await resolveVisualFixtureBoardCoordinates(fs, String.raw`.TKR-TESTS\Boards\wall.brd`), null);
+
+  const nested = memoryFileSystem([
+    [".tkr-tests/Boards/wall.brd", board(9, 7)],
+    [".tkr-tests/.tkr-tests/Boards/wall.brd", board(4, 2)],
+  ]);
+  deepEqual(await resolveVisualFixtureBoardCoordinates(nested, ".tkr-tests/Boards/wall.brd"), {
+    mode: "tile",
+    width: 4,
+    height: 2,
+  });
+});

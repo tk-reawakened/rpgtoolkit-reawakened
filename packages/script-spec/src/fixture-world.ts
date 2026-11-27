@@ -31,10 +31,12 @@ const compare = (left: string, right: string): number => left < right ? -1 : lef
 const normalize = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
 const OVERLAY_ROOT = ".tkr-tests";
 
-/** Candidate host paths for one fixture-world path, ordered with the test overlay before the project file. */
-export function fixtureWorldLookupPaths(path: string): readonly [overlayPath: string, projectPath: string] {
+/** Candidate host paths in fixture-world order. The reserved overlay tree is not ordinary project data. */
+export function fixtureWorldLookupPaths(path: string): readonly string[] {
   const projectPath = fixturePath(path, "fixture-world path");
-  return [`${OVERLAY_ROOT}/${projectPath}`, projectPath];
+  const overlayPath = `${OVERLAY_ROOT}/${projectPath}`;
+  const key = assetKey(projectPath);
+  return key === OVERLAY_ROOT || key.startsWith(`${OVERLAY_ROOT}/`) ? [overlayPath] : [overlayPath, projectPath];
 }
 
 function inventoryPath(item: string): string {

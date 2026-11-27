@@ -51,7 +51,7 @@ function parseActionList(value: string): ActionRow[] | null {
 
 function validProjectPath(value: string, extension: string): boolean {
   return value.length > 0 && value.length <= 255 && value.toLowerCase().endsWith(extension)
-    && !value.includes("\n") && !value.includes("\r") && !value.includes("\0")
+    && !/["\r\n\0]/.test(value)
     && !value.startsWith("/") && !/^[A-Za-z]:/.test(value)
     && !value.replaceAll("\\", "/").split("/").includes("..");
 }
@@ -91,9 +91,11 @@ export function VisualFixtureView({ doc, onEdited, onRun, boardCoordinates }: Vi
   const [seed, setSeed] = useState(String(projection.fixture?.definition.seed ?? 0));
   const [waitTicks, setWaitTicks] = useState("60");
   const [waitForValue, setWaitForValue] = useState(false);
-  const [coordinates, setCoordinates] = useState<BoardCoordinates | null>(null);
+  const [boardResult, setBoardResult] = useState<{ readonly path: string; readonly bounds: BoardCoordinates | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fixtureBoard = projection.fixture?.definition.board ?? "";
+  const currentBoard = boardResult?.path === board ? boardResult : null;
+  const coordinates = currentBoard?.bounds ?? null;
+  const boardPending = boardCoordinates !== undefined && validProjectPath(board, ".brd") && currentBoard === null;
   useEffect(() => {
     const definition = projectVisualFixtureSource(source).fixture?.definition;
     setBoard(definition?.board ?? "");
@@ -106,15 +108,14 @@ export function VisualFixtureView({ doc, onEdited, onRun, boardCoordinates }: Vi
   }, [source]);
   useEffect(() => {
     let current = true;
-    setCoordinates(null);
-    if (boardCoordinates === undefined || fixtureBoard.length === 0) return () => { current = false; };
-    void boardCoordinates(fixtureBoard).then((value) => {
-      if (current) setCoordinates(value);
-    }).catch(() => {
-      if (current) setCoordinates(null);
-    });
+    setBoardResult(null);
+    if (boardCoordinates === undefined || !validProjectPath(board, ".brd")) return;
+    const publish = (bounds: BoardCoordinates | null) => {
+      if (current) setBoardResult({ path: board, bounds });
+    };
+    void boardCoordinates(board).then(publish, () => publish(null));
     return () => { current = false; };
-  }, [fixtureBoard, boardCoordinates]);
+  }, [board, boardCoordinates]);
 
   async function apply(source: string, text: string): Promise<boolean> {
     if (doc.getSnapshot().text !== source) {
@@ -137,6 +138,7 @@ export function VisualFixtureView({ doc, onEdited, onRun, boardCoordinates }: Vi
 
   async function saveFixture(event: Event): Promise<void> {
     event.preventDefault();
+    if (boardPending) return;
     const paths = party.split(",").map((entry) => entry.trim()).filter(Boolean);
     const startX = Number(x);
     const startY = Number(y);
@@ -257,7 +259,7 @@ export function VisualFixtureView({ doc, onEdited, onRun, boardCoordinates }: Vi
           <label>Layer <input required type="number" min="1" step="1" value={layer} onInput={(event) => setLayer((event.currentTarget as HTMLInputElement).value)} /></label>
           <label>Seed <input required type="number" min="0" max="4294967295" step="1" value={seed} onInput={(event) => setSeed((event.currentTarget as HTMLInputElement).value)} /></label>
           <label>Facing <select value={facing} onChange={(event) => setFacing((event.currentTarget as HTMLSelectElement).value)}>{"N NE E SE S SW W NW".split(" ").map((value) => <option value={value}>{value}</option>)}</select></label>
-          <button type="submit">Save fixture card to source</button>
+          <button type="submit" disabled={boardPending}>Save fixture card to source</button>
         </fieldset>
       </form>
       <p>Other fixture fields a card cannot show, such as gold, stats, inventory, variables and file allowances, stay in the source untouched.</p>

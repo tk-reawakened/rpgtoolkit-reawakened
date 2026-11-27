@@ -83,6 +83,18 @@ test("a fixture card keeps authored fields it cannot show and the authored party
   deepEqual(again.fixture?.definition.extra, parsed.extra);
 });
 
+test("fixture literals preserve RPGCode backslashes, including nested extra-field strings", () => {
+  const source = 'specFixture({ board: "Boards\\wall.brd", party: { length: 1, "0": "Chrs\\Hero.tem" }, x: 1, y: 2, note: "one\\two", nested: { path: "Misc\\a.txt" } })';
+  const line = projectVisualFixtureSource(source).fixture;
+  ok(line !== null);
+  deepEqual(line.definition.extra, { note: "one\\two", nested: { path: "Misc\\a.txt" } });
+  const rewritten = fixtureSource(line.definition);
+  equal(rewritten, String.raw`specFixture({"board":"Boards\wall.brd","party":{"0":"Chrs\Hero.tem","length":1},"x":1,"y":2,"note":"one\two","nested":{"path":"Misc\a.txt"}})`);
+  const again = projectVisualFixtureSource(rewritten).fixture;
+  ok(again !== null);
+  deepEqual(again.definition.extra, line.definition.extra);
+});
+
 test("an object party keeps its length-and-index shape through an unrelated card edit", () => {
   const source = `${fixtureSource({ ...definition, party: ["Chrs/Hero.tem", "Chrs/Mage.tem"] })}\r\n`;
   const projection = projectVisualFixtureSource(source);
@@ -159,6 +171,7 @@ test("a fixture a card cannot spell stays opaque instead of losing its fields", 
 
 test("card text becomes one RPGCode string literal or is refused, never a JSON escape", () => {
   equal(codeString("door opens"), '"door opens"');
+  equal(codeString("one\\two"), '"one\\two"');
   equal(codeString('the "inner" door'), null);
   equal(codeString("line\nbreak"), null);
   equal(codeString("nul\u0000"), null);
