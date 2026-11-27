@@ -29,6 +29,7 @@ import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
 import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { CREATOR_PROJECT, runVscodeCreatorAcceptanceProof } from "./creator-acceptance-proof.ts";
+import { runVscodeFirstBoardTutorialProof } from "./first-board-tutorial-proof.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -117,9 +118,10 @@ const visualEventsProof = process.env.TKR_VSCODE_VISUAL_EVENTS_PROOF === "1";
 const visualFixturesProof = process.env.TKR_VSCODE_VISUAL_FIXTURES_PROOF === "1";
 const scriptWorkflowProof = process.env.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF === "1";
 const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
+const firstBoardTutorialProof = process.env.TKR_VSCODE_FIRST_BOARD_TUTORIAL_PROOF === "1";
 const battleDataProof = process.env.TKR_VSCODE_BATTLE_DATA_PROOF === "1";
 const skinProof = process.env.TKR_VSCODE_SKIN_PROOF === "1";
-if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof)) {
+if (designProof && (firstBoardTutorialProof || nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
@@ -128,9 +130,9 @@ if (visualEventsProof) {
   await access(resolve(extension, "dist/visual-events.js"));
   await access(resolve(extension, "dist/visual-events-webview.js"));
 }
-if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if ((firstBoardTutorialProof || nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of firstBoardTutorialProof || nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || boardUpgradeProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || visualFixturesProof || battleDataProof || skinProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   let boardUpgradeAssets = [];
@@ -594,6 +596,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev board import review, cancel, one scene and authorized first-build history proof passed");
       await runVscodeNativeGeometryProof(page, expect, readBacking);
       console.log("vscode.dev shared native tile and pack geometry, move, copy, delete and board rebuild proof passed");
+    } else if (firstBoardTutorialProof) {
+      await runVscodeFirstBoardTutorialProof(page, expect, workbenchUrl);
+      console.log("vscode.dev native Help commands, tutorial resume and user tip preference proof passed");
     } else if (visualEventsProof) {
       await runVscodeVisualEventsProof(page, expect, workbenchUrl, readBacking);
       console.log("VS Code native Visual events edit, one-URI undo/navigation, close/reopen reconstruction, clean diagnostics, CRLF save and player dismissal proof passed");

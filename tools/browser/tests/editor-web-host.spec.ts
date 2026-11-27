@@ -800,6 +800,8 @@ test("browser workbench creates a new project in the chosen folder, copies only 
   await expect(wizard.getByLabel("Music pack")).toBeDisabled();
   await wizard.getByLabel("Start-up program").check();
   await wizard.getByLabel("Empty start board").check();
+  await wizard.getByLabel("Empty first character").check();
+  await wizard.getByLabel("Default tiles").check();
   await wizard.getByRole("button", { name: "Choose folder…" }).click();
   await expect(wizard.getByRole("status").filter({ hasText: /^TkrTest-/ })).toBeVisible();
   await wizard.getByRole("button", { name: "Create project" }).click();
@@ -878,8 +880,8 @@ test("browser workbench creates a new project in the chosen folder, copies only 
     return { found: found.sort(), notes: [...new Uint8Array(await notes.arrayBuffer())], groups, written, contents };
   });
   const authoredFiles = [
-    "Bitmap/", "Bkrounds/", "Boards/", "Boards/start.brd", "Chrs/", "Enemy/", "Font/", "Item/", "Main/", "Main/Quest.gam", "Media/", "Misc/", "Plugin/",
-    "Prg/", "Prg/start.prg", "SpcMove/", "StatusE/", "Tiles/", "notes.txt",
+    "Bitmap/", "Bkrounds/", "Boards/", "Boards/start.brd", "Chrs/", "Chrs/start.tem", "Enemy/", "Font/", "Item/", "Main/", "Main/Quest.gam", "Media/", "Misc/", "Plugin/",
+    "Prg/", "Prg/start.prg", "SpcMove/", "StatusE/", "Tiles/", "Tiles/starter.tst", "notes.txt",
   ];
   expect(disk.groups).toHaveLength(1);
   const groupFile = disk.groups[0]!;
@@ -894,12 +896,14 @@ test("browser workbench creates a new project in the chosen folder, copies only 
   expect(groupFile.record.name).toBe("New project");
   expect(groupFile.record.restores).toBeNull();
   expect(groupFile.record.uncovered).toEqual([]);
-  const plannedWrites = ["Boards/start.brd", "Main/Quest.gam", "Prg/start.prg"];
+  const plannedWrites = ["Boards/start.brd", "Chrs/start.tem", "Main/Quest.gam", "Prg/start.prg", "Tiles/starter.tst"];
   expect(groupFile.record.files.map(({ path }) => path).sort()).toEqual(plannedWrites);
   expect(groupFile.record.files.every((file) => file.before === null && file.status === "pending")).toBe(true);
   expect(groupFile.progress.files.map(({ path }) => path).sort()).toEqual(plannedWrites);
   expect(groupFile.progress.files.every((file) => file.before === null && file.status === "written")).toBe(true);
   expect(Object.keys(disk.written).sort()).toEqual(plannedWrites);
+  expect(disk.written["Tiles/starter.tst"]?.length).toBeGreaterThan(0);
+  expect(disk.written["Chrs/start.tem"]?.length).toBeGreaterThan(0);
   for (const item of groupFile.progress.files) {
     const bytes = new Uint8Array(disk.written[item.path] ?? []);
     const contents = new Uint8Array(disk.contents[item.after ?? ""] ?? []);
@@ -908,6 +912,106 @@ test("browser workbench creates a new project in the chosen folder, copies only 
     expect(createHash("sha256").update(contents).digest("hex")).toBe(actualHash);
     expect([...contents]).toEqual([...bytes]);
   }
+  await page.getByRole("button", { name: "New board…" }).click();
+  const newBoard = page.getByRole("dialog", { name: "New board" });
+  await newBoard.getByLabel("Name", { exact: true }).fill("Meadow");
+  await newBoard.getByLabel("Layers", { exact: true }).fill("2");
+  await newBoard.getByRole("button", { name: "Create board" }).click();
+  const tileOne = page.locator('[data-browser-reference="starter.tst1"] .tkr-tileset-browser-source');
+  await expect(tileOne).toBeVisible();
+  await tileOne.click();
+  await expect(tileOne).toHaveAttribute("aria-pressed", "true");
+  const canvas = page.locator("canvas.tkr-board-canvas");
+  await canvas.click({ position: { x: 20, y: 20 } });
+  const board = page.getByRole("region", { name: "Board", exact: true });
+  await expect(board.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
+  await board.getByLabel("Layer", { exact: true }).selectOption({ value: "1" });
+  await expect(board.getByRole("grid", { name: "Tiles on layer 2" })).toBeVisible();
+  await board.getByRole("button", { name: /^Column 1, row 1:/ }).press("ArrowRight");
+  const secondCell = board.getByRole("button", { name: /^Column 2, row 1:/ });
+  await expect(secondCell).toBeFocused();
+  await secondCell.press("Space");
+  await expect(secondCell).toHaveAccessibleName("Column 2, row 1: starter.tst1");
+  await board.locator(".tkr-board-layers-disclosure > summary").click();
+  const layer1 = board.getByRole("checkbox", { name: "Layer 1", exact: true });
+  await layer1.uncheck();
+  await expect(layer1).not.toBeChecked();
+  await layer1.check();
+
+  let properties = board.locator(".tkr-board-properties");
+  await properties.locator("summary").click();
+  await properties.getByLabel("Start column", { exact: true }).fill("2");
+  await properties.getByLabel("Start row", { exact: true }).fill("2");
+  await properties.getByLabel("Start layer", { exact: true }).fill("1");
+  await properties.getByRole("button", { name: "Apply player start" }).click();
+  await expect(properties.getByRole("status").filter({ hasText: "Player start marker" })).toHaveText(/column 2, row 2, layer 1/);
+  await properties.getByRole("button", { name: "Set as initial board" }).click();
+  const confirm = board.getByRole("dialog", { name: "Set initial board" });
+  await confirm.getByRole("button", { name: "Set initial board" }).click();
+  await expect(properties.getByRole("alert")).toHaveText("Initial board changed in the main game file. Save that file separately.");
+
+  const save = page.getByRole("button", { name: "Save active editor", exact: true });
+  await save.click();
+  await expect(board.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
+  await page.getByRole("tab", { name: /^Main\/Quest\.gam/ }).click();
+  await expect(page.getByLabel("Initial board", { exact: true })).toHaveValue("Meadow.brd");
+  await save.click();
+  await expect(page.locator(".tkr-settings-state")).toHaveText("All changes saved");
+
+  const readFiles = () => page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const bytes = async (folder: string, name: string) => {
+      const directory = await root.getDirectoryHandle(folder);
+      const file = await (await directory.getFileHandle(name)).getFile();
+      return [...new Uint8Array(await file.arrayBuffer())];
+    };
+    return { board: await bytes("Boards", "Meadow.brd"), main: await bytes("Main", "Quest.gam") };
+  });
+  const authored = await readFiles();
+  expect(authored.board.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Close Boards/Meadow.brd" }).click();
+  const boardsFolder = page.getByRole("treeitem", { name: /^Boards,/ });
+  if (await boardsFolder.getAttribute("aria-expanded") === "false") await boardsFolder.press("ArrowRight");
+  await page.getByRole("treeitem", { name: /^Meadow\.brd,/ }).press("Enter");
+  await expect(board.getByRole("button", { name: "Column 1, row 1: starter.tst1", exact: true })).toBeVisible();
+  properties = board.locator(".tkr-board-properties");
+  await properties.locator("summary").click();
+  await expect(properties.getByRole("status").filter({ hasText: "Player start marker" })).toHaveText(/column 2, row 2, layer 1/);
+  await expect(page.locator("iframe[title='Running game']")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "New run setup", exact: true }).click();
+  const setup = page.getByRole("dialog", { name: "New run setup" });
+  await setup.getByRole("tab", { name: "Test board" }).click();
+  await setup.getByRole("combobox", { name: "Board", exact: true }).selectOption({ value: "Boards/Meadow.brd" });
+  await setup.getByRole("spinbutton", { name: "Column", exact: true }).fill("4");
+  await setup.getByRole("spinbutton", { name: "Row", exact: true }).fill("3");
+  await setup.getByRole("listbox", { name: "Party", exact: true }).first().selectOption("Chrs/start.tem");
+  await setup.getByRole("button", { name: "Test board", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  const screen = frame.locator("#screen");
+  const player = () => screen.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { board: string | null; player: unknown } | undefined;
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text).join(" ") };
+  });
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  await expect.poll(async () => (await player()).live?.board, { timeout: 30_000 }).toBe("boards/meadow.brd");
+  expect((await player()).live?.player).toEqual({ x: 112, y: 95 });
+  expect((await player()).text).not.toContain("Welcome to your new game!");
+  const stop = page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true });
+  await stop.click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  expect(await readFiles()).toEqual(authored);
+
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(screen).toBeVisible();
+  await expect.poll(async () => (await player()).text, { timeout: 30_000 }).toContain("Welcome to your new game!");
+  await screen.press("Enter");
+  await expect.poll(async () => (await player()).live?.board, { timeout: 30_000 }).toBe("boards/meadow.brd");
+  expect((await player()).live?.player).toEqual({ x: 48, y: 63 });
+  await stop.click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  expect(await readFiles()).toEqual(authored);
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
 });
 test("browser board upgrade rechecks changed game ownership and refuses a sibling outside the new Boards root", async ({ page }) => {

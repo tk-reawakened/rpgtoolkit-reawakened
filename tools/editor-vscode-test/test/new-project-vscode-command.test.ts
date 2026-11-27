@@ -182,15 +182,16 @@ test("the extension's New project command asks and writes through the workspace 
   try {
     reset([folderOf("/games/quest")]);
     fake.state.answers.input.push("Quest", "Quest.gam");
-    fake.state.answers.pick.push(["start-program", "start-board"]);
+    fake.state.answers.pick.push(["start-program", "start-board", "tiles"]);
     fake.state.answers.folder.push("/games/quest");
     await run(new Map());
     const pick = fake.state.calls.find((call) => call[0] === "quickPick")!;
     match(String(pick[1]), /nothing is copied unless you tick it/);
-    deepEqual(pick[2], ["start-program", "start-board", "start-character", "builtin-menu-battle", "tiles:unavailable", "system-programs:unavailable", "music:unavailable"]);
+    deepEqual(pick[2], ["start-program", "start-board", "start-character", "builtin-menu-battle", "tiles", "system-programs:unavailable", "music:unavailable"]);
     deepEqual(fake.state.calls.find((call) => call[0] === "openDialog"), ["openDialog", "New project: choose the destination folder", true, false]);
     for (const name of FOLDERS) ok(fake.folders.has(`/games/quest/${name}`), `${name} exists`);
     ok(fake.files.has("/games/quest/Main/Quest.gam") && fake.files.has("/games/quest/Prg/start.prg") && fake.files.has("/games/quest/Boards/start.brd"));
+    ok(fake.files.has("/games/quest/Tiles/starter.tst"), "the checked tile choice writes the starter tileset");
     equal(fake.files.has("/games/quest/Chrs/start.tem"), false);
     deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/quest/Main/Quest.gam"]]);
     deepEqual(fake.state.errors, []);

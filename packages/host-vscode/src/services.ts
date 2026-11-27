@@ -6,9 +6,9 @@ import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeRunService } from "./player.ts";
 
-/** Project-scoped editor preferences, also used by commands that do not launch a player. */
-export function createVscodeSettings(root: vscode.Uri): PlatformServices["settings"] {
-  const folder = vscode.workspace.getWorkspaceFolder(root);
+/** Editor preferences, scoped to a project when a root is supplied. */
+export function createVscodeSettings(root?: vscode.Uri): PlatformServices["settings"] {
+  const folder = root === undefined ? undefined : vscode.workspace.getWorkspaceFolder(root);
   return {
     get: async (layer, id) => {
       const target = vscode.workspace.getConfiguration("rpgToolkit", folder?.uri).inspect<SettingValue>(id);
