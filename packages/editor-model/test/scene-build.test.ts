@@ -212,6 +212,12 @@ test("one project scene build keeps terrain, pack art, and traced boundaries in 
   const path = "Game/Example/Boards/town.brd";
   const preview = await previewTerrainSceneProject({ fs: host.fs, projectId: "memory-project", scenePath, sceneText: doc.getSnapshot().text });
   ok(preview.ok, preview.ok ? "" : JSON.stringify(preview.problems));
+  const changedPixels = new Uint8Array(pixels.length);
+  for (let i = 0; i < changedPixels.length; i += 4) changedPixels.set([180, 70, 10, 255], i);
+  const changedHost = createMemoryPlatformServices({ files: { ...fsFiles, "Game/Example/Bitmap/sheet.png": encodeScenePng({ w: 32, h: 32, rgba: changedPixels }) } });
+  const changedPreview = await previewTerrainSceneProject({ fs: changedHost.fs, projectId: "memory-project", scenePath, sceneText: doc.getSnapshot().text });
+  ok(changedPreview.ok, changedPreview.ok ? "" : JSON.stringify(changedPreview.problems));
+  ok(changedPreview.preview.rgba.some((value, index) => value !== preview.preview.rgba[index]), "same-path sampled source bytes change the rendered preview pixels");
   equal(host.bytesOf(path), undefined, "preview must not generate files");
   deepEqual(host.bytesOf(scenePath), fsFiles[scenePath], "preview must not save the edit");
   deepEqual(await workspace.saveAll(), [{ document: scenePath, result: { ok: true } }]);

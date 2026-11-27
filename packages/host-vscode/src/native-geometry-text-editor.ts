@@ -16,7 +16,7 @@ type GeometryApplyResult =
   | { readonly ok: true; readonly editId: string }
   | { readonly ok: false; readonly rejection: { readonly reason: "invalid" | "read-only"; readonly message: string } };
 
-const INITIAL_BROWSER_STATE = { selection: null, path: null, scrollTop: 0 } as const;
+const INITIAL_BROWSER_STATE = { selection: null, path: null, scrollTop: 0, autotileMarks: [] } as const;
 const encoder = new TextEncoder();
 
 /**

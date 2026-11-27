@@ -466,7 +466,7 @@ test("the picker lists the folder and its folders, confirms before it chooses, a
   deepEqual(done, [], "cancelling the confirmation chooses nothing and leaves the picker open");
   host.answerQuestions("use");
   await key(document.activeElement ?? el, "Enter");
-  deepEqual(done, [{ chosen: true, reference: "sub\\b.png" }]);
+  deepEqual(done, [{ chosen: true, reference: "sub\\b.png", layout: { projectFolder: "" } }]);
 
   const second = pickerSetup(createMemoryPlatformServices({ files: { "Bitmap/a.png": new Uint8Array([1]) } }));
   await settle();
@@ -484,7 +484,7 @@ test("the picker copies a file in from outside after agreement, or explains why 
   const subfolder = el.querySelector<HTMLInputElement>('input[type="text"]')!;
   await act(() => { subfolder.value = "people"; subfolder.dispatchEvent(new Event("input", { bubbles: true })); });
   await click(button(el, "Choose a file from outside the project…"));
-  deepEqual(done, [{ chosen: true, reference: "people\\hero.png" }]);
+  deepEqual(done, [{ chosen: true, reference: "people\\hero.png", layout: { projectFolder: "" } }]);
   deepEqual(host.bytesOf("Bitmap/people/hero.png"), new Uint8Array([9, 9]));
 
   const none = createMemoryPlatformServices({ capabilities: ["folderWrite"] });

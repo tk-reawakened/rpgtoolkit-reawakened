@@ -1,14 +1,16 @@
-import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack } from "@tk-reawakened/editor-model";
+import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ScenePackPlacementEditor } from "./scene-pack-placement.tsx";
+import type { TerrainSceneAssets, TerrainSceneAssetSource } from "./terrain-assets.ts";
+import { useDocumentSnapshot } from "./use-document.ts";
 type SceneTerrainRegion = NonNullable<Scene["terrainRegions"]>[number];
 
 export interface TerrainSceneViewProps {
   readonly scene: Scene;
-  readonly tilesets: readonly { readonly path: string; readonly terrains: readonly { readonly id: string; readonly label?: string }[] }[];
-  readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
-  /** The scene game's asset packs, whose assets can be placed and whose owner documents can be opened. */
-  readonly packs?: readonly TerrainScenePack[];
+  /** The tilesets, terrains and packs, re-read by the host after a recipe changes; the view keeps its selection on a no-op. */
+  readonly assets: TerrainSceneAssetSource;
+  /** Ask the host to re-read its tilesets; the panel reports what it shows, so a stale recipe is never presented as current. */
+  readonly onRefreshAssets?: () => void;
   /** Open a native owner document by its canonical inventory path; the picker never invents a path. */
   readonly onOpenAsset?: (path: string) => void;
   readonly onChange: (scene: Scene) => void;
@@ -44,22 +46,25 @@ function newRegionId(regions: readonly SceneTerrainRegion[]): string {
   return `region-${n}`;
 }
 
-export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOpenAsset, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+export function TerrainSceneView({ scene, assets, onRefreshAssets, onOpenAsset, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+  const snapshot = useDocumentSnapshot(assets);
+  const { tilesets, assetTiles, packs, problems = [] } = snapshot;
   const compatiblePacks = packs.filter((entry) => entry.external !== true && entry.projection === scene.projection);
   const [floorId, setFloorId] = useState(scene.floors[0]?.id ?? "");
   const [tilesetPath, setTilesetPath] = useState(tilesets[0]?.path ?? "");
   const [terrainId, setTerrainId] = useState(tilesets[0]?.terrains[0]?.id ?? "");
   const [selectedId, setSelectedId] = useState("");
-  const [tileIndex, setTileIndex] = useState(0);
+  const [tileReference, setTileReference] = useState<string | null>(assetTiles[0] === undefined ? null : tileReferenceOf(assetTiles[0].tile));
   const [tool, setTool] = useState<Tool>("select");
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [placementId, setPlacementId] = useState("");
   const [packPath, setPackPath] = useState(compatiblePacks[0]?.path ?? "");
   const [packAsset, setPackAsset] = useState(compatiblePacks[0]?.assets[0]?.id ?? "");
-  const [preview, setPreview] = useState<{ readonly scene: Scene; readonly picture: BoardPicture } | null>(null);
+  const [preview, setPreview] = useState<{ readonly scene: Scene; readonly assets: TerrainSceneAssets; readonly picture: BoardPicture } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
-  const picture = preview?.scene === scene ? preview.picture : null;
+  // A picture belongs to the scene *and* the recipes it was built from: either changing makes it out of date, not current.
+  const picture = preview !== null && preview.scene === scene && preview.assets === snapshot ? preview.picture : null;
   useEffect(() => {
     if (picture?.ok !== true || typeof ImageData === "undefined") return;
     const context = previewCanvas.current?.getContext("2d");
@@ -69,8 +74,10 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
     if (previewBusy || onPreview === undefined) return;
     setPreviewBusy(true);
     setPreview(null);
-    try { setPreview({ scene, picture: await onPreview() }); }
-    catch (error) { setPreview({ scene, picture: { ok: false, message: `Could not preview the scene: ${String(error)}` } }); }
+    // What this build is of: if either changes while it runs, its result is not shown as the current scene.
+    const from = { scene, assets: snapshot };
+    try { setPreview({ ...from, picture: await onPreview() }); }
+    catch (error) { setPreview({ ...from, picture: { ok: false, message: `Could not preview the scene: ${String(error)}` } }); }
     finally { setPreviewBusy(false); }
   };
   const regions = scene.terrainRegions ?? [];
@@ -79,6 +86,21 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
   const activeFloor = floor?.id ?? "";
   const selected = regions.find((region) => region.id === selectedId && region.floor === activeFloor);
   const tileset = tilesets.find((entry) => entry.path === tilesetPath);
+  useEffect(() => {
+    if (tilesets.length > 0) {
+      const chosen = tilesets.find((entry) => entry.path === tilesetPath) ?? tilesets[0]!;
+      if (chosen.path !== tilesetPath) { setTilesetPath(chosen.path); setSelectedId(""); setAnchor(null); }
+      if (!chosen.terrains.some((entry) => entry.id === terrainId)) { setTerrainId(chosen.terrains[0]?.id ?? ""); setAnchor(null); }
+    }
+    // The chosen manual tile follows its own reference; a refresh that reorders the list must not silently repoint it.
+    if (tileReference === null) {
+      if (assetTiles[0] !== undefined) setTileReference(tileReferenceOf(assetTiles[0].tile));
+    } else if (!assetTiles.some((entry) => tileReferenceOf(entry.tile) === tileReference)) {
+      setTileReference(assetTiles[0] === undefined ? null : tileReferenceOf(assetTiles[0].tile));
+    }
+  }, [tilesets, assetTiles, tilesetPath, terrainId, tileReference]);
+  const tileIndex = Math.max(0, assetTiles.findIndex((entry) => tileReferenceOf(entry.tile) === tileReference));
+  const choice = tileReference !== null && assetTiles[tileIndex] !== undefined && tileReferenceOf(assetTiles[tileIndex]!.tile) === tileReference ? assetTiles[tileIndex] : undefined;
   const terrain = tileset?.terrains.find((entry) => entry.id === terrainId);
   const rotated = scene.projection === "iso-rotated";
   const width = rotated ? scene.size.width + scene.size.height : scene.size.width;
@@ -108,7 +130,6 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
       return;
     }
     if (tool === "tile" || tool === "empty" || tool === "clear") {
-      const choice = assetTiles[tileIndex];
       if (tool === "tile" && choice === undefined) return;
       const existing = overrides.find((entry) => entry.floor === activeFloor && entry.cell[0] === x && entry.cell[1] === y);
       const rest = overrides.filter((entry) => entry.floor !== activeFloor || entry.cell[0] !== x || entry.cell[1] !== y);
@@ -153,18 +174,40 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
       setTilesetPath(path);
       setTerrainId(tilesets.find((entry) => entry.path === path)?.terrains[0]?.id ?? "");
       setAnchor(null);
-    }}><option value="">Choose tileset</option>{tilesets.map((entry) => <option key={entry.path} value={entry.path}>{entry.path}</option>)}</select></label>
+    }}>
+      <option value="">Choose tileset</option>{tilesets.map((entry) => <option key={entry.path} value={entry.path}>{entry.path}</option>)}
+    </select></label>
     <label>Terrain <select value={terrainId} disabled={disabled || tileset === undefined} onChange={(event) => { setTerrainId(event.currentTarget.value); setAnchor(null); }}>
       <option value="">Choose terrain</option>{tileset?.terrains.map((entry) => <option key={entry.id} value={entry.id}>{entry.label ?? entry.id}</option>)}
     </select></label>
+    {problems.length > 0 ? <div role="alert" aria-label="Terrain rules unavailable">
+      Terrain rules could not be read, so none are shown as current: {problems.join("; ")}
+    </div> : null}
+    {onRefreshAssets === undefined ? null : <button type="button" data-tkr-terrain-rules-refresh="true" disabled={disabled} onClick={onRefreshAssets}>Refresh terrain rules</button>}
+    {terrain !== undefined ? <section aria-label="Native terrain roles" data-tkr-terrain-roles={terrain.id}>
+      <h3>Native terrain rules: {terrain.label}</h3>
+      <p>{terrain.roles.neighbours === "blob-8" ? "Eight neighbours" : "Four neighbours"}, {terrain.roles.coverage} coverage: {terrain.roles.situations - terrain.roles.missing.length} of {terrain.roles.situations} neighbourhoods have a tile. Native roles are these rules; they are not the legacy 52-slot order, and this terrain is not an original-format set.</p>
+      <ul aria-label="Terrain rules">{terrain.roles.rules.map((rule) => <li key={rule.id}>
+        {rule.id}: {rule.when} uses {rule.tiles.join(", ")} ({rule.situations} {rule.situations === 1 ? "neighbourhood" : "neighbourhoods"})
+      </li>)}</ul>
+      {terrain.roles.problems.length > 0
+        ? <ul role="alert" aria-label="Terrain rule problems">{terrain.roles.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>
+        : null}
+      {terrain.roles.missing.length > 0
+        ? <p role="note">Missing role assignments: {terrain.roles.missing.join("; ")}. Painting these neighbourhoods is reported when the scene is built; nothing is replaced.</p>
+        : <p>Every neighbourhood has a tile.</p>}
+    </section> : null}
     <label>Region <select value={selected?.id ?? ""} disabled={disabled} onChange={(event) => { setSelectedId(event.currentTarget.value); setAnchor(null); }}>
       <option value="">No region selected</option>{regions.filter((region) => region.floor === activeFloor).map((region) => <option key={region.id} value={region.id}>{region.label ?? region.id}</option>)}
     </select></label>
-    <label>Manual tile <select value={String(tileIndex)} disabled={disabled || assetTiles.length === 0} onChange={(event) => setTileIndex(Number(event.currentTarget.value))}>
+    <label>Manual tile <select data-tkr-manual-tile="true" value={String(tileIndex)} disabled={disabled || assetTiles.length === 0} onChange={(event) => {
+      const picked = assetTiles[Number(event.currentTarget.value)];
+      if (picked !== undefined) setTileReference(tileReferenceOf(picked.tile));
+    }}>
       {assetTiles.map((entry, index) => <option key={index} value={String(index)}>{entry.label}</option>)}
     </select></label>
-    {onOpenAsset !== undefined && <button type="button" data-tkr-tile-open="true" disabled={disabled || assetTiles[tileIndex] === undefined || !("tile" in (assetTiles[tileIndex]?.tile ?? {}))} onClick={() => {
-      const tile = assetTiles[tileIndex]?.tile;
+    {onOpenAsset !== undefined && <button type="button" data-tkr-tile-open="true" disabled={disabled || choice === undefined || !("tile" in (choice?.tile ?? {}))} onClick={() => {
+      const tile = choice?.tile;
       if (tile !== undefined && "tile" in tile) onOpenAsset(tile.tile);
     }}>Open tile source</button>}
     <fieldset disabled={disabled}><legend>Terrain tool</legend>
@@ -203,4 +246,11 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOp
       </tbody></table>
     </div>
   </section>;
+}
+
+/** What identifies a manual tile across a re-read: the reference it names, not where it sits in the list. */
+function tileReferenceOf(tile: SceneTerrainCellTile): string {
+  if ("tile" in tile && tile.tile !== undefined) return tile.tile;
+  if ("legacy" in tile && tile.legacy !== undefined) return tile.legacy;
+  return "";
 }

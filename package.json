@@ -17,6 +17,7 @@
     "adr:numbering:check": "node tools/adr-numbering.mjs",
     "adr:numbering:test": "node --test tools/adr-numbering.test.mjs",
     "ci:classify:test": "node --test tools/ci/test/classify-changes.test.mjs",
+    "ci:local": "node tools/ci/local.mjs",
     "release:test": "node --test tools/release/test/*.test.mjs",
     "release:licence": "node tools/release/audit-installed.mjs",
     "release:preflight": "node tools/release/preflight.mjs",

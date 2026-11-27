@@ -30,10 +30,6 @@
 .tkr-program-reference-list { max-height: 20rem; overflow: auto; padding: 0.25rem; }
 .tkr-program-reference-hint { margin: 0.25rem 0; font-size: var(--tkr-text-xs); color: var(--tkr-fg-muted); overflow-wrap: anywhere; }
 .tkr-program-visual-events { flex: 0 1 20rem; min-inline-size: 0; max-height: 36rem; overflow: auto; }
-.tkr-visual-events h3 { margin: 0; }
-.tkr-visual-events fieldset { min-inline-size: 0; margin-block: 0.5rem; }
-.tkr-visual-events pre { overflow: auto; }
-.tkr-visual-events input { max-inline-size: 100%; box-sizing: border-box; }
 /* Distraction-free mode: only the text, over the whole page, with one way out. */
 .tkr-program--focus { position: fixed; inset: 0; z-index: 1000; background: var(--tkr-bg-surface); padding: 0.5rem; box-sizing: border-box; }
 .tkr-program--focus .tkr-program-body { min-height: 0; }

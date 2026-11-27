@@ -1,0 +1,30 @@
+/* Visual events pane (TOOL-12): shared by the browser/desktop workbench and the native VS Code webview. */
+.tkr-visual-events { color: var(--tkr-fg, inherit); font: inherit; }
+.tkr-visual-events h3 { margin: 0; }
+.tkr-visual-events h4 { margin: 0.5rem 0 0.25rem; }
+.tkr-visual-events fieldset { min-inline-size: 0; margin-block: 0.5rem; }
+.tkr-visual-events pre { overflow: auto; margin-block: 0.25rem; }
+.tkr-visual-events input, .tkr-visual-events select { max-inline-size: 100%; box-sizing: border-box; }
+.tkr-visual-events label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-inline-end: 0.5rem; }
+.tkr-visual-field { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-block: 0.25rem; }
+.tkr-visual-field small, .tkr-visual-note { color: var(--tkr-fg-muted, inherit); opacity: 0.8; font-size: 0.85em; overflow-wrap: anywhere; }
+.tkr-visual-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-block: 0.25rem; }
+.tkr-visual-code { background: color-mix(in srgb, currentColor 8%, transparent); padding: 0.25rem; }
+.tkr-visual-layout-body { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start; }
+.tkr-visual-layout-list { flex: 1 1 8rem; min-inline-size: 0; max-height: 12rem; overflow: auto; border: 1px solid currentColor; padding: 0.25rem; }
+.tkr-visual-layout-option { padding: 0.125rem 0.25rem; cursor: pointer; overflow-wrap: anywhere; }
+.tkr-visual-layout-option[aria-selected="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
+.tkr-visual-layout-list:focus-visible, .tkr-visual-item:focus-visible { outline: 2px solid var(--tkr-focus, currentColor); outline-offset: 2px; }
+.tkr-visual-canvas {
+  position: relative; flex: 2 1 14rem; min-inline-size: 0; aspect-ratio: 4 / 3; container-type: inline-size;
+  overflow: hidden; background: #101018; border: 1px solid currentColor;
+  background-image: linear-gradient(to right, rgb(255 255 255 / 8%) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 8%) 1px, transparent 1px);
+  background-size: 12.5% 16.667%;
+}
+.tkr-visual-item {
+  position: absolute; margin: 0; padding: 0; border: 1px dashed rgb(255 255 255 / 40%); background: transparent; color: #fff;
+  font-family: monospace; line-height: 1; white-space: pre; cursor: grab; touch-action: none; user-select: none;
+}
+.tkr-visual-item[data-selected="true"] { border: 1px solid #ffd54f; color: #ffd54f; }
+.tkr-visual-item:active { cursor: grabbing; }
+.tkr-visual-inspector { margin-block-start: 0.5rem; }

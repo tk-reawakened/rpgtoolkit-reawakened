@@ -116,6 +116,64 @@ test("browser workbench opens, edits, saves, and reopens character and item spri
   await item.dblclick();
   await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/chest_walk_s.anm");
 });
+
+test("a native scene keeps an in-panel retry when its initial terrain inventory is invalid", async ({ page }) => {
+  const scenePath = "Boards/roles-proof.tkrscn";
+  const recipePath = "Tiles/roles.tkrtst";
+  const scene = `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 2, height: 2}
+floors: [{id: ground}]
+terrainRegions:
+  - id: water
+    floor: ground
+    terrain: {tileset: Tiles/roles.tkrtst, terrain: shore}
+    coverage: {shape: tile-grid, spans: [[0, 0, 1]]}
+start: {x: 16, y: 16, floor: ground}
+`;
+  const recipe = `contract: tileset
+version: 1.0.0-pre.2
+name: Roles
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles: [{tile: Tiles/roles-water.tkrtle}]
+terrains:
+  - id: shore
+    name: Shore
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: partial
+    sync: independent
+    rules: [{id: east, when: {e: same}, use: {tile: Tiles/roles-water.tkrtle}}]
+outputBinding: {target: Tiles/roles.tst, detail: 1, slots: [{slot: 1, tile: Tiles/roles-water.tkrtle}]}
+`;
+  await installFolderPicker(page, [
+    { path: "Main/example.gam", bytes: validMain },
+    { path: recipePath, bytes: Array.from(new TextEncoder().encode("not a tileset\\n")) },
+    { path: scenePath, bytes: Array.from(new TextEncoder().encode(scene)) },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Boards, folder, closed", exact: true }).press("ArrowRight");
+  await page.getByRole("treeitem", { name: /roles-proof\.tkrscn/ }).dblclick();
+  const retry = page.getByRole("button", { name: "Retry loading terrain assets", exact: true });
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Terrain asset inventory failed" })).toBeVisible();
+
+  await page.evaluate(async ({ path, bytes }) => {
+    const write = (window as ProofWindow).__tkrWriteTestFile;
+    if (write === undefined) throw new Error("The test folder cannot replace its invalid tileset.");
+    await write(path, bytes);
+  }, { path: recipePath, bytes: Array.from(new TextEncoder().encode(recipe)) });
+  await retry.click();
+  await expect(retry).toBeHidden();
+  await expect(page.getByRole("combobox", { name: "Tileset", exact: true })).toHaveValue(recipePath);
+  await expect(page.getByRole("combobox", { name: "Terrain", exact: true })).toHaveValue("shore");
+  await expect(page.getByRole("region", { name: "Native terrain roles" })).toContainText("Native terrain rules: Shore");
+});
+
 test("a newer browser open wins over a slow folder document read", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Only.gam", bytes: validMain }], true, false, true);
   await page.goto("/tools/browser/editor-web/index.html");
@@ -1435,6 +1493,13 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
     }).toPass({ timeout: 15_000, intervals: [100, 250, 500, 1_000] });
   };
   await assertAuthoredTilePixels();
+  // This run has proved the upgraded board. Release it before the independent authoring checks:
+  // rendering an inactive game throughout conversion competes with the editor on CI (#3597).
+  const stopRun = async (): Promise<void> => {
+    await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  };
+  await stopRun();
   await page.getByRole("tab", { name: scriptPath }).click();
   await scriptEditor.locator(".view-line").first().click();
   await page.keyboard.press("Control+A");
@@ -1556,7 +1621,7 @@ test("browser host upgrades the pinned original minor-2 board and runs its reope
   await assertAuthoredTilePixels();
   // Release the active runner before the final backing-store snapshot; its runtime file reads can hold the browser
   // provider's per-file read path while the proof is checking the persisted source, conversion copies, and script.
-  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+  await stopRun();
   const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy, script }) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");

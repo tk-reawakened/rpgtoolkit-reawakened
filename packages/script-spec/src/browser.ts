@@ -9,6 +9,7 @@ export function runCreatorSpecs(files: readonly SpecProjectFile[], options: Spec
 }
 
 export { isIgnoredProjectPath };
+export { fixtureWorldLookupPaths } from "./fixture-world.ts";
 export type { SpecProjectFile, SpecProjectOptions, SpecProjectReport } from "./project-core.ts";
 export type {
   CreatorFixtureIdentity,

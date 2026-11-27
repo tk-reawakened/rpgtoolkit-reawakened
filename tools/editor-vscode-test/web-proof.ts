@@ -336,9 +336,32 @@ export async function runVscodeBoardUpgradeProof(
   await expect(legacySavePath).toBeVisible({ timeout: 15_000 });
   await legacySavePath.fill(`/${legacyCopyPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
+  let lastLegacySaveRead: { path: string; layout: string | null; error: string | null } = {
+    path: legacyCopyPath, layout: null, error: null,
+  };
   await expect.poll(async () => {
-    try { return decode(await readBacking(legacyCopyPath)).layout; } catch { return null; }
-  }, { timeout: 30_000 }).toBe("vector");
+    try {
+      const layout = decode(await readBacking(legacyCopyPath)).layout;
+      lastLegacySaveRead = { path: legacyCopyPath, layout, error: null };
+      return layout;
+    } catch (error) {
+      lastLegacySaveRead = {
+        path: legacyCopyPath,
+        layout: null,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      };
+      return null;
+    }
+  }, { timeout: 30_000 }).toBe("vector").catch(async (error: unknown) => {
+    const events = readEvents().filter((event) => event.path.endsWith(legacyCopyPath)).slice(-20);
+    const visibleUi = await page.locator(".monaco-workbench").ariaSnapshot({ timeout: 3_000 })
+      .then((snapshot) => snapshot.split("\n").filter((line) => /red\.upgraded|Folder path|quick input|pre-vector|notification|alert|dialog/i.test(line)).slice(-20))
+      .catch(() => "UI snapshot unavailable");
+    throw new Error(
+      `Pre-vector copy save did not produce a vector board: ${JSON.stringify({ read: lastLegacySaveRead, events, visibleUi })}`,
+      { cause: error },
+    );
+  });
   const upgradedLegacy = decode(await readBacking(legacyCopyPath));
   expect({ sizeX: upgradedLegacy.board.sizeX, sizeY: upgradedLegacy.board.sizeY, sizeL: upgradedLegacy.board.sizeL }).toEqual({ sizeX: 19, sizeY: 14, sizeL: 8 });
   expect(upgradedLegacy.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
@@ -400,27 +423,18 @@ export async function runVscodeBoardUpgradeProof(
     throw new Error("The fetched village board must be a tile-coordinate vector board");
   }
 
-  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".monaco-workbench")).toBeVisible();
-  const restoredBoardTabs = page.locator('[role="tab"][data-resource-name$=".brd"]');
-  while (await restoredBoardTabs.count() > 0) {
-    const restoredBoardTab = restoredBoardTabs.first();
-    const resourceName = await restoredBoardTab.getAttribute("data-resource-name");
-    if (resourceName === null) throw new Error("Restored board tab has no logical data-resource-name identity");
-    await restoredBoardTab.click();
-    await expect(restoredBoardTab).toHaveAttribute("aria-selected", "true");
-    const restoredBoardTabCount = await restoredBoardTabs.count();
-    // The tab intercepts clicks on its close affordance in the VS Code web host (#3491).
-    await closeActiveEditor(page, expect);
-    await expect.poll(async () =>
-      page.getByRole("tab").evaluateAll((tabs, expectedResourceName) =>
-        tabs.some((tab) => tab.getAttribute("data-resource-name") === expectedResourceName),
-        resourceName,
-      ),
-    ).toBe(false);
-    await expect(restoredBoardTabs).toHaveCount(restoredBoardTabCount - 1);
-  }
-  await expect(restoredBoardTabs).toHaveCount(0);
+  // Close the legacy proof's editors in this workbench. Reloading to clear them can
+  // restore a second board panel after the empty-tab check, leaving an unreachable
+  // settlement target even though the active panel acknowledges the guard (#3519).
+  await runCommand(page, expect, "View: Close All Editors");
+  await expect(page.locator('[role="tab"][data-resource-name$=".brd"]')).toHaveCount(0);
+  const activateBoardTab = async (path: string, title: string): Promise<Frame> => {
+    const name = path.split("/").at(-1)!;
+    const tab = page.locator(`[role="tab"][data-resource-name="${name}"]`);
+    await expect(tab).toHaveCount(1);
+    await tab.click();
+    return waitForBoardUpgradeEditorFrame(page, title, name, [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  };
   await openNativeQuickOpenFile(page, expect, sourcePath);
   let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
@@ -432,8 +446,7 @@ export async function runVscodeBoardUpgradeProof(
   await page.keyboard.press("Enter");
   await page.keyboard.type("// Pending authored edit; board-copy cancel and write failure must preserve it.");
   await expect(pendingScriptEditor).toContainText("Pending authored edit");
-  await openNativeQuickOpenFile(page, expect, sourcePath);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  boardFrame = await activateBoardTab(sourcePath, "source board before coordinate upgrade");
   const verifyPendingScriptAndReturnToBoard = async (path: string, title: string): Promise<void> => {
     const quickInput = page.locator(".quick-input-widget");
     if (await quickInput.isVisible()) {
@@ -443,8 +456,7 @@ export async function runVscodeBoardUpgradeProof(
     await openNativeQuickOpenFile(page, expect, scriptPath);
     await expect(pendingScriptEditor).toContainText("Pending authored edit");
     expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
-    await openNativeQuickOpenFile(page, expect, path);
-    boardFrame = await waitForBoardUpgradeEditorFrame(page, title, path.split("/").at(-1)!, [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+    boardFrame = await activateBoardTab(path, title);
   };
   const preview = page.locator(".monaco-dialog-box").filter({ hasText: "Convert tile coordinates to pixels" });
   const openPreview = async (): Promise<void> => {
@@ -531,8 +543,7 @@ export async function runVscodeBoardUpgradeProof(
   await openNativeQuickOpenFile(page, expect, scriptPath);
   await expect(pendingScriptEditor).toContainText("Pending authored edit");
   expect(await readBacking(scriptPath)).toEqual(sourceScriptBytes);
-  await openNativeQuickOpenFile(page, expect, copyPath);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "pixel copy before runner launch", "village.pixels.brd", [sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  boardFrame = await activateBoardTab(copyPath, "pixel copy before runner launch");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   const pendingScriptTab = page.getByRole("tab", { name: /start\.prg/ });
   await pendingScriptTab.click();
@@ -3714,14 +3725,18 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundPath = "Game/Example/Bkrounds/forest.bkg";
   const ordinaryImagePath = "Game/Example/Bitmap/ordinary.png";
   const ordinaryAudioPath = "Game/Example/Media/ordinary.wav";
+  const mislabelledAudioPath = "Game/Example/Media/mislabelled.tbm";
   const fixtureRoot = new URL("../../docs/spec/examples/game/Game/Example/", import.meta.url);
   // CI flattens Game/Example into the workspace root; seed the nested project fixture the proof opens explicitly.
   await host.writeBacking(backgroundPath, new Uint8Array(readFileSync(new URL("Bkrounds/forest.bkg", fixtureRoot))));
   await host.writeBacking("Game/Example/Bitmap/forest.tbm", new Uint8Array(readFileSync(new URL("Bitmap/forest.tbm", fixtureRoot))));
   await host.writeBacking(ordinaryImagePath, new Uint8Array(readFileSync(new URL("../../docs/spec/examples/versions/tileset/tileset_iso.png", import.meta.url))));
-  await host.writeBacking(ordinaryAudioPath, Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69));
+  const audioBytes = Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69);
+  await host.writeBacking(ordinaryAudioPath, audioBytes);
+  await host.writeBacking(mislabelledAudioPath, audioBytes);
+  const chosenAudioReference = "mislabelled.tbm";
   const backgroundValues = {
-    image: "ordinary.png", music: "ordinary.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
+    image: "ordinary.png", music: chosenAudioReference, selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
   } as const;
   const backgroundFields = [
     ["Background picture", backgroundValues.image],
@@ -3743,6 +3758,22 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
   const backgroundPanel = backgroundFrame.locator('[data-tkr-editor="Fight background"]');
   await expect(backgroundPanel).toContainText("Audio audition is unavailable in this host.");
+  const chooseBattleMusic = backgroundPanel.getByRole("button", { name: "Choose battle music", exact: true });
+  await chooseBattleMusic.click();
+  const audioPicker = page.locator(".quick-input-widget:visible");
+  const audioOption = audioPicker.getByRole("option", { name: chosenAudioReference, exact: true });
+  await expect(audioOption).toBeVisible();
+  await audioOption.click();
+  const useChosenAudio = page.getByRole("button", { name: "Use it", exact: true });
+  await useChosenAudio.click();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  await saveAllShortcut();
+  await expect.poll(async () => new TextDecoder().decode(await host.readBacking(backgroundPath))).toContain(chosenAudioReference);
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await expect(useChosenAudio).toBeHidden();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  const openChosenAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
+  await expect(openChosenAudio).toHaveCount(0);
   const openOriginalTileBitmap = backgroundPanel.getByRole("button", { name: "Open background picture", exact: true });
   await expect(openOriginalTileBitmap).toBeEnabled();
   await openOriginalTileBitmap.click();
@@ -3755,11 +3786,14 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await openOrdinaryImage.click();
   await expect(page.getByRole("tab", { name: /ordinary\.png/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill("ordinary.wav");
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toBeEnabled();
   const openOrdinaryAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
   await expect(openOrdinaryAudio).toBeEnabled();
   await openOrdinaryAudio.click();
   await expect(page.getByRole("tab", { name: /ordinary\.wav/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill(chosenAudioReference);
   await saveAllShortcut();
   await expect.poll(async () => [...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
   const backgroundTab = page.getByRole("tab", { name: /forest\.bkg/ }).first();

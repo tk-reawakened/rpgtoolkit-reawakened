@@ -215,7 +215,7 @@ test("the bridge refuses a picture request that is not layer numbers and a backg
 test("a board preference the extension host sends reaches the webview's document at once and is read when the next gesture happens", () => {
   const host = createMemoryPlatformServices({});
   const snapshot = { identity: { key: "k", projectId: "p", path: "Boards/a.brd" } } as never;
-  const remote = new RemoteDocument("board", snapshot, { selection: null, path: null, scrollTop: 0 }, { postMessage: () => undefined, getState: () => undefined, setState: () => undefined }, { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false });
+  const remote = new RemoteDocument("board", snapshot, { selection: null, path: null, scrollTop: 0, autotileMarks: [] }, { postMessage: () => undefined, getState: () => undefined, setState: () => undefined }, { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false });
   deepEqual(remote.boardPreferences.get(), { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false });
   let heard = 0;
   const stop = remote.boardPreferences.subscribe(() => { heard += 1; });

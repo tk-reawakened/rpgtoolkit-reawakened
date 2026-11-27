@@ -29,8 +29,8 @@ export function SpecialMoveView(props: SpecialMoveViewProps): JSX.Element {
     ? (edit.context === "battle" ? latest.usableInBattle : latest.usableFromMenu) === edit.usable
     : latest[edit.field] === edit.value);
   const { snapshot } = form;
-  const { fs, pickAsset, open, capabilities } = props;
-  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };
+  const { fs, pickAsset, open, canOpen, capabilities } = props;
+  const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }), ...(canOpen === undefined ? {} : { canOpen }) };
   const { projectId, path } = snapshot.identity;
   const statusFile = useLinkedFile(fs, projectId, path, "statusEffects", snapshot.statusEffect, [".ste"], "status-effect");
   const animationFile = useLinkedFile(fs, projectId, path, "animations", snapshot.animation, [".anm"], "exact");

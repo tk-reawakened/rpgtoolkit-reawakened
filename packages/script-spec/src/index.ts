@@ -30,7 +30,7 @@ export { isIgnoredProjectPath } from "./project-core.ts";
 export type { SpecProjectFile } from "./project-core.ts";
 export { FixtureError, fixturePath, listEntries, readFixture } from "./fixture.ts";
 export type { FixtureDefinition, FixtureStart, Plain } from "./fixture.ts";
-export { createFixtureWorld, fixtureWorldSha256 } from "./fixture-world.ts";
+export { createFixtureWorld, fixtureWorldLookupPaths, fixtureWorldSha256 } from "./fixture-world.ts";
 export type { FixtureWorld, FixtureWorldFile, FixtureWorldInputFile } from "./fixture-world.ts";
 export { sha256Hex } from "./sha256.ts";
 export { createCreatorActionScheduler, SpecActionError } from "./creator-actions.ts";

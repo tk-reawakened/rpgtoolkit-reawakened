@@ -111,3 +111,14 @@ export {
   type TerrainRename,
 } from "./rename.ts";
 export { applySplices, type Splice } from "./splice.ts";
+export {
+  readSkin,
+  setSkinImage,
+  SKIN_CONTRACT,
+  SKIN_VERSION,
+  type Skin,
+  type SkinEditResult,
+  type SkinImageField,
+  type SkinProblem,
+  type SkinReadResult,
+} from "./skin.ts";
