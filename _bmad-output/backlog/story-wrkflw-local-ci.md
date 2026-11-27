@@ -1,5 +1,5 @@
 ---
-id: 35
+id: 40
 type: story
 title: "Reusable local CI with wrkflw"
 parent: none
