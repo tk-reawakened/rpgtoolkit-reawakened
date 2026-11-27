@@ -56,6 +56,8 @@ copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(edit
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
 copyFileSync(join(root, "packages/editor-ui/src/board-objects.css"), join(editorWebDist, "board-objects.css"));
 copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorWebDist, "program-view.css"));
+copyFileSync(join(root, "packages/editor-ui/src/visual-events.css"), join(editorWebDist, "visual-events.css"));
+copyFileSync(join(root, "packages/editor-ui/src/skin-view.css"), join(editorWebDist, "skin-view.css"));
 // The audition plays through the same AudioWorklet the player uses, and falls back to the bundled default SoundFont
 // (`docs/spec/engine/audio-media.md#soundfont-layers`, rank 4). Both load from the page's own origin.
 await build({
@@ -106,7 +108,7 @@ const editorShell = [
   "./dist/editor-web.js", "./dist/editor-web.css", "./dist/monaco-editor.worker.js", "./dist/language-worker.js",
   "./dist/audio-worklet.js", "./dist/TK-16.sf2",
   "./dist/codicon.ttf", "./dist/tileset-browser.css", "./dist/tileset-art.css", "./dist/board-objects.css",
-  "./dist/program-view.css", "./dist/favicon.ico", "./dist/tkr-32.png", "./dist/tkr-128.png",
+  "./dist/program-view.css", "./dist/visual-events.css", "./dist/skin-view.css", "./dist/favicon.ico", "./dist/tkr-32.png", "./dist/tkr-128.png",
   "./dist/tkr-192.png", "./dist/tkr-512.png",
 ];
 const editorHash = createHash("sha256");

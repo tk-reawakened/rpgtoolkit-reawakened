@@ -207,6 +207,16 @@ export {
   type NativeClipSnapshot,
 } from "./native-clip-document.ts";
 export {
+  createNativeSkinDocument,
+  nativeSkinCodec,
+  openNativeSkinDocument,
+  type NativeSkinCommand,
+  type NativeSkinDocument,
+  type NativeSkinModel,
+  type NativeSkinOpenResult,
+  type NativeSkinSnapshot,
+} from "./skin-document.ts";
+export {
   createNativeGeometryDocument,
   nativeGeometryCodecs,
   openNativeGeometryDocument,
@@ -368,9 +378,32 @@ export {
 export {
   projectVisualProgram,
   addShowMessage,
+  addVisualTemplate,
   editShowMessage,
-  deleteShowMessage,
+  editVisualEvent,
+  editVisualCondition,
+  deleteVisualEvent,
+  moveVisualEvent,
+  nudgeVisualEvent,
+  reorderVisualEvent,
+  applyVisualEventAction,
+  VISUAL_EVENT_TEMPLATES,
+  placedVisualEvents,
+  visualEventActionLabel,
+  DEFAULT_VISUAL_FONT_SIZE,
+  VISUAL_PREVIEW_SCREEN,
+  type PlacedVisualEvent,
+  type VisualEventAsset,
+  type VisualEventPlacement,
   type ShowMessageCard,
+  type VisualEventCard,
+  type VisualConditionCard,
+  type VisualEventAction,
+  type VisualEventTemplate,
+  type VisualEventField,
+  type VisualEventFieldType,
+  type VisualEventValue,
+  type EditableVisualEvent,
   type OpaqueProgramRegion,
   type VisualProgramRegion,
   type VisualProgramProjection,
@@ -541,6 +574,7 @@ export {
   type AssetPickerSnapshot,
   type PickOutcome,
 } from "./asset-picker.ts";
+export { audioContentOf, matchesAssetContent, type AssetContent, type AudioContent } from "./audio-content.ts";
 export {
   copyIntoReservedFolder,
   linkFor,

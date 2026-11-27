@@ -239,6 +239,84 @@ test("a fight background resolves assets, auditions real media, routes palette a
   for (const [label, key] of BKG_FIELDS) await expect(reopened.getByLabel(`${label} file`, { exact: true })).toHaveValue(BKG_VALUES[key]);
 });
 
+test("a header-valid WAV at a .mp3 name is pickable and plays as stored, bytes that are not audio are refused, and Open appears only where the browser can open the link (#3516, #3517)", async ({ page }) => {
+  await installAudioAnalyser(page);
+  const main = writeMainFile({ ...newProjectMainFile(), projectPath: "" });
+  if (!main.ok) throw new Error("The proof Main file must serialize");
+  const bkgPath = "Game/Bkrounds/forest.bkg";
+  const tone = battleTone();
+  const notAudio = Array.from(Buffer.from("ID3\x04\x00\x00\x00\x00\x00\x00padding", "latin1"));
+  await openWorkbench(page, [
+    { path: bkgPath, bytes: BKG },
+    { path: "Game/Bitmap/Nature/forest.tbm", bytes: bytes("game/Game/Example/Bitmap/forest.tbm") },
+    { path: "Game/Bitmap/shot.png", bytes: [137, 80, 78, 71, 13, 10, 26, 10] },
+    { path: "Game/Media/battle.mp3", bytes: tone },
+    { path: "Game/Media/not-a-tile-bitmap.tbm", bytes: tone },
+    { path: "Game/Media/plain.wav", bytes: tone },
+    { path: "Game/Media/tagged.mp3", bytes: notAudio },
+    { path: "Game/Media/fake.wav", bytes: notAudio },
+  ], [...main.value]);
+  await openProjectFile(page, bkgPath);
+  const editor = page.locator('[data-tkr-editor="Fight background"]').first();
+  await expect(editor).toBeVisible();
+
+  // Pick: the music picker lists the real WAV kept under a .mp3 name, and not the ID3 bytes under a .mp3 name.
+  await editor.getByRole("button", { name: "Choose battle music", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: /Choose battle music/i });
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole("option", { name: "battle.mp3", exact: true })).toBeVisible();
+  await expect(picker.getByRole("option", { name: "plain.wav", exact: true })).toBeVisible();
+  await expect(picker.getByRole("option", { name: "tagged.mp3", exact: true })).toHaveCount(0);
+  await picker.getByRole("option", { name: "battle.mp3", exact: true }).click();
+  await picker.getByRole("button", { name: "Use battle.mp3…", exact: true }).click();
+  await page.getByRole("button", { name: "Use it", exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(editor.getByLabel("Battle music file", { exact: true })).toHaveValue("battle.mp3");
+  // The picture picker is not an audio field: it never offers sounds.
+  await editor.getByRole("button", { name: "Choose background picture", exact: true }).click();
+  const picturePicker = page.getByRole("dialog", { name: /Choose background picture/i });
+  await expect(picturePicker).toBeVisible();
+  await expect(picturePicker.getByRole("option", { name: "battle.mp3", exact: true })).toHaveCount(0);
+  await picturePicker.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(picturePicker).toBeHidden();
+
+  // Play: the stored name stays, and the browser's synth really produces the tone.
+  const group = editor.getByRole("group", { name: "Battle music audition" });
+  await group.getByRole("button", { name: "Play battle music", exact: true }).click();
+  await expect.poll(async () => (await observeAudio(page)).peak, { intervals: [25, 50, 75, 100], timeout: 7_000 }).toBeGreaterThan(0.002);
+  await group.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(group.getByRole("alert")).toHaveCount(0);
+  await expect(editor.getByLabel("Battle music file", { exact: true })).toHaveValue("battle.mp3");
+
+  // Refuse: a .wav whose bytes are not a WAV or MIDI reports why, and the reference stays exactly as typed.
+  await retype(page, "Menu choice sound file", "fake.wav");
+  const refused = editor.getByRole("group", { name: "Menu choice sound audition" });
+  await refused.getByRole("button", { name: "Play menu choice sound", exact: true }).click();
+  await expect(refused.getByRole("alert")).toContainText('"fake.wav" is neither');
+  await expect(editor.getByLabel("Menu choice sound file", { exact: true })).toHaveValue("fake.wav");
+
+  // Open: a plain picture or sound has no editor in the browser; a tile bitmap does. Choose and the link check stay.
+  await retype(page, "Background picture file", "shot.png");
+  await expect(editor.getByRole("button", { name: "Choose background picture", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open background picture", exact: true })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  // A WAV kept under a registered tile-bitmap suffix remains playable audio; Open must not route it to the tile reader.
+  await retype(page, "Battle music file", "not-a-tile-bitmap.tbm");
+  await expect(editor.getByRole("button", { name: "Play battle music", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await retype(page, "Battle music file", "battle.mp3");
+  await retype(page, "Menu cursor sound file", "plain.wav");
+  await expect(editor.getByRole("button", { name: "Play menu cursor sound", exact: true })).toBeEnabled();
+  await expect(editor.getByRole("button", { name: "Open menu cursor sound", exact: true })).toHaveCount(0);
+  await retype(page, "Action unavailable sound file", "missing.wav");
+  await expect(editor.getByText("Game/Media/missing.wav is not in the project")).toBeVisible();
+  await retype(page, "Background picture file", "Nature/forest.tbm");
+  await expect(editor.getByRole("button", { name: "Open background picture", exact: true })).toBeEnabled();
+
+  // Nothing above wrote the file: saving stores exactly the six references as typed.
+  expect(await readProjectFile(page, bkgPath)).toEqual(BKG);
+});
+
 test("saving a linked status effect refreshes both move views without dropping the second view's refused text", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");

@@ -17,6 +17,7 @@ import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-r
 import type { LanguageMessage } from "@tk-reawakened/platform-services";
 import type { mount as mountView } from "../src/index.ts";
 import type { ProgramViewDocument } from "../src/program-view.tsx";
+import type { VisualAssetPicker } from "../src/visual-event-pane.tsx";
 import type { LanguageFeatures, SurfaceDiagnostic, TextSurface, TextSurfaceFactory, TextSurfaceHost } from "../src/text-surface.ts";
 
 const PATH = "Prg/intro.prg";
@@ -80,6 +81,7 @@ interface Show {
   readonly history?: boolean;
   readonly document?: ProgramViewDocument;
   readonly element?: HTMLElement;
+  readonly pickAsset?: VisualAssetPicker;
 }
 
 function show(s: Setup, options: Show = {}) {
@@ -97,6 +99,7 @@ function show(s: Setup, options: Show = {}) {
         ...(options.project === undefined ? {} : { project: options.project }),
         ...(options.preferences === undefined ? {} : { preferences: { get: () => options.preferences!, subscribe: () => () => {} } }),
       },
+      ...(options.pickAsset === undefined ? {} : { navigation: { pickAsset: options.pickAsset } }),
     });
   });
   if (handle === undefined) throw new Error("mount returned nothing");
@@ -892,7 +895,7 @@ test("visual-event navigation distinguishes identical bytes that moved within on
 });
 
 test("visual-event navigation declines when only the old block's newline survives", async () => {
-  const s = await setup({ content: "x = 1\n" });
+  const s = await setup({ content: "x = y\n" });
   const spy = spySurface();
   show(s, { createSurface: spy.factory });
   await act(() => named(s.el, "Visual events").click());
@@ -931,6 +934,375 @@ test("visual events navigate without editing and add one undoable edit to the li
   ok(saved !== undefined);
   deepEqual(saved.subarray(0, original.length), bytes(original), "unchanged prefix retained both line endings");
   match(stateOf(s.el), /All changes saved/);
+});
+
+const labelled = (el: HTMLElement, label: string, nth = 0): HTMLInputElement => {
+  const found = [...el.querySelectorAll("label")].filter((candidate) => candidate.textContent?.trim().startsWith(label))[nth]?.querySelector("input");
+  if (found === null || found === undefined) throw new Error(`no field "${label}"`);
+  return found;
+};
+const ariaButton = (el: HTMLElement, label: string): HTMLButtonElement => {
+  const found = el.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (found === null) throw new Error(`no button labelled "${label}"`);
+  return found;
+};
+const fill = async (input: HTMLInputElement, value: string): Promise<void> => {
+  await act(() => { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
+};
+const choose = async (el: HTMLElement, label: string, value: string): Promise<void> => {
+  const select = [...el.querySelectorAll("label")].find((candidate) => candidate.textContent?.trim().startsWith(label))?.querySelector("select");
+  if (select === null || select === undefined) throw new Error(`no select "${label}"`);
+  await act(() => { select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); });
+};
+const undo = async (s: Setup): Promise<void> => {
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await settled();
+};
+
+test("the visual pane adds a typed command from its category, edits typed fields, and each change is one undo step", async () => {
+  const s = await setup({ content: "// note\n" });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  await choose(s.el, "Category", "Items");
+  await choose(s.el, "Command", "give-item");
+  await act(() => named(s.el, "Add command").click());
+  await settled();
+  equal(textOf(s), '// note\ngiveitem("potion.itm")\n');
+  await fill(labelled(s.el, "Item file"), "elixir.itm");
+  await act(() => named(s.el, "Apply Give item").click());
+  await settled();
+  equal(textOf(s), '// note\ngiveitem("elixir.itm")\n');
+  match(s.el.querySelector(".tkr-visual-code")?.textContent ?? "", /giveitem\("elixir\.itm"\)/);
+  await undo(s);
+  equal(textOf(s), '// note\ngiveitem("potion.itm")\n');
+  await undo(s);
+  equal(textOf(s), "// note\n");
+  equal(s.doc.getSnapshot().canUndo, false);
+});
+
+test("a typed field the command cannot take is refused with its unit and range, and the program is unchanged", async () => {
+  const s = await setup({ content: 'text(2, 3, "HP")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const x = labelled(s.el, "X");
+  match(x.closest(".tkr-visual-field")?.textContent ?? "", /font-size cells, the first cell is 1, at least 1/);
+  await fill(x, "0");
+  await act(() => named(s.el, "Apply Draw text").click());
+  await settled();
+  match(alerts(s.el).join(" "), /X must be at least 1/);
+  equal(textOf(s), 'text(2, 3, "HP")\n');
+  equal(s.doc.getSnapshot().canUndo, false);
+});
+
+test("keyboard nudges and numeric placement edit the card's own coordinates, one undo step each", async () => {
+  const s = await setup({ content: '// keep\ntext(2, 3, "HP")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const item = (): HTMLButtonElement => s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  match(item().getAttribute("aria-label") ?? "", /^Draw text "HP" at 2, 3$/);
+  await key(item(), { key: "ArrowRight" });
+  await settled();
+  equal(textOf(s), '// keep\ntext(3, 3, "HP")\n');
+  await key(item(), { key: "ArrowDown", shiftKey: true });
+  await settled();
+  equal(textOf(s), '// keep\ntext(3, 13, "HP")\n');
+  await fill(labelled(s.el, "Placed X"), "7");
+  await fill(labelled(s.el, "Placed Y"), "9");
+  await act(() => named(s.el, "Apply placement").click());
+  await settled();
+  equal(textOf(s), '// keep\ntext(7, 9, "HP")\n');
+  await fill(labelled(s.el, "Placed X"), "0");
+  await act(() => named(s.el, "Apply placement").click());
+  await settled();
+  match(alerts(s.el).join(" "), /X must be at least 1/);
+  equal(textOf(s), '// keep\ntext(7, 9, "HP")\n');
+  await undo(s);
+  equal(textOf(s), '// keep\ntext(3, 13, "HP")\n');
+  await undo(s);
+  await undo(s);
+  equal(textOf(s), '// keep\ntext(2, 3, "HP")\n');
+  equal(s.doc.getSnapshot().canUndo, false);
+  equal(s.doc.getSnapshot().dirty, false);
+});
+
+test("a held arrow key is coalesced against the text each nudge was made from instead of being refused as stale", async () => {
+  const s = await setup({ content: 'text(2, 3, "HP")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await act(() => {
+    for (let press = 0; press < 4; press += 1) item.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+  });
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(6, 3, "HP")\n');
+  equal(alerts(s.el).length, 0);
+});
+
+test("nudges made while an earlier edit is still being applied are added together instead of refused as stale", async () => {
+  const s = await setup({ content: 'text(2, 3, "HP")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind,
+      identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(),
+      subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(),
+      resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(),
+      redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  for (let press = 0; press < 4; press += 1) await key(item, { key: "ArrowRight" });
+  equal(textOf(s), 'text(2, 3, "HP")\n', "the first nudge is still being applied");
+  gate.resolve();
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(6, 3, "HP")\n', "one for the first press and one carrying the three made meanwhile");
+  equal(alerts(s.el).length, 0);
+  await undo(s);
+  equal(textOf(s), 'text(3, 3, "HP")\n');
+  await undo(s);
+  equal(textOf(s), 'text(2, 3, "HP")\n');
+});
+
+test("each nudge direction is its own registered action, so the palette can run it", async () => {
+  const s = await setup({ content: 'text(2, 3, "HP")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  for (const direction of ["left", "right", "up", "down"]) {
+    const button = ariaButton(s.el, `Nudge Draw text ${direction}`);
+    ok((button.getAttribute("data-editor-command-id") ?? "").startsWith(`program.visual.nudgeEvent.${direction}.`), direction);
+  }
+  await act(() => ariaButton(s.el, "Nudge Draw text right").click());
+  await settled();
+  equal(textOf(s), 'text(3, 3, "HP")\n');
+  await act(() => ariaButton(s.el, "Nudge Draw text down").click());
+  await settled();
+  equal(textOf(s), 'text(3, 4, "HP")\n');
+});
+
+test("a nudge made before another edit can only ever move its own card", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\npixeltext(40, 50, "B")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  gate.resolve();
+  await settled();
+  await settled();
+  const text = textOf(s);
+  equal(text.includes('pixeltext(40, 50, "B")'), true, `the other card is untouched: ${JSON.stringify(text)}`);
+  equal(text.includes('pixeltext(41, 50, "B")'), false, "no press is applied to the card that took the first one's place");
+  equal(/text\((3|4), 2, "A"\)/.test(text), true, "the presses stay on the card they were made on");
+});
+
+test("a queued nudge is dropped when two same-command cards swap before it is applied", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 9, "B")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  // The swap is in flight; the presses are made on the card that is about to move.
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(9, 9, "B")\ntext(2, 2, "A")\n', "the swap applies and neither card takes the other's gesture");
+});
+
+test("a press made between a dispatch and its text landing still reaches the same card", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  // The first dispatch has not landed when this press arrives; it belongs to the same gesture.
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)); });
+  await settled();
+  equal(textOf(s), 'text(4, 2, "A")\n', "both presses reached the card, across the dispatch and its landing");
+});
+
+test("identical-text twins that differ only in placement never take each other's queued nudge", async () => {
+  // Two `text` cards with the same string: the only difference is X, so identity text cannot tell them apart.
+  const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 2, "A")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  await act(() => ariaButton(s.el, "Move Draw text down").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  gate.resolve();
+  await settled();
+  await settled();
+  equal(textOf(s), 'text(9, 2, "A")\ntext(2, 2, "A")\n', "the twins swap and neither takes the other's gesture");
+});
+
+test("a queued nudge never lands on a same-command neighbour that inherits its slot", async () => {
+  const s = await setup({ content: 'text(2, 2, "A")\ntext(9, 9, "B")\n' });
+  const gate = deferred();
+  show(s, {
+    document: {
+      kind: s.doc.kind, identity: s.doc.identity,
+      getSnapshot: () => s.doc.getSnapshot(), subscribe: (listener) => s.doc.subscribe(listener),
+      apply: async (command) => { await gate.promise; return s.doc.apply(command); },
+      save: () => s.doc.save(), resolveConflict: (choice) => s.doc.resolveConflict(choice),
+      undo: () => s.doc.undo(), redo: () => s.doc.redo(),
+    },
+  });
+  await act(() => named(s.el, "Visual events").click());
+  const item = s.el.querySelector<HTMLButtonElement>(".tkr-visual-item")!;
+  await key(item, { key: "ArrowRight" });
+  await key(item, { key: "ArrowRight" });
+  // Removing the first text card moves the second one into its line and offset, with the same command.
+  await act(() => s.el.querySelectorAll<HTMLButtonElement>('button[data-editor-command-id^="program.visual.removeEvent"]')[0]!.click());
+  gate.resolve();
+  await settled();
+  await settled();
+  const text = textOf(s);
+  equal(text.includes('text(9, 9, "B")'), true, `the neighbour keeps its own coordinates: ${JSON.stringify(text)}`);
+  equal(text.includes('text(10, 9, "B")'), false);
+});
+
+test("a deleted card's draft is not inherited by an identical neighbour", async () => {
+  const pair = 'mwin("Same")\nwait()\nmwincls()\n';
+  const s = await setup({ content: pair + pair });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const messages = () => [...s.el.querySelectorAll<HTMLInputElement>('.tkr-visual-events input[type="text"]')].filter((input) => input.closest("fieldset")?.querySelector("legend")?.textContent === "Show message");
+  await fill(messages()[0]!, "Never applied");
+  await act(() => s.el.querySelectorAll<HTMLButtonElement>('button[data-editor-command-id^="program.visual.removeEvent"]')[0]!.click());
+  await settled();
+  equal(textOf(s), pair, "the first sequence was removed");
+  equal(messages().length, 1);
+  equal(messages()[0]!.value, "Same", "the survivor shows its own message, not the deleted card's draft");
+});
+
+test("a blank placement coordinate is refused instead of reading as zero", async () => {
+  const s = await setup({ content: 'pixeltext(40, 50, "B")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  await fill(labelled(s.el, "Placed X"), "");
+  await act(() => named(s.el, "Apply placement").click());
+  await settled();
+  match(alerts(s.el).join(" "), /X must be a number/);
+  equal(textOf(s), 'pixeltext(40, 50, "B")\n', "an empty field never places the command at zero");
+});
+
+test("the layout list selects with arrow keys and the numeric inspector follows the selection", async () => {
+  const s = await setup({ content: 'text(2, 3, "A")\npixeltext(40, 50, "B")\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  const list = s.el.querySelector<HTMLElement>('[role="listbox"]')!;
+  equal(list.querySelectorAll('[role="option"]').length, 2);
+  equal(labelled(s.el, "Placed X").value, "2");
+  await key(list, { key: "ArrowDown" });
+  equal(labelled(s.el, "Placed X").value, "40");
+  match(labelled(s.el, "Placed X").closest(".tkr-visual-field")?.textContent ?? "", /pixels/);
+  await key(list, { key: "Home" });
+  equal(labelled(s.el, "Placed Y").value, "3");
+});
+
+test("cards reorder only beside another card, insert before a chosen card, and keep handwritten code byte for byte", async () => {
+  const source = 'delay(1)\n// handwritten\nfunction f() {\n  delay(9)\n}\nwait()\nbitmap("a.png")\n';
+  const s = await setup({ content: source });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  equal(ariaButton(s.el, "Move Delay up").disabled, true);
+  equal(ariaButton(s.el, "Move Delay down").disabled, true, "handwritten code lies between");
+  equal(ariaButton(s.el, "Move Wait for key up").disabled, true);
+  await act(() => ariaButton(s.el, "Move Wait for key down").click());
+  await settled();
+  equal(textOf(s), source.replace('wait()\nbitmap("a.png")\n', 'bitmap("a.png")\nwait()\n'));
+  await choose(s.el, "Insert", String(source.indexOf("delay(1)")));
+  await choose(s.el, "Category", "Fight");
+  await act(() => named(s.el, "Add command").click());
+  await settled();
+  equal(textOf(s), 'fight(1, "field.bkg")\n' + source.replace('wait()\nbitmap("a.png")\n', 'bitmap("a.png")\nwait()\n'));
+  await act(() => named(s.el, "Remove Delay").click());
+  await settled();
+  match(textOf(s), /\/\/ handwritten\nfunction f\(\) \{\n  delay\(9\)\n\}\n/);
+  equal((textOf(s).match(/delay\(1\)/g) ?? []).length, 0);
+});
+
+test("a simple condition edits its header and shows its body as read-only source", async () => {
+  const s = await setup({ content: 'if (gold > 10) {\n  mwin("rich")\n}\n' });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  match(s.el.querySelector('pre[aria-label="Code inside the condition"]')?.textContent ?? "", /mwin\("rich"\)/);
+  await fill(labelled(s.el, "Condition"), "gold >= 20");
+  await act(() => named(s.el, "Apply condition").click());
+  await settled();
+  equal(textOf(s), 'if (gold >= 20) {\n  mwin("rich")\n}\n');
+  await fill(labelled(s.el, "Condition"), "gold >= 20 && x");
+  await act(() => named(s.el, "Apply condition").click());
+  await settled();
+  match(alerts(s.el).join(" "), /simple comparison/);
+  equal(textOf(s), 'if (gold >= 20) {\n  mwin("rich")\n}\n');
+});
+
+test("a typed asset field offers the shared picker when the host has one and keeps the value when it is cancelled", async () => {
+  const requests: { readonly kind: string; readonly field: string }[] = [];
+  const s = await setup({ content: 'bitmap("old.png")\n' });
+  show(s, { pickAsset: async (request) => { requests.push(request); return requests.length === 1 ? { chosen: true, reference: "sub\\new.png" } : { chosen: false }; } });
+  await act(() => named(s.el, "Visual events").click());
+  await act(() => named(s.el, "Choose…").click());
+  await settled();
+  equal(labelled(s.el, "Bitmap file").value, "sub\\new.png");
+  equal(requests[0]!.kind, "bitmaps");
+  await act(() => named(s.el, "Apply Draw bitmap").click());
+  await settled();
+  equal(textOf(s), 'bitmap("sub\\new.png")\n');
+  await act(() => named(s.el, "Choose…").click());
+  await settled();
+  equal(labelled(s.el, "Bitmap file").value, "sub\\new.png");
+  equal(requests.length, 2);
 });
 
 test("distraction-free mode leaves only the text and an exit; Escape and the button both bring the tools back", async () => {
