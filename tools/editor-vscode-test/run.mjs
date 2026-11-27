@@ -16,7 +16,7 @@ import { runVscodeScriptWorkflowProof, scriptWorkflowProofFiles } from "./script
 import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, runVscodeFontProof, runVscodeBattleDataProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeBoardUpgradeProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { runVscodeDesignProof } from "./design-proof.ts";
 import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
-import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-scene-proof.ts";
+import { NATIVE_ROLES_SCENE, NATIVE_ROLES_SCENE_PATH, NATIVE_SCENE_PROOF_PATH, NATIVE_SCENE_RECIPE, runVscodeNativeSceneProof, runVscodeTerrainRoleRefreshProof } from "./native-scene-proof.ts";
 import { runVscodeSkinProof } from "./skin-vscode-proof.ts";
 import { skinProofFiles } from "./skin-proof.ts";
 import { runVscodeBoardImportProof } from "./board-import-proof.ts";
