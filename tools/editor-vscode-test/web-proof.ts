@@ -4,7 +4,7 @@ import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { BinaryReader, decodeBoard, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
+import { BinaryReader, decodeBoard, readAnimation, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
@@ -2997,10 +2997,11 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     catch (error) { if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null; throw error; }
   };
   const open = async () => (await openProjectFile(page, ANIMATION_PROOF_PATH, expect, ".tkr-animation-editor")).locator(".tkr-animation-editor");
+  const animationTab = page.getByRole("tab", { name: /host-proof\.anm/ });
   const close = async () => {
-    if (await page.getByRole("tab").filter({ hasText: "host-proof.anm" }).count()) {
+    if (await animationTab.count()) {
       await runCommand(page, expect, "View: Close Editor");
-      await expect(page.getByRole("tab").filter({ hasText: "host-proof.anm" })).toHaveCount(0);
+      await expect(animationTab).toHaveCount(0);
       await page.waitForTimeout(150);
     }
   };
@@ -3041,6 +3042,15 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     refuseAnimationWrite: (check) => host.withBackingWriteRefused(ANIMATION_PROOF_PATH, check),
     settle: () => page.waitForTimeout(60),
   }, expect);
+  // The last preview assertion proves the edit is on screen, not that the native working copy is clean.
+  // Finish this authoring session before the next proof packages only saved assets.
+  await animationTab.click();
+  await runCommand(page, expect, "File: Save");
+  await expect(animationTab).not.toHaveClass(/dirty/);
+  const saved = readAnimation(new BinaryReader(await host.readBacking(ANIMATION_PROOF_PATH)));
+  if (!saved.ok) throw new Error(saved.error.message);
+  expect([saved.value.width, saved.value.height, saved.value.frames[0]?.image]).toEqual([64, 64, "village.tst1"]);
+  await close();
 }
 
 /** Story 12.3 through the packaged custom editor, native program tabs and real persistent filesystem. */
