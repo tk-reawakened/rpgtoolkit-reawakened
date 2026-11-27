@@ -131,7 +131,7 @@ export function eventsForDocumentKind<Event extends DocumentChangeEvent>(
 
 /** The document kinds each custom-editor manifest view type is permitted to dirty. */
 export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
-  "tkr.gameSettings": ["main", "character", "item"],
+  "tkr.gameSettings": ["main", "character", "item", "skin"],
   "tkr.board": ["board"],
   "tkr.tileset": ["tileset"],
   "tkr.tileBitmap": ["tile-bitmap"],

@@ -205,6 +205,16 @@ export {
   type NativeClipSnapshot,
 } from "./native-clip-document.ts";
 export {
+  createNativeSkinDocument,
+  nativeSkinCodec,
+  openNativeSkinDocument,
+  type NativeSkinCommand,
+  type NativeSkinDocument,
+  type NativeSkinModel,
+  type NativeSkinOpenResult,
+  type NativeSkinSnapshot,
+} from "./skin-document.ts";
+export {
   createNativeGeometryDocument,
   nativeGeometryCodecs,
   openNativeGeometryDocument,

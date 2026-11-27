@@ -215,6 +215,9 @@
           },
           {
             "filenamePattern": "*.itm"
+          },
+          {
+            "filenamePattern": "*.tkrskin"
           }
         ],
         "priority": "default"

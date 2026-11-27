@@ -121,13 +121,13 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       host.script.picks.push("outside");
       host.script.files.push({ name: "hero.png", bytes: new Uint8Array([7, 7]) });
       host.script.answers.push("copy");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "hero.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/hero.png"), new Uint8Array([7, 7]));
       match(host.script.asked.at(-1) ?? "", /Copy hero\.png into Bitmap/);
 
       host.script.picks.push("file:old.png");
       host.script.answers.push("use");
-      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png" });
+      deepEqual(await tab.remote().pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" }), { chosen: true, reference: "old.png", layout: { projectFolder: "" } });
       deepEqual(await host.disk("Bitmap/old.png"), new Uint8Array([4]), "choosing a file already in the folder writes nothing");
     });
 
@@ -142,7 +142,7 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       deepEqual(host.script.pickLists.at(-1)?.labels, ["battle.mp3", "tone.WAV", "Choose a file from outside the project…"], "its header makes it a choice; bytes that are not audio stay out");
       host.script.picks.push("file:battle.mp3");
       host.script.answers.push("use");
-      deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3" });
+      deepEqual(await tab.remote().pickAsset({ kind: "media", extensions: [".wav", ".mid", ".midi"], content: "audio", field: "the battle music" }), { chosen: true, reference: "battle.mp3", layout: { projectFolder: "" } });
 
       // What the webview offers as Open is what a visit really does: the host hands the file to VS Code's own `vscode.open`
       // (`script.opened`; this fake only models documents the extension provides, so what VS Code then shows for a picture or a

@@ -48,8 +48,11 @@ export interface AssetPickerSnapshot {
 }
 
 export type PickOutcome =
-  /** The reference to store. For a copy it is the new file's link. */
-  | { readonly chosen: true; readonly reference: string }
+  /**
+   * The reference to store. For a copy it is the new file's link. `layout` is the project folders the picker read the
+   * file from, so a view previewing it later reads the same folders even if a game file changed owner since it mounted.
+   */
+  | { readonly chosen: true; readonly reference: string; readonly layout?: ProjectLayout }
   /** Nothing was chosen; the field keeps what it had. */
   | { readonly chosen: false };
 
@@ -134,7 +137,7 @@ export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
         return { chosen: false };
       }
       publish({ phase: "closed" });
-      return { chosen: true, reference };
+      return { chosen: true, reference, layout };
     },
     async pickOutside(subfolder = "") {
       if (closed() || snapshot.phase === "busy") return { chosen: false };
@@ -168,7 +171,7 @@ export function createAssetPicker(options: AssetPickerOptions): AssetPicker {
         return { chosen: false };
       }
       publish({ phase: "closed" });
-      return { chosen: true, reference: copied.reference };
+      return { chosen: true, reference: copied.reference, layout };
     },
     cancel() {
       if (!closed()) publish({ phase: "closed", message: null });

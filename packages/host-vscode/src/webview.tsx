@@ -104,6 +104,8 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
         },
         boardPreferences: remote.boardPreferences,
         pendingEdits: remote.pendingEdits,
+        // A refresh (the editor becoming active, the assets changing) re-resolves the document's owning game folders.
+        resolveLayout: () => layoutForDocument(remote),
         ...(remote.kind === "board" ? {
           navigation: {
             pickAsset: (request) => remote.pickAsset(request),
@@ -122,7 +124,8 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
             get initialBoardPath() { return remote.initialBoardPath ?? ""; },
           },
         } : {}),
-        ...(remote.kind === "special-move" || remote.kind === "status-effect" || remote.kind === "battle-background" ? {
+        ...(remote.kind === "skin" || remote.kind === "special-move" || remote.kind === "status-effect" || remote.kind === "battle-background" ? {
+          // These shared views use the project asset picker and open only already-resolved project paths.
           navigation: {
             layout: browserLayout,
             pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),

@@ -95,6 +95,7 @@ const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
   tile: ["name", "projection", "role", "visual", "solid", "under", "activationAreas", "kitbash"],
   tileset: ["name", "expects", "tiles", "terrains", "sources", "isoBlocks", "outputBinding"],
   "asset-pack": ["name", "projection", "grid", "sources", "assets"],
+  skin: ["label", "windowImage", "buttonImage"],
   scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "terrainRegions", "tileOverrides", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
 };
 
