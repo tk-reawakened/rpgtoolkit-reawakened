@@ -6,5 +6,5 @@
 # ID 29 maps issue #3335; ID 30 maps #3331. ID 15 already carries #3257 on `docs/3257-history-frame-detach`, so this branch does not allocate a second ticket for it.
 # ID 31 maps issue #3354 (host-web project errors); ID 32 maps issue #3146.
 # ID 33 maps issue #3507 (BKG Stop proof); ID 34 maps #3508 (VS Code BKG CI fixture).
-# IDs 35–39 are reserved for the local CI repair wave: #3607, #3597, #3608, #3594, #3606.
-next_id = 40
+# ID 35 is reserved by #3582 (#3510). IDs 36–41 map #3597, #3608, #3594, #3606, #3607, #3305.
+next_id = 42
