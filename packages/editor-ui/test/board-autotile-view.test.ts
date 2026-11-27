@@ -1,7 +1,7 @@
 // Autotiling in the real views (story 8, T-25): the H toggle and its visible state, the warnings the original never gave,
 // the 47-shape preview drawn from the chosen set's own tiles, an explicit mark, and a Shift note that follows the key.
 import { after, before, test } from "node:test";
-import { equal, match, ok } from "node:assert/strict";
+import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
   boardExtent,
@@ -187,21 +187,35 @@ test("the tileset browser says whether a set is an autotile set and previews its
   s.dispose();
 });
 
-test("marking an ordinary set uses the legacy order for it and can be undone by clearing the mark", async () => {
+test("an ordinary tileset mark is session-scoped, survives brush switches, and stops reshaping when cleared", async () => {
   const s = await setup();
   await openSource(s, "Tiles/village.tst");
   const check = (): HTMLInputElement => s.el.querySelector<HTMLInputElement>(".tkr-tileset-browser-autotile input[type=checkbox]")!;
   equal(check().checked, false);
   await act(() => { check().click(); });
   await settle();
-  equal(s.session.getSnapshot().selection?.autotile, "legacy-52");
+  deepEqual(s.session.getSnapshot().autotileMarks, ["village.tst"]);
   equal(check().checked, true);
-  match(s.el.querySelector(".tkr-tileset-browser-autotile")?.textContent ?? "", /Marked as a legacy 52-slot autotile set/);
   await keyboard(s, { key: "a" });
+  await choose(s, "village.tst1");
   await click(s, s.centre);
-  equal(tileAt(s, s.centre), "village.tst51", "the marked set's isolated shape, from the set that was marked");
+  await click(s, { x: s.centre.x + 1, y: s.centre.y });
+  equal(tileAt(s, s.centre), "village.tst48");
+  equal(tileAt(s, { x: s.centre.x + 1, y: s.centre.y }), "village.tst50");
+  await choose(s, "AUTOTILES_village.tst1");
+  await click(s, { x: s.centre.x + 1, y: s.centre.y });
+  equal(tileAt(s, s.centre), "village.tst51", "a different brush reshaped the persistent marked neighbor");
+
+  await openSource(s, "Tiles/village.tst");
+  equal(check().checked, true, "the mark remains checked after switching brushes");
   await act(() => { check().click(); });
   await settle();
-  equal(s.session.getSnapshot().selection?.autotile, undefined);
+  deepEqual(s.session.getSnapshot().autotileMarks, []);
+  await choose(s, "village.tst1");
+  await click(s, s.centre);
+  await click(s, { x: s.centre.x + 1, y: s.centre.y });
+  await choose(s, "AUTOTILES_village.tst1");
+  await click(s, { x: s.centre.x + 1, y: s.centre.y });
+  equal(tileAt(s, s.centre), "village.tst1", "an unmarked ordinary neighbor is not reshaped");
   s.dispose();
 });

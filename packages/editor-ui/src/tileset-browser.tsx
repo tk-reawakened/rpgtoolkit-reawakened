@@ -50,6 +50,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     return `tkr-tileset-browser-${browsersMade}`;
   });
   const initial = session.getSnapshot();
+  const [brush, setBrush] = useState<BrowserSelection | null>(initial.selection);
   const [sources, setSources] = useState<readonly Source[]>([]);
   const [path, setPath] = useState<string | null>(initial.path);
   const [items, setItems] = useState<readonly BrowserRow[]>([]);
@@ -59,7 +60,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const [message, setMessage] = useState<string | null>(null);
   /** The open actions menu, by row reference: a reload of the list (an asset refresh) makes new row objects but keeps it open. */
   const [menu, setMenu] = useState<string | null>(null);
-  const [brush, setBrush] = useState<BrowserSelection | null>(initial.selection);
+  const [autotileMarks, setAutotileMarks] = useState<readonly string[]>(initial.autotileMarks);
   const list = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -72,6 +73,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   useEffect(() => session.subscribe(() => {
     const state = session.getSnapshot();
     setBrush(state.selection);
+    setAutotileMarks(state.autotileMarks);
     if (state.path !== observedPath.current) {
       observedPath.current = state.path;
       const source = sourceCache.current.find((candidate) => candidate.path === state.path);
@@ -226,11 +228,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     setMenu(null);
     if (invoker !== null) queueMicrotask(() => invoker.isConnected && invoker.focus());
   };
-  const choose = (item: BrowserSelection, autotile?: "legacy-52" | "none"): void => {
-    // The retained selection is the shared brush contract; the row's own tile number stays with the row.
-    // A mark follows the brush within its source, and "none" is the author clearing it.
-    const marked = autotile === "none" ? undefined : autotile ?? (brush?.path === item.path ? brush.autotile : undefined);
-    session.update({ selection: { kind: item.kind, path: item.path, reference: item.reference, label: item.label, boardTile: item.boardTile, stamp: item.stamp, ...(item.autotileTileCount === undefined ? {} : { autotileTileCount: item.autotileTileCount }), ...(marked === undefined ? {} : { autotile: marked }) } });
+  const choose = (item: BrowserSelection): void => {
+    // The retained selection is the shared brush contract; marks belong to the project session, not to a brush.
+    session.update({ selection: { kind: item.kind, path: item.path, reference: item.reference, label: item.label, boardTile: item.boardTile, stamp: item.stamp, ...(item.autotileTileCount === undefined ? {} : { autotileTileCount: item.autotileTileCount }) } });
     closeMenu();
   };
 
@@ -281,8 +281,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
 
   const tilesLoaded = loadedPath !== null && items.length > 0 && items.every((row) => row.kind === "tiles" && row.tile !== null);
   const setReference = tilesLoaded ? items[0]!.reference.replace(/\d+$/, "") : null;
+  const markReference = setReference?.replaceAll("\\", "/") ?? null;
   const recognizedByName = tilesLoaded && autotileSource(items[0]!.reference) !== null;
-  const markedHere = tilesLoaded && brush?.path === loadedPath && brush.autotile === "legacy-52";
+  const markedHere = markReference !== null && autotileMarks.includes(markReference);
 
   return (
     <section class="tkr-tileset-browser" aria-label="Tileset browser" ref={root} onKeyDown={keyboard}>
@@ -356,8 +357,14 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         <p role="status">{recognizedByName
           ? "Original autotile set, recognised by its AUTOTILES_ file name. Tiles use the 52-slot shape table."
           : markedHere ? "Marked as a legacy 52-slot autotile set. Tiles use the 52-slot shape table." : "Ordinary tileset."}</p>
-        <label><input type="checkbox" checked={recognizedByName || markedHere} disabled={recognizedByName || items.length === 0}
-          onChange={(event) => { const row = items.find((candidate) => candidate.reference === brush?.reference) ?? items[0]; if (row !== undefined) choose(row, event.currentTarget.checked ? "legacy-52" : "none"); }} />
+          <label><input type="checkbox" checked={recognizedByName || markedHere} disabled={recognizedByName || items.length === 0}
+            onChange={(event) => {
+              if (markReference === null) return;
+              const marks = session.getSnapshot().autotileMarks;
+              session.update({ autotileMarks: event.currentTarget.checked
+                ? marks.includes(markReference) ? marks : [...marks, markReference]
+                : marks.filter((mark) => mark !== markReference) });
+            }} />
           Use this set's tiles in the legacy 52-slot order{recognizedByName ? " (from its name)" : ""}</label>
         {recognizedByName || markedHere ? <>
           {legacyAutotileGaps(items.length).length > 0

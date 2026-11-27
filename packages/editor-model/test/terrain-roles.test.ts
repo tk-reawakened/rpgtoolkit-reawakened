@@ -4,6 +4,8 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { readTileset } from "@tk-reawakened/native-data";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { loadTerrainSceneProjectInventory } from "../src/terrain-scene-project.ts";
 import { inspectTerrainRoles, terrainSceneAssets, terrainSceneTilesets } from "../src/index.ts";
 import { resolveSceneTerrain, type TerrainScene } from "../src/scene-terrain.ts";
 import type { TerrainRecipe } from "../src/terrain-matcher.ts";
@@ -159,6 +161,51 @@ outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles
   ok(revisionOf(text("    seed: 7\n", 3)) !== base, "only the seed changed");
   ok(revisionOf(text("", 5)) !== base, "only a variant weight changed");
 });
+test("a tileset's preview revision follows its referenced tile documents and sampled source bytes", async () => {
+  const recipe = `contract: tileset
+version: 1.0.0-pre.2
+name: Pond
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles: [{tile: Tiles/water.tkrtle}]
+terrains:
+  - id: water
+    name: Water
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: partial
+    sync: independent
+    rules: [{id: east, when: {e: same}, use: {tile: Tiles/water.tkrtle}}]
+outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles/water.tkrtle}]}
+`;
+  const load = (name: string, rectX: number, image: Uint8Array | null = new Uint8Array([1, 2, 3])) => {
+    const files: Record<string, Uint8Array> = {
+      "Tiles/Pond.tkrtst": new TextEncoder().encode(recipe),
+      "Tiles/water.tkrtle": new TextEncoder().encode(JSON.stringify({
+        contract: "tile", version: "1.0.0-pre.1", name, projection: "2d", role: "floor",
+        visual: { transparent: { mode: "alpha" }, sample: { file: "Bitmap/water.bin", rect: [rectX, 0, 32, 32] } },
+      })),
+    };
+    if (image !== null) files["Bitmap/water.bin"] = image;
+    const storage = createMemoryPlatformServices({ files });
+    return loadTerrainSceneProjectInventory(storage.fs, "Boards/pond.tkrscn");
+  };
+  const initial = await load("Water", 0);
+  ok(initial.ok, JSON.stringify(initial));
+  const base = terrainSceneAssets(initial).tilesets[0]!.revision;
+  const same = await load("Water", 0);
+  ok(same.ok, JSON.stringify(same));
+  equal(terrainSceneAssets(same).tilesets[0]!.revision, base);
+  const changedTile = await load("Updated water", 0);
+  ok(changedTile.ok, JSON.stringify(changedTile));
+  ok(terrainSceneAssets(changedTile).tilesets[0]!.revision !== base, "a tile document edit invalidates the recipe preview");
+  const changedSource = await load("Water", 0, new Uint8Array([1, 2, 4]));
+  ok(changedSource.ok, JSON.stringify(changedSource));
+  ok(terrainSceneAssets(changedSource).tilesets[0]!.revision !== base, "sample bytes changing at the same path invalidates the recipe preview");
+  const missingSource = await load("Water", 0, null);
+  ok(!missingSource.ok);
+  deepEqual(terrainSceneAssets(missingSource).tilesets, [], "a broken current inventory clears prior roles and recipe previews");
+});
+
 
 test("a failed inventory read clears the roles and says why, so older rules are never kept as current", () => {
   const cleared = terrainSceneAssets({ ok: false, problems: [{ path: "Tiles/pond.tkrtst", message: "rules[0] must name a palette member" }] });

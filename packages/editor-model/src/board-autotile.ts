@@ -21,18 +21,20 @@ export function autotileSource(reference: string): string | null {
   return /^AUTOTILES_/i.test(file) && /\.(?:tst|iso)\d+$/i.test(file) ? path.replace(/\d+$/, "") : null;
 }
 
-/** An explicit shared-brush mark opts a differently named tileset into the legacy 52-slot mapping. */
-export function autotileSourceForSelection(selection: { readonly reference: string; readonly autotile?: "legacy-52" } | null): string | null {
-  if (selection === null) return null;
-  if (selection.autotile !== "legacy-52") return autotileSource(selection.reference);
-  const normalized = selection.reference.replaceAll("/", "\\").replace(/\d+$/, "");
-  return /\.(?:tst|iso)$/i.test(normalized) ? normalized : null;
+
+/** Resolve a named or explicitly marked source for one tile reference. */
+export function autotileSourceForTile(reference: string, markedSources?: ReadonlySet<string>): string | null {
+  const named = autotileSource(reference);
+  if (named !== null) return named;
+  for (const source of markedSources ?? []) if (slotOf(reference, source) !== null) return source.replaceAll("/", "\\");
+  return null;
 }
 
 function sameSource(reference: string | null, source: string): boolean {
   if (reference === null || reference === "") return false;
   const normalized = reference.replaceAll("/", "\\");
-  return normalized.startsWith(source) && /^\d+$/.test(normalized.slice(source.length));
+  const normalizedSource = source.replaceAll("/", "\\");
+  return normalized.startsWith(normalizedSource) && /^\d+$/.test(normalized.slice(normalizedSource.length));
 }
 
 function neighbors(board: ToolBoard, { x, y }: Cell): Record<Direction, Cell> {
@@ -97,12 +99,12 @@ export function paintAutotileStroke(
   tile: string,
   enabled: boolean,
   shift: ShiftedCells = false,
-  markedSource?: string,
+  markedSources?: ReadonlySet<string>,
 ): TileAssignment[] {
   const overlay = new Map<number, string>();
   const writes = new Map<number, TileAssignment>();
   const stacked = layoutOf(board) === "iso-stacked";
-  const paintSource = enabled && tile !== "" ? markedSource ?? autotileSource(tile) : null;
+  const paintSource = enabled && tile !== "" ? autotileSourceForTile(tile, markedSources) : null;
   // Shift is decided per cell: a drag can hold it over some cells and not others, and each cell reshapes by its own.
   const wasShifted = (cell: Cell, visit: number): boolean => Array.isArray(shift) ? shift[visit] === true
     : typeof shift === "boolean" ? shift
@@ -127,7 +129,7 @@ export function paintAutotileStroke(
     for (const candidate of edited) {
       const key = candidate.y * board.grid.width + candidate.x;
       const existing = overlay.get(key) ?? boardTileAt(board, layer, candidate.x, candidate.y);
-      const source = markedSource !== undefined && slotOf(existing, markedSource) !== null ? markedSource : autotileSource(existing ?? "");
+      const source = autotileSourceForTile(existing ?? "", markedSources);
       if (source === null || (isolated !== null && source !== isolated)) continue;
       const slot = shapeAt(board, layer, candidate, source, overlay);
       if (slotOf(existing, source) === slot) continue;
@@ -161,10 +163,10 @@ export function autotileCells(
   tile: string,
   enabled: boolean,
   shift: ShiftedCells = false,
-  markedSource?: string,
+  markedSources?: ReadonlySet<string>,
 ): TileAssignment[] {
   if (!enabled) return paintCells(board, layer, cells, tile);
-  return paintAutotileStroke(board, layer, cells, tile, true, shift, markedSource);
+  return paintAutotileStroke(board, layer, cells, tile, true, shift, markedSources);
 }
 
 const SHAPE_BY_SLOT: ReadonlyMap<number, string> = new Map([...SLOT_BY_MASK].map(([mask, slot]) => {

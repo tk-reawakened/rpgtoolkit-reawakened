@@ -36,3 +36,41 @@ export function createTilesetRefreshTrigger(reload: () => void, delayMs = 250): 
     dispose: cancel,
   };
 }
+
+/** Runs overlapping asset reads latest-wins; a ready handshake can wait for the newest read without blocking on an older one. */
+export function createLatestRead<T>(read: () => Promise<T>, publish: (value: T) => void): {
+  read(): Promise<T>;
+  waitForLatest(): Promise<T>;
+} {
+  let generation = 0;
+  let latest: Promise<T> | null = null;
+  let signalChanged: () => void = () => {};
+  let changed = new Promise<void>((resolve) => { signalChanged = resolve; });
+  const start = (): Promise<T> => {
+    signalChanged();
+    changed = new Promise<void>((resolve) => { signalChanged = resolve; });
+    const mine = ++generation;
+    const current = Promise.resolve().then(read).then((value) => {
+      if (mine === generation) publish(value);
+      return value;
+    });
+    latest = current;
+    return current;
+  };
+  const waitForLatest = async (): Promise<T> => {
+    if (latest === null) return start();
+    while (latest !== null) {
+      const current: Promise<T> = latest;
+      const currentChange = changed;
+      const outcome = await Promise.race([
+        current.then((value) => ({ kind: "value" as const, value }), (error: unknown) => ({ kind: "error" as const, error })),
+        currentChange.then(() => ({ kind: "changed" as const })),
+      ]);
+      if (outcome.kind === "changed" || current !== latest) continue;
+      if (outcome.kind === "error") throw outcome.error;
+      return outcome.value;
+    }
+    return start();
+  };
+  return { read: start, waitForLatest };
+}

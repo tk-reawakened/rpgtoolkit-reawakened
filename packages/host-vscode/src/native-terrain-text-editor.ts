@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
-import { applyTerrainSceneEdit, createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, terrainSceneAssets, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
+import { applyTerrainSceneEdit, createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, terrainSceneAssets, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore, type TerrainSceneProjectInventory } from "@tk-reawakened/editor-model";
 import type { RunService } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
 import { relativeToWorkspace } from "./launch-prompts.ts";
 import { applyNativeTextEdit } from "./native-text-edit.ts";
-import { createTilesetRefreshTrigger } from "./terrain-assets-trigger.ts";
+import { createLatestRead, createTilesetRefreshTrigger } from "./terrain-assets-trigger.ts";
 
 type Panel = { readonly panel: vscode.WebviewPanel; initialized: boolean };
 
@@ -95,34 +95,50 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       const set = panels.get(key) ?? new Set<Panel>(); set.add(target); panels.set(key, set);
       panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] };
       const projectPath = folder === undefined ? undefined : relativeToWorkspace(folder.uri, document.uri);
-      const inventory = folder === undefined || projectPath === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
-      const tilesets = inventory?.ok ? terrainSceneAssets(inventory).tilesets : [];
-      const assetTiles = inventory?.ok ? inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })) : [];
-      const packs = inventory?.ok ? inventory.packs : [];
-      let ownerPaths = new Set([...(inventory?.ok === true ? inventory.tiles : []), ...packs.map(({ path }) => path)]);
-      /** Reads in flight are numbered per panel: a slower, older read never replaces the tilesets a newer one showed. */
-      let reads = 0;
+      let inventory: TerrainSceneProjectInventory | null = null;
+      let assets = terrainSceneAssets({ ok: false, problems: [] });
+      let ownerPaths = new Set<string>();
+      const assetReader = folder === undefined || projectPath === undefined ? null : createLatestRead(
+        async () => {
+          try { return await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText()); }
+          catch (error) {
+            return { ok: false as const, problems: [{ path: projectPath, message: `Cannot load terrain assets: ${error instanceof Error ? error.message : String(error)}` }] };
+          }
+        },
+        (fresh) => {
+          if (disposed) return;
+          inventory = fresh;
+          assets = terrainSceneAssets(fresh);
+          ownerPaths = fresh.ok ? new Set([...fresh.tiles, ...fresh.packs.map(({ path }) => path)]) : new Set();
+          if (target.initialized) {
+            void panel.webview.postMessage({ type: "assets", assets });
+            const problems = fresh.ok ? fresh.packProblems : fresh.problems;
+            if (problems.length > 0) sendStatus(target, problems.map(({ path, message }) => `${path}: ${message}`).join("; "));
+          }
+        },
+      );
       const postAssets = async (): Promise<void> => {
-        if (disposed || folder === undefined || projectPath === undefined) return;
-        const mine = ++reads;
-        const fresh = await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
-        if (disposed || mine !== reads) return;
-        // A failed read clears the roles and says why; the last good ones are never left on screen as current.
-        await panel.webview.postMessage({ type: "assets", assets: terrainSceneAssets(fresh) });
-        if (!fresh.ok) { sendStatus(target, `Terrain roles could not be re-read: ${fresh.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`); return; }
-        ownerPaths = new Set([...fresh.tiles, ...fresh.packs.map(({ path }) => path)]);
+        if (disposed || assetReader === null) return;
+        await assetReader.read();
       };
       assetReloads.add(postAssets);
       panel.webview.onDidReceiveMessage(async (value: unknown) => {
         if (typeof value !== "object" || value === null || !("type" in value)) return;
         if (value.type === "ready") {
-          target.initialized = true;
+          target.initialized = false;
+          if (assetReader !== null) {
+            void assetReader.read();
+            await assetReader.waitForLatest();
+          }
+          if (disposed) return;
           if (inventory?.ok === false) sendStatus(target, inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; "));
           else if (inventory === null) sendStatus(target, "Open this scene inside a workspace folder to load terrain assets.");
           else if (inventory.packProblems.length > 0) sendStatus(target, inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
           const current = readScene(document.getText());
           if (!current.ok) { sendStatus(target, `The native scene is invalid; repair it in the text editor before terrain editing. ${current.problems.map(({ message }) => message).join("; ")}`); return; }
-          void panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, assets: { tilesets, assetTiles, packs } });
+          const initialize = panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, assets: { tilesets: assets.tilesets, assetTiles: assets.assetTiles, packs: assets.packs } });
+          target.initialized = true;
+          await initialize;
         } else if (value.type === "reload-assets") {
           await postAssets();
         } else if (value.type === "edit" && "terrain" in value) {
@@ -178,6 +194,7 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
           } catch (error) { sendStatus(target, `Play failed: ${String(error)}`); }
         }
       });
+      void postAssets();
       panel.onDidDispose(() => { disposed = true; assetReloads.delete(postAssets); set.delete(target); if (set.size === 0) panels.delete(key); });
       panel.webview.html = html(panel.webview, context);
     },

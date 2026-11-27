@@ -18,21 +18,21 @@ export interface BrowserSelection {
   readonly stamp: BrowserStamp | null;
   /** Loaded source tile count, used to identify unassigned legacy shape slots. */
   readonly autotileTileCount?: number;
-  /** Explicit author mark for a non-conventionally named set using the legacy shape table. */
-  readonly autotile?: "legacy-52";
 }
 
 export interface BrowserState {
   readonly selection: BrowserSelection | null;
   readonly path: string | null;
   readonly scrollTop: number;
+  /** Explicit tile-source references for non-conventional legacy autotile sets. */
+  readonly autotileMarks: readonly string[];
 }
 
 export type BrowserStateChange =
   | { readonly field: "selection"; readonly value: BrowserSelection | null }
   | { readonly field: "path"; readonly value: string | null }
-  | { readonly field: "scrollTop"; readonly value: number };
-
+  | { readonly field: "scrollTop"; readonly value: number }
+  | { readonly field: "autotileMarks"; readonly value: readonly string[] };
 export type BrowserStatePatch = readonly BrowserStateChange[];
 
 export interface BrowserSession {
@@ -42,7 +42,7 @@ export interface BrowserSession {
 }
 
 /** A host-owned session is shared only by views in the same project/workspace. */
-export function createBrowserSession(initial: BrowserState = { selection: null, path: null, scrollTop: 0 }): BrowserSession {
+export function createBrowserSession(initial: BrowserState = { selection: null, path: null, scrollTop: 0, autotileMarks: [] }): BrowserSession {
   let snapshot = initial;
   const listeners = new Set<(patch: BrowserStatePatch) => void>();
   return {
@@ -57,6 +57,7 @@ export function createBrowserSession(initial: BrowserState = { selection: null, 
       if (update.selection !== undefined) patch.push({ field: "selection", value: update.selection });
       if (update.path !== undefined) patch.push({ field: "path", value: update.path });
       if (update.scrollTop !== undefined) patch.push({ field: "scrollTop", value: update.scrollTop });
+      if (update.autotileMarks !== undefined) patch.push({ field: "autotileMarks", value: update.autotileMarks });
       for (const listener of listeners) listener(patch);
     },
   };

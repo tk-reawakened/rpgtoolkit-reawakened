@@ -7,7 +7,7 @@ import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/t
 import {
   LEGACY_AUTOTILE_SLOTS,
   autotileSource,
-  autotileSourceForSelection,
+  autotileSourceForTile,
   boardExtent,
   boardToScreen,
   boardTileAt,
@@ -91,9 +91,9 @@ test("legacy slots, name recognition in any case and folder, and explicit marks 
   equal(autotileSource("AUTOTILES_folder\\ordinary.tst1"), null, "only the file name counts, not a folder");
   equal(autotileSource("terrain\\ordinary.tst1"), null);
   equal(autotileSource("terrain\\AUTOTILES_water.tan"), null);
-  equal(autotileSourceForSelection({ reference: "terrain\\ordinary.tst1", autotile: "legacy-52" }), "terrain\\ordinary.tst");
-  equal(autotileSourceForSelection({ reference: "terrain\\ordinary.tan", autotile: "legacy-52" }), null);
-  equal(autotileSourceForSelection({ reference: "terrain\\ordinary.tst1" }), null);
+  equal(autotileSourceForTile("terrain\\ordinary.tst1", new Set(["terrain\\ordinary.tst"])), "terrain\\ordinary.tst");
+  equal(autotileSourceForTile("terrain\\ordinary.tan", new Set(["terrain\\ordinary.tst"])), null);
+  equal(autotileSourceForTile("terrain\\ordinary.tst1"), null);
 });
 
 test("a set shorter than 52 tiles names the shapes it cannot draw, and unused slots are never named", () => {
@@ -275,11 +275,29 @@ test("an explicitly marked set uses the legacy order under any name, and a strok
   const s = rig("2d");
   const c = centreOf(s);
   const marked = "Tiles\\grass.tst";
-  const forward = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x, y: c.y }, { x: c.x + 1, y: c.y }], `${marked}7`, true, false, marked);
-  const backward = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x + 1, y: c.y }, { x: c.x, y: c.y }], `${marked}7`, true, false, marked);
+  const forward = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x, y: c.y }, { x: c.x + 1, y: c.y }], `${marked}7`, true, false, new Set([marked.replaceAll("\\", "/")]));
+  const backward = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x + 1, y: c.y }, { x: c.x, y: c.y }], `${marked}7`, true, false, new Set([marked.replaceAll("\\", "/")]));
   deepEqual(forward, [{ layer: 0, x: c.x, y: c.y, tile: `${marked}48` }, { layer: 0, x: c.x + 1, y: c.y, tile: `${marked}50` }]);
   deepEqual(backward, forward);
   deepEqual(paintAutotileStroke(s.doc.getSnapshot(), 0, [c], `${marked}7`, true), [{ layer: 0, x: c.x, y: c.y, tile: `${marked}7` }], "unmarked, the name is ordinary");
+});
+
+test("erasing with a different brush reshapes every marked neighbor", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const marked = "Tiles\\grass.tst";
+  const marks = new Set([marked.replaceAll("\\", "/")]);
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: `${marked}7`, label: "marked", autotileSources: marks };
+  await click(s, c);
+  await click(s, { x: c.x + 1, y: c.y });
+  equal(tile(s, c.x, c.y), `${marked}48`);
+
+  s.brush = { kind: "tile", tile: "Tiles\\AUTOTILES_Sand.tst7", label: "different brush", autotileSources: marks };
+  s.editor.setTool("erase");
+  await click(s, { x: c.x + 1, y: c.y });
+  equal(tile(s, c.x + 1, c.y), "");
+  equal(tile(s, c.x, c.y), `${marked}51`, "the remaining marked tile closes its edge after erasure");
 });
 
 test("painting the spec example's water cell by cell, in any order, gives exactly the committed Marsh board", async () => {
@@ -344,7 +362,7 @@ test("two different sets never connect, even when one of them is marked for the 
   ok(s.doc.apply({ type: "set-tiles", gesture: "draw", cells: paintAutotileStroke(s.doc.getSnapshot(), 0, [c], `${sand}14`, true) }).ok);
   equal(tile(s, c.x, c.y), `${sand}51`);
   // The marked stroke reaches into the sand cell's neighbourhood; a mark says which cells take part, not that they link.
-  const next = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x + 1, y: c.y }], `${marked}7`, true, false, marked);
+  const next = paintAutotileStroke(s.doc.getSnapshot(), 0, [{ x: c.x + 1, y: c.y }], `${marked}7`, true, false, new Set([marked.replaceAll("\\", "/")]));
   ok(s.doc.apply({ type: "set-tiles", gesture: "draw", cells: next }).ok);
   equal(tile(s, c.x + 1, c.y), `${marked}51`);
   equal(tile(s, c.x, c.y), `${sand}51`, "the sand cell keeps its isolated shape: it is a different set");
@@ -366,6 +384,32 @@ test("a drag holds Shift per cell: only the cells crossed with it reshape one se
   await s.editor.pointerUp(at(s, { x: c.x + 1, y: c.y }), none);
   equal(tile(s, c.x + 1, c.y), water(48), "the crossed cell was painted");
   equal(tile(s, c.x, c.y), `${sand}14`, "a cell crossed with Shift leaves the other set's stale tile alone");
+});
+
+test("a stationary move records a Shift change in the same cell but a stationary release does not", async () => {
+  const start = async () => {
+    const s = rig("2d");
+    const c = centreOf(s);
+    const sand = "Tiles\\AUTOTILES_Sand.tst";
+    s.autotile = false;
+    s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+    await click(s, { x: c.x, y: c.y });
+    s.autotile = true;
+    s.brush = { kind: "tile", tile: water(9), label: "water" };
+    return { s, c };
+  };
+
+  const releaseOnly = await start();
+  releaseOnly.s.editor.pointerDown(at(releaseOnly.s, { x: releaseOnly.c.x + 1, y: releaseOnly.c.y }), { shift: true });
+  await releaseOnly.s.editor.pointerUp(at(releaseOnly.s, { x: releaseOnly.c.x + 1, y: releaseOnly.c.y }), none);
+  equal(tile(releaseOnly.s, releaseOnly.c.x, releaseOnly.c.y), "Tiles\\AUTOTILES_Sand.tst14", "release alone is not a second unshifted visit");
+
+  const moved = await start();
+  moved.s.editor.pointerDown(at(moved.s, { x: moved.c.x + 1, y: moved.c.y }), { shift: true });
+  moved.s.editor.pointerMove(at(moved.s, { x: moved.c.x + 1, y: moved.c.y }), none);
+  await moved.s.editor.pointerUp(at(moved.s, { x: moved.c.x + 1, y: moved.c.y }), none);
+  equal(tile(moved.s, moved.c.x + 1, moved.c.y), water(51), "the same-cell move reshapes the freshly painted isolated water tile");
+  equal(tile(moved.s, moved.c.x, moved.c.y), "Tiles\\AUTOTILES_Sand.tst51", "same-cell move without Shift reshapes the adjacent marked set");
 });
 
 test("keyboard activation carries its Shift: a keyed autotile placement reshapes only its own set", async () => {
@@ -489,6 +533,23 @@ test("a revisit reshapes with the modifier of that visit, not with the one the c
   s.editor.pointerMove(at(s, { x: c.x, y: c.y }), none);
   await s.editor.pointerUp(at(s, { x: c.x, y: c.y }), none);
   equal(tile(s, c.x, c.y + 1), `${sand}51`, "the unshifted revisit reshaped it");
+});
+
+test("a repeated same-cell move uses that move's Shift rather than the down event's", async () => {
+  const s = rig("2d");
+  const c = centreOf(s);
+  const sand = "Tiles\\AUTOTILES_Sand.tst";
+  s.autotile = false;
+  s.brush = { kind: "tile", tile: `${sand}14`, label: "sand" };
+  await click(s, { x: c.x, y: c.y + 1 });
+  s.autotile = true;
+  s.brush = { kind: "tile", tile: water(9), label: "water" };
+  s.editor.pointerDown(at(s, c), { shift: true });
+  equal(tile(s, c.x, c.y + 1), `${sand}14`, "Shift on pointerDown isolates that visit");
+  s.editor.pointerMove(at(s, c), none);
+  await s.editor.pointerUp(at(s, c), none);
+  equal(tile(s, c.x, c.y), water(51));
+  equal(tile(s, c.x, c.y + 1), `${sand}51`, "the stationary unshifted move reshaped the adjacent set");
 });
 
 test("ordinary Fill keeps its early exit: a uniform region that already holds the tile is no edit at all", async () => {

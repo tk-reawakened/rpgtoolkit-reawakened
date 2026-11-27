@@ -8,6 +8,7 @@ import type { SceneTileCrop } from "./scene-tile-slots.ts";
 import type { SceneBuildCheck, SceneBuildOutput, SceneBuildWriteResult } from "./scene-build-ownership.ts";
 import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
 import type { TerrainScenePack } from "./scene-pack-placements.ts";
+import { sha256Hex } from "./document-history.ts";
 import { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
 
 type ProjectFs = Pick<FileSystemService, "list" | "read">;
@@ -38,11 +39,11 @@ export type TerrainSceneTileset = {
   readonly terrains: readonly { readonly id: string; readonly label: string; readonly roles: TerrainRoleReport }[];
 };
 
-/** Describe each tileset's terrains for the scene view, reading the same recipes the build resolves. */
-export function terrainSceneTilesets(tilesets: ReadonlyMap<string, Tileset>): readonly TerrainSceneTileset[] {
+/** Describe each tileset's terrains and source content for the scene view's current-preview gate. */
+export function terrainSceneTilesets(tilesets: ReadonlyMap<string, Tileset>, contentRevisions?: ReadonlyMap<string, string>): readonly TerrainSceneTileset[] {
   return [...tilesets].map(([path, tileset]) => ({
     path,
-    revision: JSON.stringify(tileset),
+    revision: contentRevisions?.get(path) ?? JSON.stringify(tileset),
     terrains: (tileset.terrains ?? []).map((terrain) => ({ id: terrain.id, label: terrain.name, roles: inspectTerrainRoles(terrain) })),
   }));
 }
@@ -61,7 +62,7 @@ export function terrainSceneAssets(inventory: TerrainSceneProjectInventory): Ter
     return { tilesets: [], assetTiles: [], packs: [], problems: inventory.problems.map(({ path, message }) => `${path}: ${message}`) };
   }
   return {
-    tilesets: terrainSceneTilesets(inventory.tilesets),
+    tilesets: terrainSceneTilesets(inventory.tilesets, inventory.contentRevisions ?? undefined),
     assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
     packs: inventory.packs,
     problems: [],
@@ -69,7 +70,7 @@ export function terrainSceneAssets(inventory: TerrainSceneProjectInventory): Ter
 }
 
 export type TerrainSceneProjectInventory =
-  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[] }
+  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[]; readonly contentRevisions: ReadonlyMap<string, string> | null }
   | { readonly ok: false; readonly problems: readonly Problem[] };
 export type TerrainSceneProjectPreparation =
   | (CompiledSceneProject & { readonly check: SceneBuildCheck })
@@ -133,6 +134,37 @@ async function inventory(fs: ProjectFs, gameFolder: string, readFile: (path: str
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, tilesets, files, nativeTiles };
 }
+async function tilesetContentRevisions(fs: ProjectFs, project: InventoryWithFiles): Promise<{ readonly ok: true; readonly revisions: ReadonlyMap<string, string> } | InventoryFailure> {
+  const sampleHashes = new Map<string, string>();
+  const revisions = new Map<string, string>();
+  for (const [tilesetPath, tileset] of project.tilesets) {
+    const tileInputs: unknown[] = [];
+    for (const { tile: reference } of tileset.tiles) {
+      const tilePath = project.files.get(identity(reference));
+      const nativeTile = tilePath === undefined ? null : project.nativeTiles.get(tilePath) ?? null;
+      const samples: readonly NativeTileSample[] = nativeTile === null ? []
+        : nativeTile.visual.sample !== undefined ? [nativeTile.visual.sample]
+          : nativeTile.visual.cels.map(({ sample }) => sample);
+      const sampleFiles: [string, string][] = [];
+      for (const sample of samples) {
+        const referencePath = "file" in sample ? sample.file : sample.source;
+        const samplePath = project.files.get(identity(referencePath));
+        if (samplePath === undefined) return { ok: false, problems: [{ path: referencePath, message: "Tile sample source does not exist in the project." }] };
+        let digest = sampleHashes.get(samplePath);
+        if (digest === undefined) {
+          try { digest = await sha256Hex(await readProjectFile(fs, samplePath)); }
+          catch (error) { return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${message(error)}` }] }; }
+          sampleHashes.set(samplePath, digest);
+        }
+        sampleFiles.push([samplePath, digest]);
+      }
+      tileInputs.push([reference, nativeTile, sampleFiles]);
+    }
+    revisions.set(tilesetPath, await sha256Hex(utf8Encode(JSON.stringify([tileset, tileInputs]))));
+  }
+  return { ok: true, revisions };
+}
+
 
 /**
  * Browse the packs this scene can use without turning a broken pack into a build dependency: the
@@ -144,6 +176,8 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
   const { projectFolder } = projectLayoutForDocumentPath(scenePath);
   const result = await inventory(fs, projectFolder, (path) => readProjectFile(fs, path));
   if (!result.ok) return result;
+  const content = await tilesetContentRevisions(fs, result);
+  if (!content.ok) return content;
   const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
   const references = new Set<string>();
   let text = sceneText;
@@ -174,7 +208,7 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
       }
     } catch (error) { packProblems.push({ path, message: `Cannot read native document: ${message(error)}` }); }
   }
-  return { ok: true, tilesets: result.tilesets, tiles: [...result.nativeTiles.keys()].filter((path) => members.has(identity(path))), packs, packProblems };
+  return { ok: true, tilesets: result.tilesets, tiles: [...result.nativeTiles.keys()].filter((path) => members.has(identity(path))), packs, packProblems, contentRevisions: content.revisions };
 }
 
 type ProjectBuildInputs = {

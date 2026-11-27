@@ -3,8 +3,7 @@ import {
     BOARD_TOOLS,
     DEFAULT_EDITOR_PREFERENCES,
     ZOOM_STEPS,
-    autotileSource,
-    autotileSourceForSelection,
+    autotileSourceForTile,
     boardTileAt,
     cellOnBoard,
     createBoardEditor,
@@ -34,7 +33,7 @@ import {
     legacyAutotileGaps,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, ClipboardService, DocumentEdited, ImageExportService } from "@tk-reawakened/platform-services";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
 import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-lighting-view.tsx";
@@ -154,9 +153,9 @@ function textEntry(target: EventTarget | null): boolean {
 }
 
 /** The brush the retained selection makes: a tile or animation, or a loaded tile bitmap stamp. */
-function brushFor(selection: BrowserSelection | null, stamp: { readonly path: string; readonly value: Stamp } | null): Brush | null {
+function brushFor(selection: BrowserSelection | null, stamp: { readonly path: string; readonly value: Stamp } | null, autotileSources: ReadonlySet<string>): Brush | null {
   if (selection === null) return null;
-  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label, ...(autotileSourceForSelection(selection) === null ? {} : { autotileSource: autotileSourceForSelection(selection)! }) };
+  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label, ...(autotileSources.size === 0 ? {} : { autotileSources }) };
   if (selection.kind === "bitmaps" && stamp !== null && stamp.path === selection.path) return { kind: "stamp", stamp: stamp.value };
   return null;
 }
@@ -187,7 +186,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [brushSelection, setBrushSelection] = useState<BrowserSelection | null>(browser?.session.getSnapshot().selection ?? null);
+  const [autotileMarks, setAutotileMarks] = useState<readonly string[]>(browser?.session.getSnapshot().autotileMarks ?? []);
+  const [brushSelection, setBrushSelection] = useState<BrowserSelection | null>(() => browser?.session.getSnapshot().selection ?? null);
   const [autoTiling, setAutoTiling] = useState(false);
   const [shiftHeld, setShiftHeld] = useState(false);
   const [stamp, setStamp] = useState<{ readonly path: string; readonly value: Stamp } | null>(null);
@@ -238,15 +238,10 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     };
   }, []);
 
-  // What the editor reads each time it acts is kept in refs, so one editor lives as long as the view.
   const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling });
-  const brush = brushFor(brushSelection, stamp);
-  const autotileBrushSource = brush?.kind === "tile"
-    ? autotileSourceForSelection(brushSelection === null ? null : {
-      reference: brush.tile,
-      ...(brushSelection.autotile === undefined ? {} : { autotile: brushSelection.autotile }),
-    })
-    : null;
+  const markedSources = useMemo(() => new Set(autotileMarks.map((path) => path.replaceAll("/", "\\"))), [autotileMarks]);
+  const brush = brushFor(brushSelection, stamp, markedSources);
+  const autotileBrushSource = brush?.kind === "tile" ? autotileSourceForTile(brush.tile, markedSources) : null;
   latest.current = { snapshot, brush, preferences, browser, doc, onEdited, autoTiling };
 
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
@@ -342,7 +337,17 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const objectMode = useRef<Exclude<BoardEditorState["mode"], "tiles">>("vectors");
   if (state.mode !== "tiles") objectMode.current = state.mode;
 
-  useEffect(() => browser?.session.subscribe(() => setBrushSelection(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
+  useEffect(() => {
+    if (browser === undefined) return;
+    const state = browser.session.getSnapshot();
+    setBrushSelection(state.selection);
+    setAutotileMarks(state.autotileMarks);
+    return browser.session.subscribe((patch) => {
+      const current = browser.session.getSnapshot();
+      if (patch.some((change) => change.field === "selection")) setBrushSelection(current.selection);
+      if (patch.some((change) => change.field === "autotileMarks")) setAutotileMarks(current.autotileMarks);
+    });
+  }, [browser]);
   useEffect(() => editor.sync(), [editor, snapshot]);
   useEffect(() => { setColourPicker(null); setPickingStart(false); }, [state.mode, state.objectSelection?.index]);
 
