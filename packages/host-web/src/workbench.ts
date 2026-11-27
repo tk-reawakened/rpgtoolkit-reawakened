@@ -64,6 +64,7 @@ import {
   projectLayoutOwnerForDocumentPath,
   resolveReservedFolderPath,
   createCommandRegistry,
+  type CommandRegistry,
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
   type ProjectLayoutOwner,
@@ -85,6 +86,8 @@ export interface WorkbenchOptions {
   readonly projectLayout?: ProjectLayout;
   /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
   readonly main?: string;
+  /** Live host Help commands, including commands registered by the currently mounted help panel. */
+  readonly helpCommands?: CommandRegistry;
 }
 
 /** The kinds whose files a linked Open can show in their own editor tab here; a picture or sound file is not one of them. */
@@ -1064,6 +1067,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     workspace: shellWorkspace,
     launcher,
     extraCommands: [...auditionCommands, ...battleBackgroundCommands, ...scriptCommands, ...boardUpgradeCommands],
+    ...(options.helpCommands === undefined ? {} : { contextCommands: options.helpCommands }),
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {

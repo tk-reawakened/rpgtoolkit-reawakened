@@ -216,7 +216,8 @@ test("the browser wizard copies only the starter contents that were ticked, offe
   const { root, element } = folder();
   const made = startWizard(root, element);
   await settle(act);
-  ok(field(element, "Music pack").disabled && field(element, "Default tiles").disabled, "unavailable items cannot be ticked");
+  ok(field(element, "Music pack").disabled, "unavailable items cannot be ticked");
+  equal(field(element, "Default tiles").disabled, false, "the authored tutorial tiles are available");
   await type(field(element, "Game name"), "Quest");
   await tick(element, "Start-up program");
   await tick(element, "Empty start board");

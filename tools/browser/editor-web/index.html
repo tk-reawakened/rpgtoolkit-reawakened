@@ -13,10 +13,56 @@
     <link rel="stylesheet" href="./dist/visual-events.css">
     <link rel="stylesheet" href="./dist/skin-view.css">
     <link rel="stylesheet" href="./dist/editor-web.css">
+    <style>
+      .tkr-web-host-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        inline-size: 100vw;
+        block-size: 100dvh;
+        min-inline-size: 0;
+      }
+      .tkr-web-host-layout-help-open {
+        grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem);
+      }
+      .tkr-web-host-layout > .tkr-web-shell {
+        inline-size: 100%;
+        min-inline-size: 0;
+      }
+      .tkr-web-welcome-help {
+        display: grid;
+        gap: 0.5rem;
+        margin-block-start: 1rem;
+      }
+      .tkr-first-board-host-panel {
+        min-inline-size: 0;
+        max-block-size: 100dvh;
+        overflow: auto;
+        padding: 1rem;
+        border-inline-start: 1px solid var(--tkr-border-subtle);
+        background: var(--tkr-bg-panel);
+        color: var(--tkr-fg-primary);
+      }
+      @media (max-width: 48rem) {
+        .tkr-web-host-layout-help-open {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: minmax(0, 1fr) minmax(0, 45dvh);
+        }
+        .tkr-web-host-layout-help-open > .tkr-web-shell {
+          block-size: 100%;
+          min-block-size: 0;
+        }
+        .tkr-web-host-layout-help-open > .tkr-first-board-host-panel {
+          max-block-size: 45dvh;
+          border-block-start: 1px solid var(--tkr-border-subtle);
+          border-inline-start: 0;
+        }
+      }
+    </style>
     <title>RPG Toolkit editor</title>
   </head>
   <body class="tkr-web-body">
-    <main class="tkr-web-shell">
+    <div id="editor-host-layout" class="tkr-web-host-layout">
+      <main class="tkr-web-shell">
       <header class="tkr-web-topbar">
         <div class="tkr-web-brand">
           <img class="tkr-web-brand-icon" src="./dist/tkr-32.png" alt="" width="20" height="20">
@@ -43,6 +89,10 @@
           <fieldset id="project-open-controls" class="tkr-web-project-controls" aria-label="Open a project">
             <button id="open-project" type="button" class="tkr-web-primary-open">Open project folder</button>
             <button id="new-project" type="button">New project…</button>
+            <div id="welcome-help" class="tkr-web-welcome-help" role="group" aria-label="Help">
+              <button id="first-board-guide" type="button">First board tutorial</button>
+              <button id="daily-tip" type="button">Tip of the day</button>
+            </div>
             <div class="tkr-web-session-open">
               <label for="open-session">Open .gam session copy</label>
               <input id="open-session" type="file" accept=".gam">
@@ -63,6 +113,11 @@
         <section id="mirror" aria-label="Second document view" hidden></section>
       </div>
     </main>
+      <aside id="first-board-tutorial" class="tkr-first-board-host-panel" aria-label="First board help" hidden>
+        <p id="first-board-session-settings" role="status" hidden>This browser does not allow saved user preferences. Tutorial progress and the tip preference last until you close or reload this page.</p>
+        <div id="first-board-tutorial-content"></div>
+      </aside>
+    </div>
     <script src="./dist/editor-web.js"></script>
   </body>
 </html>

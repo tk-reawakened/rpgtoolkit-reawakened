@@ -698,6 +698,7 @@ jobs:
             TKR_VSCODE_BATTLE_DATA_PROOF=1 proof "$@"
             TKR_VSCODE_VISUAL_EVENTS_PROOF=1 proof "$@"
             TKR_VSCODE_SKIN_PROOF=1 proof "$@"
+            TKR_VSCODE_FIRST_BOARD_TUTORIAL_PROOF=1 proof "$@"
           fi
         env:
           ELECTRON_DISABLE_SANDBOX: "1"

@@ -38,6 +38,7 @@ export interface ShellProps {
   readonly commands?: CommandRegistry;
   /** Host commands added to the default menu and palette beside the built-ins (ADR 0038), such as the reviewed script workflows and the audition. */
   readonly extraCommands?: readonly WorkbenchCommand[];
+  readonly contextCommands?: CommandRegistry;
   /** A file was opened from the Files panel (a document, or the OS took it). */
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */
@@ -90,7 +91,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath, mainForPath, fs, workspace, commands, extraCommands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath, mainForPath, fs, workspace, commands, extraCommands, contextCommands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -114,6 +115,7 @@ export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath,
           {...(workspace === undefined ? {} : { workspace })}
           {...(commands === undefined ? {} : { commands })}
           {...(extraCommands === undefined ? {} : { extraCommands })}
+          {...(contextCommands === undefined ? {} : { contextCommands })}
           fs={fs}
           projectLayout={projectLayout}
           onOpenPath={onOpenPath}
