@@ -163,3 +163,20 @@ void test("the picker resolves cross-game placement refs by identity and offers 
   deepEqual(broken.packs.map(({ path }) => path), [local]);
   ok(broken.packProblems.some(({ path }) => path === remote), "a referenced broken pack is catalogued without failing the picker");
 });
+void test("a pack's image bytes change its scene inventory revision at the same path", async () => {
+  const encode = (value: string) => new TextEncoder().encode(value);
+  const sceneText = JSON.stringify(scene);
+  const files = {
+    [inputs.scenePath]: encode(sceneText),
+    "Packs/props.tkrpack": encode(JSON.stringify(pack)),
+    "Bitmap/prop.png": source,
+  };
+  const first = await loadTerrainSceneProjectInventory(createMemoryPlatformServices({ files }).fs, inputs.scenePath);
+  ok(first.ok);
+  const base = first.packs[0]?.revision;
+  ok(base !== undefined);
+  const changedSource = encodeScenePng({ w: 2, h: 2, rgba: new Uint8Array([255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]) });
+  const second = await loadTerrainSceneProjectInventory(createMemoryPlatformServices({ files: { ...files, "Bitmap/prop.png": changedSource } }).fs, inputs.scenePath);
+  ok(second.ok);
+  ok(second.packs[0]!.revision !== base, "same-path pack artwork bytes invalidate the inventory");
+});

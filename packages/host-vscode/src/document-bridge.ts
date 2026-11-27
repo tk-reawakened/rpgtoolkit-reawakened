@@ -448,12 +448,17 @@ function isStamp(value: unknown): boolean {
 }
 
 
+function isAutotileMarks(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((path) => isProjectPath(path) && /\.(?:tst|iso)$/i.test(path));
+}
+
 function isBrowserStatePatch(value: unknown): value is BrowserStatePatch {
   if (!Array.isArray(value)) return false;
   return value.every((change) => {
     if (typeof change !== "object" || change === null || !("field" in change) || !("value" in change)) return false;
     if (change.field === "selection") return change.value === null || isBrowserSelection(change.value);
     if (change.field === "path") return change.value === null || isProjectPath(change.value);
+    if (change.field === "autotileMarks") return isAutotileMarks(change.value);
     return change.field === "scrollTop" && typeof change.value === "number" && Number.isFinite(change.value) && change.value >= 0;
   });
 }
@@ -463,10 +468,12 @@ function applyBrowserStatePatch(session: BrowserSession, changes: BrowserStatePa
   for (const change of changes) {
     if (change.field === "selection") update.selection = change.value;
     else if (change.field === "path") update.path = change.value;
+    else if (change.field === "autotileMarks") update.autotileMarks = change.value;
     else update.scrollTop = change.value;
   }
   session.update(update);
 }
+
 
 export function isEditorHostRequest(value: unknown): value is EditorHostRequest {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;

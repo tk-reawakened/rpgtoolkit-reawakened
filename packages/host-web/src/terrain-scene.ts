@@ -1,5 +1,6 @@
-import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
-import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerrainSceneProject, registerTerrainSceneConflictReview, reviewTerrainSceneConflicts, terrainSceneAssets, type BoardPicture, type TerrainSceneDocument, type TerrainSceneConflictDialogs } from "@tk-reawakened/editor-model";
+import { createTerrainSceneAssets, mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createTerrainSceneMount } from "./terrain-scene-mount.ts";
 import type { WebProject } from "./index.ts";
 
 /**
@@ -11,11 +12,21 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
   const status = container.ownerDocument.createElement("p");
   status.setAttribute("role", "status");
   status.textContent = "Loading terrain assets…";
+  const retry = container.ownerDocument.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Retry loading terrain assets";
+  retry.hidden = true;
   const content = container.ownerDocument.createElement("div");
-  container.append(status, content);
+  container.append(status, retry, content);
   let mounted: ViewHandle | null = null;
   let disposed = false;
   let busy = false;
+  let refreshInventory = (): void => {};
+  retry.addEventListener("click", () => {
+    retry.hidden = true;
+    status.textContent = "Retrying terrain assets…";
+    refreshInventory();
+  });
   const fs = project.services.fs;
   let recoveryNotice: string | null = null;
   const report = (message: string): void => {
@@ -61,16 +72,33 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
     finally { busy = false; }
   };
   const run = project.services.run;
-  void loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text).then((inventory) => {
-    if (disposed) return;
-    if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return; }
+  const assets = createTerrainSceneAssets({ tilesets: [], assetTiles: [], packs: [] });
+  let owners = new Set<string>();
+  /** Reads in flight are numbered: a slower, older read never replaces the tilesets a newer one already showed. */
+  let read = 0;
+  const load = async (): Promise<boolean> => {
+    const mine = ++read;
+    let inventory: Awaited<ReturnType<typeof loadTerrainSceneProjectInventory>>;
+    try { inventory = await loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text); }
+    catch (error) { inventory = { ok: false, problems: [{ path: document.identity.path, message: String(error) }] }; }
+    if (disposed || mine !== read) return false;
+    // A failed read clears the roles instead of leaving the last good ones on screen as current.
+    assets.set(terrainSceneAssets(inventory));
+    if (!inventory.ok) {
+      retry.hidden = false;
+      report(`Terrain asset inventory failed: ${inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`);
+      return false;
+    }
+    retry.hidden = true;
     report(inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
-    const owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
+    owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
+    return true;
+  };
+  const mount = (): void => {
     mounted = mountTerrainScene(content, {
       document,
-      tilesets: [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })),
-      assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
-      packs: inventory.packs,
+      assets: assets.source,
+      onRefreshAssets: () => { void load(); },
       ...(openSource === undefined ? {} : { onOpenAsset: (path: string) => {
         if (!owners.has(path)) { report(`${path} is not a native tile or pack in this project's scene inventory.`); return; }
         void openSource(path).then((message) => { if (message !== null) report(message); }).catch((error: unknown) => report(String(error)));
@@ -114,6 +142,17 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
         })().catch((error: unknown) => report(String(error)));
       } }),
     });
-  }).catch((error: unknown) => report(String(error)));
-  return { dispose() { disposed = true; unregisterConflictReview(); mounted?.dispose(); status.remove(); content.remove(); } };
+  };
+  const lifecycle = createTerrainSceneMount(load, mount);
+  refreshInventory = () => { void lifecycle.refresh().catch((error: unknown) => report(String(error))); };
+  void lifecycle.start().catch((error: unknown) => {
+    if (disposed) return;
+    retry.hidden = false;
+    report(`Terrain asset inventory failed: ${String(error)}`);
+  });
+  return {
+    dispose() { disposed = true; lifecycle.dispose(); unregisterConflictReview(); mounted?.dispose(); status.remove(); retry.remove(); content.remove(); },
+    /** The workbench re-shows a retained view here: re-read the tilesets so its rules are never the ones from before a recipe edit. */
+    refreshAssets() { void lifecycle.refresh(); },
+  };
 }

@@ -20,7 +20,7 @@ test("asynchronous split-view patches merge independently and preserve unknown s
   const storage = createMemoryPlatformServices({ files: { "Boards/village.brd": boardBytes } });
   const opened = createBoardDocument(storage.fs, createDocumentIdentity("shared-project", "Boards/village.brd"), boardBytes);
   ok(opened.ok);
-  const initial = { selection: null, path: null, scrollTop: 0, futureField: "preserved" } as BrowserState;
+  const initial = { selection: null, path: null, scrollTop: 0, autotileMarks: [], futureField: "preserved" } as BrowserState;
   const outboundA: EditorHostRequest[] = [];
   const outboundB: EditorHostRequest[] = [];
   const makeApi = (outbound: EditorHostRequest[]) => ({
@@ -34,37 +34,43 @@ test("asynchronous split-view patches merge independently and preserve unknown s
   const broadcast: BrowserStatePatch[] = [];
   authority.subscribe((update) => { broadcast.push(update); });
 
-  first.browserSession.update({ selection });
+  const marks = ["village.tst"];
+  first.browserSession.update({ selection, autotileMarks: marks });
   equal(outboundA.length, 1);
   ok(isEditorHostRequest(outboundA[0]));
   equal(outboundA[0]?.type, "browser-context");
-  if (outboundA[0]?.type !== "browser-context") throw new Error("selection patch was not sent");
-  deepEqual(outboundA[0].changes, [{ field: "selection", value: selection }]);
+  if (outboundA[0]?.type !== "browser-context") throw new Error("selection and marks patch was not sent");
+  deepEqual(outboundA[0].changes, [{ field: "selection", value: selection }, { field: "autotileMarks", value: marks }]);
   applyPatch(authority, outboundA[0].changes);
-  deepEqual(broadcast, [[{ field: "selection", value: selection }]]);
+  deepEqual(broadcast, [[{ field: "selection", value: selection }, { field: "autotileMarks", value: marks }]]);
 
-  // B's scroll event races the delayed selection broadcast from A; a full-state message would erase this local scroll.
+  // B's scroll event races the delayed selection and mark broadcast from A; a full-state message would erase its local scroll.
   second.browserSession.update({ scrollTop: 240 });
   equal(outboundB.length, 1);
   if (outboundB[0]?.type !== "browser-context") throw new Error("scroll patch was not sent");
   deepEqual(outboundB[0].changes, [{ field: "scrollTop", value: 240 }]);
   second.receive({ type: "browser-state", changes: broadcast[0]! });
-  deepEqual(second.browserSession.getSnapshot(), { selection, path: null, scrollTop: 240, futureField: "preserved" });
+  deepEqual(second.browserSession.getSnapshot(), { selection, path: null, scrollTop: 240, autotileMarks: marks, futureField: "preserved" });
 
-  // Deliver B's delayed scroll to the host and its broadcast back to A: both fields survive independent delivery.
+  // Deliver B's delayed scroll to the host and its broadcast back to A: all fields survive independent delivery.
   applyPatch(authority, outboundB[0].changes);
   first.receive({ type: "browser-state", changes: broadcast[1]! });
-  deepEqual(authority.getSnapshot(), { selection, path: null, scrollTop: 240, futureField: "preserved" });
+  deepEqual(authority.getSnapshot(), { selection, path: null, scrollTop: 240, autotileMarks: marks, futureField: "preserved" });
   deepEqual(first.browserSession.getSnapshot(), authority.getSnapshot());
 
   ok(isEditorHostRequest({ type: "browser-context", changes: [{ field: "scrollTop", value: 5 }], futureField: "also preserved" }));
+  ok(isEditorHostRequest({ type: "browser-context", changes: [{ field: "autotileMarks", value: ["village.tst"] }] }));
+  equal(isEditorHostRequest({ type: "browser-context", changes: [{ field: "autotileMarks", value: ["../outside.tst"] }] }), false);
+  equal(isEditorHostRequest({ type: "browser-context", changes: [{ field: "autotileMarks", value: ["image.png"] }] }), false);
   equal(isEditorHostRequest({ type: "browser-context", state: { selection: null, path: null, scrollTop: 5 } }), false);
 });
+
 function applyPatch(session: ReturnType<typeof createBrowserSession>, changes: BrowserStatePatch): void {
   const update: { -readonly [Key in keyof BrowserState]?: BrowserState[Key] } = {};
   for (const change of changes) {
     if (change.field === "selection") update.selection = change.value;
     else if (change.field === "path") update.path = change.value;
+    else if (change.field === "autotileMarks") update.autotileMarks = change.value;
     else update.scrollTop = change.value;
   }
   session.update(update);
@@ -85,7 +91,7 @@ test("a webview answers the extension host's settle request only after every edi
   const opened = createBoardDocument(storage.fs, createDocumentIdentity("shared-project", "Boards/village.brd"), boardBytes);
   ok(opened.ok);
   const outbound: EditorHostRequest[] = [];
-  const remote = new RemoteDocument("board", opened.document.getSnapshot(), { selection: null, path: null, scrollTop: 0 }, {
+  const remote = new RemoteDocument("board", opened.document.getSnapshot(), { selection: null, path: null, scrollTop: 0, autotileMarks: [] }, {
     postMessage: (message) => { outbound.push(message); },
     getState: () => undefined,
     setState: () => undefined,
