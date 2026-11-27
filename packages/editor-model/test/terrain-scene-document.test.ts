@@ -98,3 +98,26 @@ void test("terrain and placements in one command both land, and a refused placem
   equal(refused.rejection.reason, "invalid");
   equal(doc.getSnapshot().text, edited);
 });
+
+void test("painting, reshaping and erasing a terrain region are single undoable edits that keep the rest of the file as written", async () => {
+  const doc = await open();
+  const region = (spans: [number, number, number][]) => ({ id: "region-1", floor: "ground", terrain: { tileset: "Tiles/Pond.tkrtst", terrain: "water" }, coverage: { shape: "tile-grid" as const, spans } });
+  const placements = doc.getSnapshot().scene.placedPacks ?? [];
+  const painted = doc.apply({ type: "edit-scene-terrain", terrain: { terrainRegions: [region([[0, 0, 2]])], tileOverrides: [] }, placements });
+  ok(painted.ok, JSON.stringify(painted));
+  const paintedText = doc.getSnapshot().text;
+  ok(paintedText.includes("name: Pond # keep this comment") && paintedText.includes("instanceId: lantern-1 # the lantern"), "unrelated source text is carried as written");
+  const reshaped = doc.apply({ type: "edit-scene-terrain", terrain: { terrainRegions: [region([[0, 0, 3], [0, 1, 3]])], tileOverrides: [] }, placements });
+  ok(reshaped.ok, JSON.stringify(reshaped));
+  deepEqual(doc.getSnapshot().scene.terrainRegions?.[0]?.coverage.spans, [[0, 0, 3], [0, 1, 3]]);
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().text, paintedText, "one Undo takes back the whole reshape");
+  ok(doc.redo().ok);
+  const erased = doc.apply({ type: "edit-scene-terrain", terrain: { terrainRegions: [], tileOverrides: [] }, placements });
+  ok(erased.ok, JSON.stringify(erased));
+  deepEqual(doc.getSnapshot().scene.placedPacks?.map(({ instanceId }) => instanceId), ["lantern-1"], "placements beside the terrain are kept");
+  ok(doc.undo().ok);
+  ok(doc.undo().ok);
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().text, SOURCE, "every edit undone restores the opened bytes");
+});

@@ -3,6 +3,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, openNativeSkinDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { createBrowserSession } from "../dist/brush.js";
 import type { ViewHandle } from "../src/mount.ts";
 import type { mount as mountEditor } from "../src/index.ts";
 
@@ -92,7 +93,7 @@ test("the preview reads the project's asset folders from the host, not the docum
     services: { ...host, fs: { readProject: async (projectId, readPath) => { reads.push(readPath); return host.fs.readProject(projectId, readPath); }, list: host.fs.list } },
     // The host says this document belongs to Game/Stone, which the path alone cannot say.
     browser: {
-      session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined },
+      session: createBrowserSession(),
       fs: host.fs,
       layout: { projectFolder: "Game/Stone" },
     },
@@ -230,7 +231,7 @@ test("a refresh re-resolves the project folders, so a moved game needs no pick (
     handle = mount(root, {
       document: opened.document,
       services: { ...host, fs: recordingReader(host, reads) },
-      browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
+      browser: { session: createBrowserSession(), fs: host.fs, layout: owner },
       // The host's answer to "where are this document's folders now": the game file moved while the tab was hidden.
       resolveLayout: async () => owner,
     });
@@ -268,7 +269,7 @@ test("a cancelled pick still re-resolves the folders (#3536)", async () => {
   const handle = mount(root, {
     document: opened.document,
     services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: owner },
     navigation: { pickAsset: async () => { owner = { projectFolder: "Game/New" }; return { chosen: false }; } },
     resolveLayout: async () => owner,
   });
@@ -301,7 +302,7 @@ test("choosing the picture already named is a successful no-edit that adopts the
     handle = mount(root, {
       document: opened.document,
       services: { ...host, fs: recordingReader(host, reads) },
-      browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Old" } },
+      browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "Game/Old" } },
       navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/New" } }) },
     });
   });
@@ -338,7 +339,7 @@ test("a late refresh answer cannot overwrite the folders a newer pick confirmed 
   const handle = mount(root, {
     document: opened.document,
     services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/First" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "Game/First" } },
     navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/Third" } }) },
     // The mount's refresh is still reading when the picker confirms; every later question is answered at once.
     resolveLayout: () => { calls += 1; return calls === 1 ? slowRefresh : Promise.resolve({ projectFolder: "Game/Third" }); },
@@ -377,7 +378,7 @@ test("the unchanged check asks the document at completion, not the render that o
   const handle = mount(root, {
     document: opened.document,
     services: host,
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "" } },
     navigation: { pickAsset: () => picked },
   });
   try {
@@ -432,7 +433,7 @@ test("a refresh during the picker refuses a pick naming its older folders, whate
     const handle = mount(root, {
       document: opened.document,
       services: { ...host, fs: recordingReader(host, reads) },
-      browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Start" } },
+      browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "Game/Start" } },
       navigation: { pickAsset: () => picked },
       resolveLayout: async () => owner,
     });
@@ -476,7 +477,7 @@ test("an unrelated refresh does not block a valid pick (#3536)", async () => {
   const handle = mount(root, {
     document: opened.document,
     services: host,
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "" } },
     navigation: { pickAsset: () => picked },
     // Every question answers the same folders: nothing about ownership changed.
     resolveLayout: async () => ({ projectFolder: "" }),
@@ -514,7 +515,7 @@ test("an ownership change with no refresh refuses the pick at confirmation (#353
   const handle = mount(root, {
     document: opened.document,
     services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Old" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "Game/Old" } },
     navigation: { pickAsset: () => picked },
     resolveLayout: async () => owner,
   });
@@ -558,7 +559,7 @@ test("a confirmation's read that finishes after a newer refresh is discarded, no
   const handle = mount(root, {
     document: opened.document,
     services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Start" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "Game/Start" } },
     navigation: { pickAsset: () => picked },
     resolveLayout: () => {
       calls += 1;
@@ -608,7 +609,7 @@ test("two owner reads in flight together settle instead of chasing each other (#
   const handle = mount(root, {
     document: opened.document,
     services: host,
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "" } },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "" } },
     navigation: { pickAsset: async () => ({ chosen: true, reference: "window-b.png", layout: { projectFolder: "" } }) },
     resolveLayout: () => {
       calls += 1;

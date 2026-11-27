@@ -72,6 +72,7 @@ import {
 import { createAuditionCommands, createBattleBackgroundAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type AuditionPathResolution, type BattleBackgroundAuditionTarget, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { rootFolderOf } from "./language.ts";
+import type { BrowserSession } from "@tk-reawakened/editor-ui";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -257,6 +258,45 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
+  // Fight backgrounds keep the same mounted owner for their assets, the shell dock and the Run menu (#3619, #3621).
+  const shellOwnerForPath = (path: string): ProjectLayoutOwner => {
+    const active = tabs.getSnapshot().active;
+    const entry = active === null ? undefined : views.get(active);
+    if (entry?.document.kind === "battle-background" && entry.document.identity.path === path) {
+      const owner = ownersByDocument.get(entry.document.identity.key);
+      if (owner !== undefined) return owner;
+    }
+    return ownerForPathSync(path);
+  };
+  const contextualBrowserSession: BrowserSession = {
+    getSnapshot: () => sessionForActiveGame().getSnapshot(),
+    update: (update) => sessionForActiveGame().update(update),
+    subscribe(listener) {
+      let current = sessionForActiveGame();
+      let unsubscribeSession = current.subscribe(listener);
+      const unsubscribeTabs = tabs.subscribe(() => {
+        const next = sessionForActiveGame();
+        if (next === current) return;
+        unsubscribeSession();
+        current = next;
+        unsubscribeSession = current.subscribe(listener);
+        listener([]);
+      });
+      return () => {
+        unsubscribeTabs();
+        unsubscribeSession();
+      };
+    },
+  };
+  function sessionForActiveGame(): BrowserSession {
+    const active = tabs.getSnapshot().active;
+    const document = active === null ? undefined : views.get(active)?.document;
+    if (document === undefined) return project.browserSessionForGame(main);
+    const { key, path } = document.identity;
+    if (document.kind === "battle-background") return project.browserSessionForGame(shellOwnerForPath(path).mainPath);
+    const owner = ownersByDocument.get(key) ?? fallbackOwnerForPath(path);
+    return project.browserSessionForGame(owner.mainPath ?? main);
+  }
   const backgroundTarget = (document: BattleBackgroundDocument, controls: AuditionControls, layout: ProjectLayout): BattleBackgroundAuditionTarget => ({
     controls,
     reference: (field) => document.getSnapshot()[field],
@@ -1018,8 +1058,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tabs,
     tree,
     projectLayout,
-    projectLayoutForPath: (path) => path === null ? projectLayout : ownerForPathSync(path).layout,
-    mainForPath: (path) => path === null ? main : ownerForPathSync(path).mainPath,
+    projectLayoutForPath: (path) => path === null ? projectLayout : shellOwnerForPath(path).layout,
+    mainForPath: (path) => path === null ? main : shellOwnerForPath(path).mainPath,
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
@@ -1037,7 +1077,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       },
       set: (name) => { void services.settings.set("user", RUN_SETUP_SETTING, name); },
     },
-    browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
+    browser: { session: contextualBrowserSession, fs: services.fs, layout: projectLayout, openSource },
     onReturnFromVisit: async () => {
       const returned = await visits.returnFromVisit();
       if (!returned.ok) return returned.message;

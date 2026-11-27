@@ -264,6 +264,31 @@ test("registered VS Code pre-vector command from a modern-board URI selects a le
   copy.dispose();
   harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
 });
+test("browser marks persist across one game's documents without leaking to another game", async () => {
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "B" });
+  ok(mainA.ok, mainA.ok ? "" : mainA.error.message);
+  ok(mainB.ok, mainB.ok ? "" : mainB.error.message);
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Game/A/Boards/first.brd": boardExample,
+    "Game/A/Boards/second.brd": boardExample,
+    "Game/B/Boards/first.brd": boardExample,
+  }, "Boards/copy.brd");
+  const firstA = await harness.provider.openCustomDocument(harness.makeUri("/project/Game/A/Boards/first.brd"), undefined);
+  const firstB = await harness.provider.openCustomDocument(harness.makeUri("/project/Game/B/Boards/first.brd"), undefined);
+  firstA.browserSession.update({ autotileMarks: ["field.tst"] });
+  ok(firstA.browserSession !== firstB.browserSession, "the main game identities own separate browser sessions");
+  deepEqual(firstB.browserSession.getSnapshot().autotileMarks, []);
+  firstA.dispose();
+  const secondA = await harness.provider.openCustomDocument(harness.makeUri("/project/Game/A/Boards/second.brd"), undefined);
+  equal(secondA.browserSession, firstA.browserSession, "a game session survives closing its last document");
+  deepEqual(secondA.browserSession.getSnapshot().autotileMarks, ["field.tst"]);
+  firstB.dispose();
+  secondA.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
 test("nested VS Code board discovery keeps the most-specific owner for a board found under parent and child roots", async () => {
   const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
   const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });

@@ -188,7 +188,7 @@ test("cancel tile wizard invalidates a pending composition preview", async () =>
   const authoring = createAnimationAuthoring({ fs: host.fs, projectId: IDENTITY.projectId,
     hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "cancel-tiles", time: () => "2026-11-15", guard: async () => null, consent: async () => true,
   }, model, async () => platformOk(undefined), () => undefined);
-  const session = createBrowserSession({ path: "Tiles/village.tst", scrollTop: 0, selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst1", label: "Tile 1", boardTile: "village.tst1", stamp: null } });
+  const session = createBrowserSession({ path: "Tiles/village.tst", scrollTop: 0, autotileMarks: [], selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst1", label: "Tile 1", boardTile: "village.tst1", stamp: null } });
   const root = document.createElement("div"); document.body.append(root);
   let handle: ViewHandle | undefined;
   await act(() => { handle = mount(root, { document: model, services: { ...host, fs: delayedFs }, animationAuthoring: authoring,
