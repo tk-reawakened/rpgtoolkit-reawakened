@@ -348,7 +348,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.audition === undefined ? {} : { audition: ctx.audition }),
     });
   } else if (document.kind === "main") {
-    view = createElement(SettingsView, { doc: document, capabilities, onEdited });
+    view = createElement(SettingsView, { doc: document, capabilities, pendingEdits, onEdited });
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }

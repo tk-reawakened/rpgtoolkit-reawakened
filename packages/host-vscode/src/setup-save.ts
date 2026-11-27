@@ -3,8 +3,8 @@ import type { PackageDestinationKind, PackageSaveOutcome } from "./package-save.
 
 /**
  * What a host must provide to save a setup ZIP (`docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery`,
- * ADR 0045 5C). `replace` must write the whole archive beside the destination before it takes the destination's place,
- * so a failure or cancellation preserves any earlier setup file.
+ * ADR 0045 5C). `replace` stages beside the destination and returns a warning if a replaced file's backup could not
+ * be removed. Its rename operations must never overwrite an existing path.
  */
 export interface SetupSavePort<Destination> {
   chooseDestination(suggestedFileName: string): Promise<Destination | undefined>;
@@ -13,36 +13,85 @@ export interface SetupSavePort<Destination> {
   validateDestination(destination: Destination): Promise<string | undefined>;
   inspect(destination: Destination): Promise<PackageDestinationKind>;
   confirmReplace(existing: Destination): Promise<boolean>;
-  replace(destination: Destination, bytes: Uint8Array): Promise<void>;
+  replace(destination: Destination, bytes: Uint8Array, replaceExisting: boolean): Promise<string | null>;
 }
 
 /** What a host needs to publish one finished file beside its destination. */
 export interface SetupWritePort<Destination> {
   write(staging: Destination, bytes: Uint8Array): Promise<void>;
+  /** Move only if destination does not exist; reject rather than replacing it. */
   rename(staging: Destination, destination: Destination): Promise<void>;
   remove(staging: Destination): Promise<void>;
   stagingName(destination: Destination): string;
   sibling(destination: Destination, name: string): Destination;
+  describe(destination: Destination): string;
 }
 
 /**
- * Write `bytes` to an operation-owned staging name and only then rename it over `destination`. A failed write removes
- * just that staging file, so the destination keeps whatever it held (`packaging-and-paths.md#reawakened-setup-delivery`:
- * "stage before replacing an existing setup artefact").
+ * Stage the complete archive before publishing. For confirmed replacement, first move the old file to a unique
+ * operation-owned backup; publish without overwrite, then remove that backup. If publication fails, restore the
+ * backup without overwrite. A refused restoration leaves the backup intact and its exact path is reported.
  */
 export async function replaceSetupFile<Destination>(
   port: SetupWritePort<Destination>,
   destination: Destination,
   bytes: Uint8Array,
-): Promise<void> {
-  const staging = port.sibling(destination, port.stagingName(destination));
+  replaceExisting: boolean,
+): Promise<string | null> {
+  const stagingName = port.stagingName(destination);
+  const staging = port.sibling(destination, stagingName);
+  const cleanStaging = async (): Promise<void> => {
+    try { await port.remove(staging); } catch { /* The owned partial staging file may not exist. */ }
+  };
   try {
     await port.write(staging, bytes);
-    await port.rename(staging, destination);
   } catch (error) {
-    // The staging name belongs to this save, whether the write failed part-way or the rename was refused.
-    try { await port.remove(staging); } catch { /* Removing a staging file that never appeared is not a second failure. */ }
+    await cleanStaging();
     throw error;
+  }
+
+  if (!replaceExisting) {
+    try {
+      await port.rename(staging, destination);
+      return null;
+    } catch (error) {
+      await cleanStaging();
+      throw error;
+    }
+  }
+
+  const backup = port.sibling(destination, `${stagingName}.previous`);
+  try {
+    await port.rename(destination, backup);
+  } catch (error) {
+    await cleanStaging();
+    throw new Error(
+      `Could not move the existing setup to backup path ${port.describe(backup)}: ${reason(error)}. The move may have completed before the host reported failure; check both the destination and this recovery path.`,
+      { cause: error },
+    );
+  }
+
+  try {
+    await port.rename(staging, destination);
+  } catch (publishError) {
+    try {
+      await port.rename(backup, destination);
+    } catch (restoreError) {
+      await cleanStaging();
+      throw new Error(
+        `Could not publish the new setup file: ${reason(publishError)}. Could not restore the previous file: ${reason(restoreError)}. The previous setup may remain at recovery path ${port.describe(backup)}; check that path and the destination.`,
+        { cause: publishError },
+      );
+    }
+    await cleanStaging();
+    throw publishError;
+  }
+
+  try {
+    await port.remove(backup);
+    return null;
+  } catch (error) {
+    return `Could not confirm cleanup of the previous setup backup at ${port.describe(backup)}: ${reason(error)}. Check whether the backup remains at that path.`;
   }
 }
 
@@ -52,7 +101,7 @@ function reason(error: unknown): string { return error instanceof Error && error
 
 /**
  * Save the reviewed setup ZIP through host Save As. Cancelling writes nothing; replacing an existing setup ZIP confirms
- * first and only swaps in the new archive after it was written in full, so the previous ZIP survives a failure.
+ * first and only swaps in the new archive after it was written in full.
  */
 export async function saveSetupWithSaveAs<Destination>(port: SetupSavePort<Destination>, setup: PreparedGameSetup): Promise<PackageSaveOutcome> {
   try {
@@ -70,13 +119,15 @@ export async function saveSetupWithSaveAs<Destination>(port: SetupSavePort<Desti
     if (kind === "file" && !(await port.confirmReplace(chosen))) {
       return cancelled("Setup export was cancelled; the existing setup file was left unchanged.");
     }
-    try { await port.replace(chosen, setup.artifact.bytes); }
-    catch (error) { return failed(`Could not save ${port.describe(chosen)}: ${reason(error)}. The previous setup file, if any, was left unchanged.`); }
+    let warning: string | null;
+    try { warning = await port.replace(chosen, setup.artifact.bytes, kind === "file"); }
+    catch (error) { return failed(`Could not save ${port.describe(chosen)}: ${reason(error)}.`); }
     return {
       ok: true,
-      message: `Setup saved to ${port.describe(chosen)}. It contains ${setup.package.fileName}, ${setup.descriptor.fileName} and ${setup.instructions.fileName}. Nothing was signed and no installer runs.`,
+      message: `Setup saved to ${port.describe(chosen)}. It contains ${setup.package.fileName}, ${setup.descriptor.fileName} and ${setup.instructions.fileName}. Nothing was signed and no installer runs.${warning === null ? "" : ` ${warning}`}`,
     };
   } catch (error) {
     return failed(`Setup export failed: ${reason(error)}. Nothing was written.`);
   }
 }
+

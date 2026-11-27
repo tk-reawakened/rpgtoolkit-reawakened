@@ -1,5 +1,6 @@
 import {
   changedSettings,
+  createEditTracker,
   DEBUG_DRAWING_BITS,
   DEFAULT_CURSOR,
   ENEMY_SLOTS,
@@ -19,17 +20,20 @@ import {
   type MainSettingKey,
   type MainSettings,
   type MainSettingsChanges,
+  type PendingEdits,
   type SettingIssue,
   type SettingsCategory,
 } from "@tk-reawakened/editor-model";
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ViewDocument } from "./mount.ts";
 
 export interface GameSettingsFormProps {
   readonly doc: ViewDocument;
   readonly snapshot: MainDocumentSnapshot;
+  /** The host's document-scoped registry for view work and held drafts. */
+  readonly pendingEdits: PendingEdits;
   /** The view's id prefix, unique in the page. */
   readonly ids: string;
   readonly readOnly: boolean;
@@ -58,7 +62,7 @@ function shown(key: MainSettingKey, value: MainSettings[MainSettingKey]): string
  * any error stands; conflicts are warnings beside the field (`settingsWarnings`). Each field names the row that owns it,
  * and a row this file's version does not store is disabled and says which value the engine uses instead.
  */
-export function GameSettingsForm({ doc, snapshot, ids, readOnly, onEdited }: GameSettingsFormProps) {
+export function GameSettingsForm({ doc, snapshot, pendingEdits, ids, readOnly, onEdited }: GameSettingsFormProps) {
   const [staged, setStaged] = useState<MainSettingsChanges>({});
   const [applying, setApplying] = useState(false);
   const [refusal, setRefusal] = useState<{ readonly message: string; readonly key: number } | null>(null);
@@ -67,6 +71,22 @@ export function GameSettingsForm({ doc, snapshot, ids, readOnly, onEdited }: Gam
   const [added, setAdded] = useState<string | null>(null);
   const [cursorImage, setCursorImage] = useState(false);
   const [keyProblem, setKeyProblem] = useState<string | null>(null);
+  const submitted = useRef(createEditTracker());
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const currentRef = useRef(snapshot.settings);
+  currentRef.current = snapshot.settings;
+  useLayoutEffect(() => pendingEdits.register({
+    busy: () => submitted.current.busy(),
+    holdsDraft: () => Object.keys(changedSettings(stagedRef.current, currentRef.current)).length > 0,
+    refusal: (reason) => reason === "package-preflight" && Object.keys(changedSettings(stagedRef.current, currentRef.current)).length > 0
+      ? "game settings still hold unapplied text. Apply or discard the settings before packaging"
+      : null,
+    idle: async (reason) => {
+      await submitted.current.idle(reason);
+      if (reason === "revert") cancel();
+    },
+  }), [pendingEdits]);
 
   const minor = snapshot.minor;
   const current = snapshot.settings;
@@ -77,13 +97,16 @@ export function GameSettingsForm({ doc, snapshot, ids, readOnly, onEdited }: Gam
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
 
   const stage = <Key extends MainSettingKey>(key: Key, value: MainSettings[Key]): void => {
-    setStaged((previous) => ({ ...previous, [key]: value }));
+    const next = { ...stagedRef.current, [key]: value };
+    stagedRef.current = next;
+    setStaged(next);
   };
   const fieldId = (key: string): string => `${ids}-${key}`;
   const disabled = (key: MainSettingKey): boolean => readOnly || applying || !settingStored(key, minor);
 
   const apply = (): void => {
     const command = { type: "apply-settings" as const, changes: pending };
+    const finishApply = submitted.current.begin();
     setApplying(true);
     const finish = (result: ApplyResult): void => {
       if (!result.ok) {
@@ -91,6 +114,7 @@ export function GameSettingsForm({ doc, snapshot, ids, readOnly, onEdited }: Gam
         return;
       }
       setRefusal(null);
+      stagedRef.current = {};
       setStaged({});
       setOpened({ extKeys: [], enemies: [], commandPlugins: [] });
       setAdded(null);
@@ -101,10 +125,14 @@ export function GameSettingsForm({ doc, snapshot, ids, readOnly, onEdited }: Gam
       .then(() => doc.apply(command))
       .then(finish)
       .catch((error: unknown) => setRefusal({ message: error instanceof Error ? error.message : String(error), key: (refusal?.key ?? 0) + 1 }))
-      .finally(() => setApplying(false));
+      .finally(() => {
+        finishApply();
+        setApplying(false);
+      });
   };
 
   const cancel = (): void => {
+    stagedRef.current = {};
     setStaged({});
     setOpened({ extKeys: [], enemies: [], commandPlugins: [] });
     setRefusal(null);

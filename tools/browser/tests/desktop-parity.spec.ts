@@ -263,10 +263,19 @@ test("a clean setup recipient installs, plays, and removes through the player UI
 
     // Play runs the installed game in a live session, not just a metadata lookup.
     await window.getByRole("button", { name: "Play Recipient Proof (1.0)" }).click();
+    await window.waitForFunction(() => window.__live !== undefined, undefined, { timeout: 120_000 });
+    // The example's startup program waits for a key before the first board loads; a ticking startup state is not play.
+    await expect.poll(async () => {
+      const live = await window.evaluate(() => window.__live ?? null);
+      if (live?.error !== undefined) throw new Error(live.error);
+      if (live?.board !== "boards/village.brd") await window.keyboard.press("Enter");
+      return live?.board ?? null;
+    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe("boards/village.brd");
     const reading = await window.waitForFunction(() => {
       const live = window.__live;
       const stateHash = live?.stateHash ?? "";
-      return live !== undefined && live.error === undefined && live.tick > 30 && stateHash !== "" ? { ...live, stateHash } : false;
+      return live !== undefined && live.error === undefined && live.board === "boards/village.brd"
+        && live.tick > 30 && stateHash !== "" ? { ...live, stateHash } : false;
     }, undefined, { timeout: 120_000 });
     const live = await reading.jsonValue();
     if (live === undefined) throw new Error("the player published no live state");

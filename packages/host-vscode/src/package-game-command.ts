@@ -7,6 +7,7 @@ import { replaceSetupFile, saveSetupWithSaveAs, type SetupSavePort } from "./set
 
 const SAVE_PACKAGE_LABEL = "Choose where to save…";
 const SAVE_SETUP_LABEL = "Choose where to save the setup…";
+type SettleLiveMain = (uri: vscode.Uri) => Promise<string | null>;
 
 function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
   return {
@@ -61,17 +62,18 @@ function vscodeSetupPort(projectRoot: vscode.Uri): SetupSavePort<vscode.Uri> {
       );
       return answer === "Replace";
     },
-    replace: async (uri, bytes) => {
+    replace: async (uri, bytes, replaceExisting) => {
       const refusal = validatePackageDestination(projectRoot, uri);
       if (refusal !== undefined) throw new Error(refusal);
       await ensureExportParent(projectRoot, uri);
-      await replaceSetupFile({
+      return await replaceSetupFile({
         write: async (staging, contents) => { await vscode.workspace.fs.writeFile(staging, contents); },
-        rename: async (staging, destination) => { await vscode.workspace.fs.rename(staging, destination, { overwrite: true }); },
+        rename: async (staging, destination) => { await vscode.workspace.fs.rename(staging, destination, { overwrite: false }); },
         remove: async (staging) => { await vscode.workspace.fs.delete(staging); },
         stagingName: (destination) => `${fileNameOf(destination)}.partial-${crypto.randomUUID()}`,
         sibling: siblingUri,
-      }, uri, bytes);
+        describe: (destination) => vscode.workspace.asRelativePath(destination, false),
+      }, uri, bytes, replaceExisting);
     },
   };
 }
@@ -84,7 +86,7 @@ function message(error: unknown): string {
 }
 
 /** Register the Explorer/command-palette entry that packages the selected project's main game. */
-export function registerPackageGameCommand(context: vscode.ExtensionContext): void {
+export function registerPackageGameCommand(context: vscode.ExtensionContext, settleLiveMain: SettleLiveMain): void {
   context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGame", async (resource?: vscode.Uri, suppliedVersion?: string) => {
     try {
       const accepted = await preflightGamePackage(context, resource, suppliedVersion, {
@@ -94,7 +96,7 @@ export function registerPackageGameCommand(context: vscode.ExtensionContext): vo
         acceptLabel: SAVE_PACKAGE_LABEL,
         question: (includedFiles) => `Preflight passed: ${includedFiles} files will be packaged. Review the inventory, then choose where to save the package and its install descriptor.`,
         detailSuffix: "The package and descriptor are saved where you choose, through Save As. Files that already exist are replaced only if you confirm.",
-      });
+      }, settleLiveMain);
       if (accepted === undefined) return;
       const saved = await savePackageWithSaveAs(vscodeSavePort(accepted.folder), accepted.prepared);
       if (saved.ok) void vscode.window.showInformationMessage(saved.message);
@@ -109,7 +111,7 @@ export function registerPackageGameCommand(context: vscode.ExtensionContext): vo
  * Register the command that builds the reviewed setup ZIP (T-72, ADR 0045 5C). The ZIP holds only the package, its
  * install descriptor and the plain-text instructions; the player app installs and removes it.
  */
-export function registerGameSetupCommand(context: vscode.ExtensionContext): void {
+export function registerGameSetupCommand(context: vscode.ExtensionContext, settleLiveMain: SettleLiveMain): void {
   context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGameSetup", async (resource?: vscode.Uri, suppliedVersion?: string) => {
     try {
       const accepted = await preflightGamePackage(context, resource, suppliedVersion, {
@@ -119,7 +121,7 @@ export function registerGameSetupCommand(context: vscode.ExtensionContext): void
         acceptLabel: SAVE_SETUP_LABEL,
         question: (includedFiles) => `Preflight passed: ${includedFiles} game files will be bundled. Review the inventory, then choose the setup ZIP's destination.`,
         detailSuffix: "The setup ZIP holds the reviewed package, its install descriptor and plain-text instructions. A browser can download it but cannot install it; the player app's Install and Remove do.",
-      });
+      }, settleLiveMain);
       if (accepted === undefined) return;
       const setup = prepareGameSetup(accepted.prepared);
       if (!setup.ok) {

@@ -53,6 +53,7 @@ export async function preflightGamePackage(
     readonly question: (includedFiles: number) => string;
     readonly detailSuffix: string;
   },
+  settleLiveMain: (uri: vscode.Uri) => Promise<string | null>,
 ): Promise<{ readonly folder: vscode.Uri; readonly prepared: PreparedGamePackage } | undefined> {
   const mainUri = resource ?? (await vscode.window.showOpenDialog({
     canSelectMany: false,
@@ -78,6 +79,20 @@ export async function preflightGamePackage(
     validateInput: (value) => value.trim().length === 0 ? "Enter a release version." : value.length > 128 ? "Use 128 characters or fewer." : undefined,
   });
   if (releaseVersion === undefined) return undefined;
+
+  // A live settings webview may hold a draft without making its custom-editor tab dirty. Ask the provider's real document
+  // to settle for export before reading saved files; this does not apply drafts, and an unconfirmed hand-off refuses.
+  const selectedMainPath = vscode.workspace.asRelativePath(mainUri, false);
+  let unsettled: string | null;
+  try {
+    unsettled = await settleLiveMain(mainUri);
+  } catch {
+    unsettled = "the live settings editor could not confirm its state";
+  }
+  if (unsettled !== null) {
+    void vscode.window.showErrorMessage(`${selectedMainPath}: ${unsettled}. Packaging does not save it for you.`);
+    return undefined;
+  }
 
   const services = createVscodeServices(folder.uri, context, () => 0);
   const workspace = createDocumentWorkspace({ projectId: folder.uri.toString(), services });

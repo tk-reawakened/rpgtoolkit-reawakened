@@ -12,4 +12,6 @@
 # IDs 49 and 50 map #3620 and #3621.
 # IDs 51–54 map #3622–#3625.
 # IDs 55–57 map #3626, #3627 and #3588 (PR #3534 browser proof failures).
-next_id = 58
+# IDs 58–61 map #3628–#3631 (PR #3535 setup review).
+# ID 62 maps #3632 (VS Code provider no-clobber capability).
+next_id = 63

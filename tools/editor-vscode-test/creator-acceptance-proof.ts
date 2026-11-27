@@ -511,7 +511,7 @@ export async function runVscodeCreatorAcceptanceProof(
   await closeActiveEditor();
 
   // The real reviewed export: the contributed command, its file dialog, its version question and its review modal.
-  const openPackageCommand = async (): Promise<void> => {
+  const openPackageCommand = async (expectPreflight = true): Promise<void> => {
     const packagePalette = await palette();
     await packagePalette.fill(">RPG Toolkit: Package game");
     const packageRow = page.getByRole("option", { name: /^RPG Toolkit: Package game(?:,|$)/ });
@@ -538,8 +538,26 @@ export async function runVscodeCreatorAcceptanceProof(
     await version.fill(RELEASE_VERSION);
     await expect(version).toHaveValue(RELEASE_VERSION);
     await version.press("Enter");
-    await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 20_000 });
+    if (expectPreflight) {
+      await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 20_000 });
+    } else {
+      const refusal = page.getByRole("dialog", { name: /game settings still hold unapplied text/ });
+      await expect(refusal).toBeVisible({ timeout: 20_000 });
+      await expect(refusal).toContainText(`${MAIN}: game settings still hold unapplied text`);
+      await expect(page.getByText(/Preflight passed:/)).toBeHidden();
+    }
   };
+
+  // An active Settings view with typed-but-unapplied text must refuse before offering review.
+  await openPath(MAIN);
+  const packageGuardSettings = await activeFrame(".tkr-settings");
+  const packageGuardTitle = packageGuardSettings.getByRole("textbox", { name: "Game title" });
+  await packageGuardTitle.fill("Unapplied package draft");
+  await expect(packageGuardTitle).toHaveValue("Unapplied package draft");
+  await openPackageCommand(false);
+  await expect(packageGuardTitle).toHaveValue("Unapplied package draft");
+  await packageGuardSettings.getByRole("button", { name: "Cancel changes" }).click();
+  await expect(packageGuardTitle).toHaveValue(GAME_TITLE);
 
   await openPackageCommand();
   // Cancelling the review produces no release.
