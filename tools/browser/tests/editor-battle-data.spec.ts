@@ -473,3 +473,51 @@ test("text one view holds is the document's: the other view shows it, Save refus
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect.poll(async () => Buffer.from(await readProjectFile(page, "SpcMove/fireball.spc")).readInt32LE(0x1e)).toBe(-30);
 });
+
+test("the tileset dock keeps a mounted fight background's game after discovering a nested Main (#3621)", async ({ page }) => {
+  const outer = writeMainFile({ ...newProjectMainFile(), projectPath: "" });
+  const nested = writeMainFile({ ...newProjectMainFile(), projectPath: "Nested" });
+  if (!outer.ok || !nested.ok) throw new Error("The proof Main files must serialize");
+  const set = bytes("versions/tileset/tileset_detail1.tst");
+  const mounted = "Game/Nested/Bkrounds/forest.bkg";
+  const unopened = "Game/Nested/Bkrounds/second.bkg";
+  await openWorkbench(page, [
+    { path: mounted, bytes: BKG },
+    { path: unopened, bytes: BKG },
+    { path: "Game/Tiles/ground.tst", bytes: set },
+    { path: "Game/Nested/Tiles/ground.tst", bytes: set },
+  ], [...outer.value]);
+  const source = page.getByRole("region", { name: "Tileset browser" }).getByLabel("Source");
+  const legacy = page.getByRole("region", { name: "Legacy autotile set" });
+  await openProjectFile(page, mounted);
+  await source.selectOption("Game/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
+
+  // Another tool discovers the new Main without closing the background or replacing its audition owner.
+  await page.evaluate(async (data) => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const main = await root.getDirectoryHandle("Main");
+    const file = await main.getFileHandle("nested.gam", { create: true });
+    const writer = await file.createWritable();
+    await writer.write(new Uint8Array(data));
+    await writer.close();
+  }, [...nested.value]);
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Upgrade a pre-vector board");
+  await search.press("Enter");
+  const notice = page.getByRole("dialog").filter({ hasText: "This project has no boards to upgrade." });
+  await notice.getByRole("button", { name: "OK", exact: true }).click();
+
+  // The untouched background now opens with the new owner; a mark made on the pinned background does not reach it.
+  await openProjectFile(page, unopened);
+  await source.selectOption("Game/Nested/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
+  await page.getByRole("tab", { name: mounted, exact: true }).click();
+  await expect(source).toHaveValue("Game/Tiles/ground.tst");
+  await legacy.getByRole("checkbox").check();
+  await expect(legacy).toContainText("Marked as a legacy 52-slot autotile set");
+  await page.getByRole("tab", { name: unopened, exact: true }).click();
+  await expect(source).toHaveValue("Game/Nested/Tiles/ground.tst");
+  await expect(legacy).toContainText("Ordinary tileset");
+});

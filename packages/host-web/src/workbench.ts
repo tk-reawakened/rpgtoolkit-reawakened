@@ -258,6 +258,16 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
     return owner ?? fallbackOwnerForPath(path);
   };
+  // Fight backgrounds keep the same mounted owner for their assets, the shell dock and the Run menu (#3619, #3621).
+  const shellOwnerForPath = (path: string): ProjectLayoutOwner => {
+    const active = tabs.getSnapshot().active;
+    const entry = active === null ? undefined : views.get(active);
+    if (entry?.document.kind === "battle-background" && entry.document.identity.path === path) {
+      const owner = ownersByDocument.get(entry.document.identity.key);
+      if (owner !== undefined) return owner;
+    }
+    return ownerForPathSync(path);
+  };
   const contextualBrowserSession: BrowserSession = {
     getSnapshot: () => sessionForActiveGame().getSnapshot(),
     update: (update) => sessionForActiveGame().update(update),
@@ -279,12 +289,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
   };
   function sessionForActiveGame(): BrowserSession {
-    const activeKey = tabs.getSnapshot().active;
-    const entry = activeKey === null ? undefined : views.get(activeKey);
-    const owner = entry === undefined
-      ? null
-      : ownersByDocument.get(entry.document.identity.key) ?? fallbackOwnerForPath(entry.document.identity.path);
-    return project.browserSessionForGame(owner?.mainPath ?? main);
+    const active = tabs.getSnapshot().active;
+    const document = active === null ? undefined : views.get(active)?.document;
+    if (document === undefined) return project.browserSessionForGame(main);
+    const { key, path } = document.identity;
+    if (document.kind === "battle-background") return project.browserSessionForGame(shellOwnerForPath(path).mainPath);
+    const owner = ownersByDocument.get(key) ?? fallbackOwnerForPath(path);
+    return project.browserSessionForGame(owner.mainPath ?? main);
   }
   const backgroundTarget = (document: BattleBackgroundDocument, controls: AuditionControls, layout: ProjectLayout): BattleBackgroundAuditionTarget => ({
     controls,
@@ -1047,8 +1058,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tabs,
     tree,
     projectLayout,
-    projectLayoutForPath: (path) => path === null ? projectLayout : ownerForPathSync(path).layout,
-    mainForPath: (path) => path === null ? main : ownerForPathSync(path).mainPath,
+    projectLayoutForPath: (path) => path === null ? projectLayout : shellOwnerForPath(path).layout,
+    mainForPath: (path) => path === null ? main : shellOwnerForPath(path).mainPath,
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
