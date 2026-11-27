@@ -3,6 +3,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, openNativeSkinDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import type { ViewHandle } from "../src/mount.ts";
 import type { mount as mountEditor } from "../src/index.ts";
 
 let mount: typeof mountEditor;
@@ -224,12 +225,15 @@ test("a refresh re-resolves the project folders, so a moved game needs no pick (
   let owner = { projectFolder: "Game/Old" };
   const root = document.createElement("div");
   document.body.append(root);
-  const handle = mount(root, {
-    document: opened.document,
-    services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
-    // The host's answer to "where are this document's folders now": the game file moved while the tab was hidden.
-    resolveLayout: async () => owner,
+  let handle!: ViewHandle;
+  await act(() => {
+    handle = mount(root, {
+      document: opened.document,
+      services: { ...host, fs: recordingReader(host, reads) },
+      browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: owner },
+      // The host's answer to "where are this document's folders now": the game file moved while the tab was hidden.
+      resolveLayout: async () => owner,
+    });
   });
   const canvases = () => root.querySelectorAll("canvas");
   try {
@@ -292,11 +296,14 @@ test("choosing the picture already named is a successful no-edit that adopts the
   const reads: string[] = [];
   const root = document.createElement("div");
   document.body.append(root);
-  const handle = mount(root, {
-    document: opened.document,
-    services: { ...host, fs: recordingReader(host, reads) },
-    browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Old" } },
-    navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/New" } }) },
+  let handle!: ViewHandle;
+  await act(() => {
+    handle = mount(root, {
+      document: opened.document,
+      services: { ...host, fs: recordingReader(host, reads) },
+      browser: { session: { getSnapshot: () => ({ selection: null, path: null, scrollTop: 0 }), subscribe: () => () => undefined, update: () => undefined }, fs: host.fs, layout: { projectFolder: "Game/Old" } },
+      navigation: { pickAsset: async () => ({ chosen: true, reference: "window.png", layout: { projectFolder: "Game/New" } }) },
+    });
   });
   try {
     await settleUntil(() => reads.includes("Game/Old/Bitmap/window.png"));
