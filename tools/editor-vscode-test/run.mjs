@@ -168,8 +168,9 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   }
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
-  await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
-  if (historyProof) await copyFile(spriteFile, resolve(proofWorkspace, "Chrs/ada.tem"));
+  // These are edited in place. Create them as the proof's user instead of copying checkout ownership.
+  await writeFile(resolve(proofWorkspace, spritePath), spriteBytes);
+  if (historyProof) await writeFile(resolve(proofWorkspace, "Chrs/ada.tem"), spriteBytes);
   await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const nativeClipBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm")));
@@ -278,6 +279,7 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/a.gif"));
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/z.gif"));
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  const artBytes = await readFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"));
   const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
   await Promise.all([
     ...canvasBoards.map(async ({ system, path }) => {
@@ -288,9 +290,9 @@ for (const choice of firstBoardTutorialProof || nativeClipProof || nativeScenePr
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
     writeFile(resolve(proofWorkspace, artBoardPath), artBoardBytes),
-    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, artPath)),
-    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, otherArtPath)),
-    copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
+    writeFile(resolve(proofWorkspace, artPath), artBytes),
+    writeFile(resolve(proofWorkspace, otherArtPath), artBytes),
+    writeFile(resolve(proofWorkspace, "Tiles/village.tst"), artBytes),
     writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
     writeFile(resolve(proofWorkspace, otherBitmapPath), createOtherBitmapBytes()),
   ]);

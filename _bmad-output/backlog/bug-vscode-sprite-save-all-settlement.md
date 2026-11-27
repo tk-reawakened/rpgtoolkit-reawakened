@@ -27,9 +27,13 @@ The required VS Code web proof can time out after native Save All because the sp
 3. Actual: after 30 seconds, `tools/editor-vscode-test/web-proof.ts:1652` fails because the persisted bytes are still equal to the original bytes. This reproduces before the separate board-upgrade proof for #3519.
 4. Expected: native Save All waits for every accepted sprite/character edit, then the bytes change and the re-opened document shows the submitted field values.
 
-## Cause Hypothesis
+## Verified fixture failure
 
-`SpriteView` and `CharacterAuthoringView` registered their pending edit trackers with the host registry in passive `useEffect` callbacks. A native Save All immediately after an accepted DOM event can enter host settlement before that registration runs, so settlement misses a queue that already owns accepted work. Registering with `useLayoutEffect` makes each tracker available before paint. The behavior regression and focused VS Code proof passed after this change, supporting this explanation.
+After the dirty-tab and early-registration changes, wrkflw `20261127-223734910-e3b36c` still reproduced the sprite failure. VS Code's native save reached the workspace provider, but the backing write was refused. The same-image discriminator `20261127-224207190-e05460` showed that `copyFile` preserved checkout UID 1001 on the mode-0644 sprite, while the proof ran as UID 0 with the normal CI DAC overrides removed. Opening that copy for writing returned `EACCES`; a new file written from the same bytes was owned by the proof and writable. The sprite and editable tileset seeds now write those bytes into the private proof workspace without inheriting checkout ownership. Permission refusal is still exercised with the same CI restrictions.
+
+## Early edit settlement
+
+Separately, the pending-edit regression shows that passive registration can miss accepted DOM edits before passive effects run. `SpriteView` and `CharacterAuthoringView` register with `useLayoutEffect` so both queues participate from mount. This does not explain the reproduced filesystem refusal.
 
 ## Acceptance Criteria
 
