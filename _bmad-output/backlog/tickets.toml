@@ -5,6 +5,14 @@
 # ID 25 maps issue #2169; ID 26 maps #2721; ID 27 maps #3306; ID 28 maps #3322.
 # ID 29 maps issue #3335; ID 30 maps #3331. ID 15 already carries #3257 on `docs/3257-history-frame-detach`, so this branch does not allocate a second ticket for it.
 # ID 31 maps issue #3354 (host-web project errors); ID 32 maps issue #3146.
-# ID 33 maps issue #3507 (BKG Stop proof); ID 34 maps #3508 (VS Code BKG CI fixture); ID 35 maps #3510 (native new-project recovery Quick Pick).
-# ID 36 maps #3597; ID 37 maps #3608; ID 38 maps #3594; ID 39 maps #3606; ID 40 maps #3607; ID 41 is reserved for #3305; ID 42 maps #3519.
-next_id = 43
+# ID 33 maps issue #3507 (BKG Stop proof); ID 34 maps #3508 (VS Code BKG CI fixture).
+# ID 35 maps #3510 (native new-project recovery Quick Pick). IDs 36–41 map #3597, #3608, #3594, #3606, #3607, #3305.
+# ID 42 maps #3519. IDs 43 and 44 map #3618 and #3619.
+# IDs 45–48 map #3612–#3615.
+# IDs 49 and 50 map #3620 and #3621.
+# IDs 51–54 map #3622–#3625.
+# IDs 55–57 map #3626, #3627 and #3588 (PR #3534 browser proof failures).
+# IDs 58–61 map #3628–#3631 (PR #3535 setup review).
+# ID 62 maps #3632 (VS Code provider no-clobber capability).
+# IDs 63 and 64 map #3634 and #3635 (PR #3535 hosted proof contract updates).
+next_id = 65

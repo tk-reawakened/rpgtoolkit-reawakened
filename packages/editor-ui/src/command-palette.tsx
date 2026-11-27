@@ -34,6 +34,7 @@ export interface CommandPaletteProps {
   readonly onOpenPreferences?: () => void;
   readonly onOpenProject?: () => void;
   readonly extraCommands?: readonly WorkbenchCommand[];
+  readonly contextCommands?: CommandRegistry;
   readonly version?: unknown;
 }
 
@@ -76,6 +77,7 @@ export function WorkbenchCommandBar({
   onOpenPreferences,
   onOpenProject,
   extraCommands = EMPTY_COMMANDS,
+  contextCommands,
   version,
 }: CommandPaletteProps) {
   const [paletteId] = useState(() => `tkr-palette-${++palettesMade}`);
@@ -298,6 +300,20 @@ export function WorkbenchCommandBar({
   const registry = externalRegistry ?? defaultRegistry;
   useDocumentSnapshot(registry);
   useLayoutEffect(bindKeyboard, [paletteOpen, menuOpen, registry]);
+  useLayoutEffect(() => {
+    if (contextCommands === undefined) return;
+    let unregister = (): void => {};
+    const update = (): void => {
+      unregister();
+      unregister = registry.registerMany(contextCommands.getCommands().map((command) => ({
+        ...command,
+        run: () => { contextCommands.execute(command.id); },
+      })));
+    };
+    const unsubscribe = contextCommands.subscribe(update);
+    update();
+    return () => { unsubscribe(); unregister(); };
+  }, [registry, contextCommands]);
   useEffect(() => {
     const workbench = menuWrapRef.current?.closest<HTMLElement>(".tkr-workbench");
     const scope = workbench?.closest<HTMLElement>(".tkr-web-shell") ?? workbench;

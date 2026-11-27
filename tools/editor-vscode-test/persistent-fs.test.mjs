@@ -212,6 +212,39 @@ test("the proof filesystem can pause a matching workspace read before it reaches
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a one-shot response gate preserves a stale read while newer reads pass through", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-read-result-gate-test-"));
+  const origin = "http://localhost:34567";
+  let gate;
+  let bridge;
+  try {
+    const path = join(root, "game.gam");
+    await writeFile(path, "old bytes");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = () => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "readFile", path: "/game.gam" }),
+    });
+    gate = bridge.pauseReadResult("/game.gam");
+    const stale = request();
+    await gate.reached;
+    await writeFile(path, "new bytes");
+    const latest = await request();
+    assert.equal(latest.status, 200);
+    assert.equal(Buffer.from((await latest.json()).result, "base64").toString(), "new bytes");
+    gate.release();
+    await gate.completed;
+    const old = await stale;
+    assert.equal(old.status, 200);
+    assert.equal(Buffer.from((await old.json()).result, "base64").toString(), "old bytes");
+  } finally {
+    if (bridge) { gate?.release(); bridge.resumeRead(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("a native restore seam arms the existing filesystem read gate for exactly its matching read", async () => {
   const root = await mkdtemp(join(tmpdir(), "tkr-proof-native-restore-gate-test-"));
   const origin = "http://localhost:34567";

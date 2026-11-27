@@ -22,18 +22,27 @@
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualFixtures.show",
     "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
     "onCommand:tkr.upgradeBoardStackedToRotated",
     "onCommand:tkr.upgradeBoardTileToPixel",
     "onCommand:tkr.upgradePreVectorBoard",
     "onCommand:tkr.packageGame",
+    "onCommand:tkr.packageGameSetup",
     "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
     "onCommand:tkr.insertProgramHeader",
     "onCommand:tkr.insertProgramCommand",
     "onCommand:tkr.openProgramAuthoringGuide",
     "onCommand:tkr.openWhatsNew",
+    "onCommand:tkr.help.firstBoard",
+    "onCommand:tkr.help.dailyTip",
+    "onCommand:tkr.help.firstBoard.back",
+    "onCommand:tkr.help.firstBoard.next",
+    "onCommand:tkr.help.firstBoard.restart",
+    "onCommand:tkr.help.firstBoard.close",
+    "onCommand:tkr.help.dailyTip.toggle",
     "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
@@ -84,6 +93,10 @@
         "title": "RPG Toolkit: Show Visual events"
       },
       {
+        "command": "tkr.visualFixtures.show",
+        "title": "RPG Toolkit: Show Visual fixtures"
+      },
+      {
         "command": "tkr.runSavedTests",
         "title": "RPG Toolkit: Run saved tests"
       },
@@ -120,6 +133,10 @@
         "title": "RPG Toolkit: Package game"
       },
       {
+        "command": "tkr.packageGameSetup",
+        "title": "RPG Toolkit: Save game setup ZIP…"
+      },
+      {
         "command": "tkr.returnFromBoard",
         "title": "TK Reawakened: Return to board"
       },
@@ -142,6 +159,39 @@
       {
         "command": "tkr.openWhatsNew",
         "title": "RPG Toolkit: What's New"
+      },
+      {
+        "command": "tkr.help.firstBoard",
+        "title": "RPG Toolkit: First board tutorial"
+      },
+      {
+        "command": "tkr.help.dailyTip",
+        "title": "RPG Toolkit: Tip of the day"
+      },
+      {
+        "command": "tkr.help.firstBoard.back",
+        "title": "RPG Toolkit: Previous step",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.back"
+      },
+      {
+        "command": "tkr.help.firstBoard.next",
+        "title": "RPG Toolkit: Next step",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.next"
+      },
+      {
+        "command": "tkr.help.firstBoard.restart",
+        "title": "RPG Toolkit: Restart tutorial",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.restart"
+      },
+      {
+        "command": "tkr.help.firstBoard.close",
+        "title": "RPG Toolkit: Close help",
+        "enablement": "tkr.firstBoard.action.help.firstBoard.close"
+      },
+      {
+        "command": "tkr.help.dailyTip.toggle",
+        "title": "RPG Toolkit: Show a tip when the editor opens",
+        "enablement": "tkr.firstBoard.action.help.dailyTip.toggle"
       },
       {
         "command": "tkr.distractionFree",
@@ -199,6 +249,11 @@
           "command": "tkr.packageGame",
           "when": "resourceExtname == .gam",
           "group": "navigation@7"
+        },
+        {
+          "command": "tkr.packageGameSetup",
+          "when": "resourceExtname == .gam",
+          "group": "navigation@8"
         }
       ]
     },
@@ -215,6 +270,9 @@
           },
           {
             "filenamePattern": "*.itm"
+          },
+          {
+            "filenamePattern": "*.tkrskin"
           }
         ],
         "priority": "default"

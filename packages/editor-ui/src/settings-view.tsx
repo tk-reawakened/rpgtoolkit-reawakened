@@ -1,26 +1,27 @@
-import type { ConflictChoice, SaveFailure } from "@tk-reawakened/editor-model";
+import type { ConflictChoice, PendingEdits, SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { GameSettingsForm } from "./game-settings-form.tsx";
 import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
-
-/** How many views have been given ids. Ids must be unique in the page, and two views mounted by one host are two render roots. */
-let viewsMade = 0;
-
 export interface SettingsViewProps {
   readonly doc: ViewDocument;
   /** What the host can do; the view says what it cannot, and never implies it can (ADR 0022 D3.5, D3.6). */
   readonly capabilities: Capabilities;
+  /** The document-scoped registry also guards package preflight against settings drafts. */
+  readonly pendingEdits: PendingEdits;
   /** A command result is acknowledged only after the document adapter has accepted it. */
   readonly onEdited: (event: DocumentEdited) => void;
 }
+
+/** How many views have been given ids. Ids must be unique in the page, and two views mounted by one host are two render roots. */
+let viewsMade = 0;
 /**
  * Game settings stage in one form; Apply creates a document edit, while Save persists applied changes.
  * A disk conflict offers the host's supported resolution choices (ADR 0022 D3.5).
  */
-export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps) {
+export function SettingsView({ doc, capabilities, pendingEdits, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [fieldHelp, setFieldHelp] = useState<{ readonly title: string; readonly markdown: string } | null>(null);
   const helpInvoker = useRef<HelpInvokerRef>({ current: null });
@@ -144,7 +145,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           {failure.message}
         </p>
       )}
-      <GameSettingsForm doc={doc} snapshot={snapshot} ids={ids} readOnly={readOnly} onEdited={onEdited} />
+      <GameSettingsForm doc={doc} snapshot={snapshot} pendingEdits={pendingEdits} ids={ids} readOnly={readOnly} onEdited={onEdited} />
       {fieldHelp === null ? null : (
         <HelpDocument
           title={fieldHelp.title}

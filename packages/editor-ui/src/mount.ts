@@ -23,10 +23,14 @@ import {
   type TileBitmapDocumentSnapshot,
   type TileBitmapPicture,
   type PendingEdits,
+  type ProjectLayout,
   type TilesetArtCommand,
   type TilesetArtSnapshot,
+  projectLayoutForDocumentPath,
 } from "@tk-reawakened/editor-model";
 import { NativeClipView, type NativeClipViewDocument } from "./native-clip-view.tsx";
+import { BattleBackgroundView, type BattleBackgroundViewDocument } from "./battle-background-view.tsx";
+import { NativeSkinView, type NativeSkinViewDocument } from "./skin-view.tsx";
 import { NativeGeometryView, type NativeGeometryViewDocument } from "./native-geometry-view.tsx";
 import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
@@ -39,6 +43,7 @@ import { RunControl, type RunControlProps } from "./run-control.tsx";
 import type { RunHandle } from "@tk-reawakened/platform-services";
 import { DocumentHistoryView, type DocumentHistoryViewProps } from "./document-history-view.tsx";
 import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
+import { FirstBoardTutorial, type FirstBoardTutorialProps } from "./first-board-tutorial.tsx";
 import { BoardView } from "./board-view.tsx";
 import { TerrainSceneView, type TerrainSceneViewProps } from "./terrain-scene-view.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -52,6 +57,7 @@ import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { FontView, type FontViewDocument } from "./font-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { BoardPropertiesNavigation } from "./board-properties-view.tsx";
+import type { BattleDataNavigation } from "./battle-data-form.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
 import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
@@ -60,7 +66,7 @@ import type { TextSurfaceFactory } from "./text-surface.ts";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { SpecialMoveView, type SpecialMoveViewDocument } from "./special-move-view.tsx";
 import { StatusEffectView, type StatusEffectViewDocument } from "./status-effect-view.tsx";
-import { BattleBackgroundView, type BattleBackgroundViewDocument } from "./battle-background-view.tsx";
+import { VisualFixtureView } from "./visual-fixture-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -122,7 +128,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument | SpecialMoveViewDocument | StatusEffectViewDocument | BattleBackgroundViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeSkinViewDocument | BattleBackgroundViewDocument | NativeGeometryViewDocument | SpecialMoveViewDocument | StatusEffectViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -132,8 +138,10 @@ export interface ViewContext {
   readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** Where this document's project folders are now, re-resolved by the host on a refresh (tab activation, asset change). */
+  readonly resolveLayout?: () => Promise<ProjectLayout>;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
-  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset"> & Partial<BoardPropertiesNavigation>;
+  readonly navigation?: Pick<BattleDataNavigation, "pickAsset" | "canOpen"> & Partial<BoardPropertiesNavigation>;
   /**
    * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
    * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
@@ -188,6 +196,12 @@ function isAnimationView(document: ViewContext["document"]): document is Animati
 function isNativeClipView(document: ViewContext["document"]): document is NativeClipViewDocument {
   return document.kind === "native-clip";
 }
+function isNativeSkinView(document: ViewContext["document"]): document is NativeSkinViewDocument {
+  return document.kind === "skin";
+}
+function isBattleBackgroundView(document: ViewContext["document"]): document is BattleBackgroundViewDocument {
+  return document.kind === "battle-background";
+}
 function isNativeGeometryView(document: ViewContext["document"]): document is NativeGeometryViewDocument {
   return document.kind === "native-tile" || document.kind === "native-asset-pack";
 }
@@ -197,9 +211,6 @@ function isSpecialMoveView(document: ViewContext["document"]): document is Speci
 function isStatusEffectView(document: ViewContext["document"]): document is StatusEffectViewDocument {
   return document.kind === "status-effect";
 }
-function isBattleBackgroundView(document: ViewContext["document"]): document is BattleBackgroundViewDocument {
-  return document.kind === "battle-background";
-}
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
@@ -207,7 +218,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
   const fs = ctx.services.fs;
-  if ((isSpriteView(document) || isAnimationView(document) || isSpecialMoveView(document) || isStatusEffectView(document) || isBattleBackgroundView(document)) && fs === undefined) throw new Error("This view requires project-file read access.");
+  if ((isSpriteView(document) || isAnimationView(document) || isSpecialMoveView(document) || isStatusEffectView(document) || isNativeSkinView(document) || isBattleBackgroundView(document)) && fs === undefined) throw new Error("This view requires project-file read access.");
   const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   let disposed = false;
   let reveal: ((line: number, column: number) => void) | null = null;
@@ -261,15 +272,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isFontView(document)) {
     view = createElement(FontView, { doc: document, capabilities, onEdited, pendingEdits });
-  } else if (isSpriteView(document)) {
-    view = createElement(Fragment, null,
-      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
-      document.kind === "character"
-        ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
-        : null);
   } else if (isProgramView(document)) {
     const editor = ctx.codeEditor;
-    view = createElement(ProgramView, {
+    const program = createElement(ProgramView, {
       doc: document,
       capabilities,
       onEdited,
@@ -288,6 +293,16 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
         }
       },
     });
+    // A saved spec keeps its source editor (and reveal) and shows the TOOL-12 cards beneath it (#3568).
+    view = /\.spec\.prg$/i.test(document.identity.path)
+      ? createElement("div", { class: "tkr-spec-surface" }, program, createElement(VisualFixtureView, { doc: document, onEdited }))
+      : program;
+  } else if (isSpriteView(document)) {
+    view = createElement(Fragment, null,
+      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
+      document.kind === "character"
+        ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
+        : null);
   } else if (isAnimationView(document)) {
     view = createElement(AnimationView, {
       doc: document,
@@ -299,6 +314,19 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isNativeClipView(document)) {
     view = createElement(NativeClipView, { doc: document, pendingEdits, capabilities, onEdited });
+  } else if (isNativeSkinView(document)) {
+    view = createElement(NativeSkinView, {
+      doc: document,
+      pendingEdits,
+      capabilities,
+      onEdited,
+      fs: fs!,
+      projectId: document.identity.projectId,
+      // The host names the document's project folders; a standalone mount infers them from the path (ADR 0022 D1.2).
+      layout: ctx.browser?.layout ?? projectLayoutForDocumentPath(document.identity.path),
+      ...(ctx.resolveLayout === undefined ? {} : { resolveLayout: ctx.resolveLayout }),
+      ...(ctx.navigation?.pickAsset === undefined ? {} : { pickAsset: ctx.navigation.pickAsset }),
+    });
   } else if (isNativeGeometryView(document)) {
     const browserFs = ctx.browser?.fs;
     view = createElement(NativeGeometryView, {
@@ -321,11 +349,11 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.audition === undefined ? {} : { audition: ctx.audition }),
     });
   } else if (document.kind === "main") {
-    view = createElement(SettingsView, { doc: document, capabilities, onEdited });
+    view = createElement(SettingsView, { doc: document, capabilities, pendingEdits, onEdited });
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack", "special-move": "Special move", "status-effect": "Status effect", "battle-background": "Fight background" };
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack", "native-clip": "Native animation clip", skin: "Native skin", "battle-background": "Fight background", "special-move": "Special move", "status-effect": "Status effect" };
   let assetRevision = 0;
   const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
     createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);
@@ -356,6 +384,11 @@ function mountElement(el: HTMLElement, vnode: Parameters<typeof render>[0]): Vie
       render(null, el);
     },
   };
+}
+
+/** Render shared first-board Help; the host owns the panel and preference storage. */
+export function mountFirstBoardTutorial(el: HTMLElement, props: FirstBoardTutorialProps): ViewHandle {
+  return mountElement(el, createElement(FirstBoardTutorial, props));
 }
 
 /** Render the shared saved-test view without giving the view ownership of the project controller. */

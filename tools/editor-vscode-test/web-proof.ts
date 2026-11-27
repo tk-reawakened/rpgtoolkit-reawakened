@@ -4,7 +4,7 @@ import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { BinaryReader, decodeBoard, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
+import { BinaryReader, decodeBoard, readAnimation, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
@@ -336,9 +336,32 @@ export async function runVscodeBoardUpgradeProof(
   await expect(legacySavePath).toBeVisible({ timeout: 15_000 });
   await legacySavePath.fill(`/${legacyCopyPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
+  let lastLegacySaveRead: { path: string; layout: string | null; error: string | null } = {
+    path: legacyCopyPath, layout: null, error: null,
+  };
   await expect.poll(async () => {
-    try { return decode(await readBacking(legacyCopyPath)).layout; } catch { return null; }
-  }, { timeout: 30_000 }).toBe("vector");
+    try {
+      const layout = decode(await readBacking(legacyCopyPath)).layout;
+      lastLegacySaveRead = { path: legacyCopyPath, layout, error: null };
+      return layout;
+    } catch (error) {
+      lastLegacySaveRead = {
+        path: legacyCopyPath,
+        layout: null,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      };
+      return null;
+    }
+  }, { timeout: 30_000 }).toBe("vector").catch(async (error: unknown) => {
+    const events = readEvents().filter((event) => event.path.endsWith(legacyCopyPath)).slice(-20);
+    const visibleUi = await page.locator(".monaco-workbench").ariaSnapshot({ timeout: 3_000 })
+      .then((snapshot) => snapshot.split("\n").filter((line) => /red\.upgraded|Folder path|quick input|pre-vector|notification|alert|dialog/i.test(line)).slice(-20))
+      .catch(() => "UI snapshot unavailable");
+    throw new Error(
+      `Pre-vector copy save did not produce a vector board: ${JSON.stringify({ read: lastLegacySaveRead, events, visibleUi })}`,
+      { cause: error },
+    );
+  });
   const upgradedLegacy = decode(await readBacking(legacyCopyPath));
   expect({ sizeX: upgradedLegacy.board.sizeX, sizeY: upgradedLegacy.board.sizeY, sizeL: upgradedLegacy.board.sizeL }).toEqual({ sizeX: 19, sizeY: 14, sizeL: 8 });
   expect(upgradedLegacy.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
@@ -2977,10 +3000,11 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     catch (error) { if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null; throw error; }
   };
   const open = async () => (await openProjectFile(page, ANIMATION_PROOF_PATH, expect, ".tkr-animation-editor")).locator(".tkr-animation-editor");
+  const animationTab = page.getByRole("tab", { name: /host-proof\.anm/ });
   const close = async () => {
-    if (await page.getByRole("tab").filter({ hasText: "host-proof.anm" }).count()) {
+    if (await animationTab.count()) {
       await runCommand(page, expect, "View: Close Editor");
-      await expect(page.getByRole("tab").filter({ hasText: "host-proof.anm" })).toHaveCount(0);
+      await expect(animationTab).toHaveCount(0);
       await page.waitForTimeout(150);
     }
   };
@@ -3021,6 +3045,15 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     refuseAnimationWrite: (check) => host.withBackingWriteRefused(ANIMATION_PROOF_PATH, check),
     settle: () => page.waitForTimeout(60),
   }, expect);
+  // The last preview assertion proves the edit is on screen, not that the native working copy is clean.
+  // Finish this authoring session before the next proof packages only saved assets.
+  await animationTab.click();
+  await runCommand(page, expect, "File: Save");
+  await expect(animationTab).not.toHaveClass(/dirty/);
+  const saved = readAnimation(new BinaryReader(await host.readBacking(ANIMATION_PROOF_PATH)));
+  if (!saved.ok) throw new Error(saved.error.message);
+  expect([saved.value.width, saved.value.height, saved.value.frames[0]?.image]).toEqual([64, 64, "village.tst1"]);
+  await close();
 }
 
 /** Story 12.3 through the packaged custom editor, native program tabs and real persistent filesystem. */
@@ -3705,14 +3738,18 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundPath = "Game/Example/Bkrounds/forest.bkg";
   const ordinaryImagePath = "Game/Example/Bitmap/ordinary.png";
   const ordinaryAudioPath = "Game/Example/Media/ordinary.wav";
+  const mislabelledAudioPath = "Game/Example/Media/mislabelled.tbm";
   const fixtureRoot = new URL("../../docs/spec/examples/game/Game/Example/", import.meta.url);
   // CI flattens Game/Example into the workspace root; seed the nested project fixture the proof opens explicitly.
   await host.writeBacking(backgroundPath, new Uint8Array(readFileSync(new URL("Bkrounds/forest.bkg", fixtureRoot))));
   await host.writeBacking("Game/Example/Bitmap/forest.tbm", new Uint8Array(readFileSync(new URL("Bitmap/forest.tbm", fixtureRoot))));
   await host.writeBacking(ordinaryImagePath, new Uint8Array(readFileSync(new URL("../../docs/spec/examples/versions/tileset/tileset_iso.png", import.meta.url))));
-  await host.writeBacking(ordinaryAudioPath, Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69));
+  const audioBytes = Uint8Array.of(82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69);
+  await host.writeBacking(ordinaryAudioPath, audioBytes);
+  await host.writeBacking(mislabelledAudioPath, audioBytes);
+  const chosenAudioReference = "mislabelled.tbm";
   const backgroundValues = {
-    image: "ordinary.png", music: "ordinary.wav", selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
+    image: "ordinary.png", music: chosenAudioReference, selectSound: "cursor.wav", chooseSound: "choose.wav", readySound: "ready.mid", cantDoSound: "nope.wav",
   } as const;
   const backgroundFields = [
     ["Background picture", backgroundValues.image],
@@ -3734,6 +3771,22 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   const backgroundFrame = await openProjectFile(page, backgroundPath, expect, '[data-tkr-editor="Fight background"]');
   const backgroundPanel = backgroundFrame.locator('[data-tkr-editor="Fight background"]');
   await expect(backgroundPanel).toContainText("Audio audition is unavailable in this host.");
+  const chooseBattleMusic = backgroundPanel.getByRole("button", { name: "Choose battle music", exact: true });
+  await chooseBattleMusic.click();
+  const audioPicker = page.locator(".quick-input-widget:visible");
+  const audioOption = audioPicker.getByRole("option", { name: chosenAudioReference, exact: true });
+  await expect(audioOption).toBeVisible();
+  await audioOption.click();
+  const useChosenAudio = page.getByRole("button", { name: "Use it", exact: true });
+  await useChosenAudio.click();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  await saveAllShortcut();
+  await expect.poll(async () => new TextDecoder().decode(await host.readBacking(backgroundPath))).toContain(chosenAudioReference);
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toHaveCount(0);
+  await expect(useChosenAudio).toBeHidden();
+  await expect(backgroundPanel.getByLabel("Battle music file", { exact: true })).toHaveValue(chosenAudioReference);
+  const openChosenAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
+  await expect(openChosenAudio).toHaveCount(0);
   const openOriginalTileBitmap = backgroundPanel.getByRole("button", { name: "Open background picture", exact: true });
   await expect(openOriginalTileBitmap).toBeEnabled();
   await openOriginalTileBitmap.click();
@@ -3746,11 +3799,14 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await openOrdinaryImage.click();
   await expect(page.getByRole("tab", { name: /ordinary\.png/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill("ordinary.wav");
+  await expect(backgroundPanel.getByRole("button", { name: "Open battle music", exact: true })).toBeEnabled();
   const openOrdinaryAudio = backgroundPanel.getByRole("button", { name: "Open battle music", exact: true });
   await expect(openOrdinaryAudio).toBeEnabled();
   await openOrdinaryAudio.click();
   await expect(page.getByRole("tab", { name: /ordinary\.wav/ }).first()).toBeVisible();
   await page.getByRole("tab", { name: /forest\.bkg/ }).first().click();
+  await backgroundPanel.getByLabel("Battle music file", { exact: true }).fill(chosenAudioReference);
   await saveAllShortcut();
   await expect.poll(async () => [...await host.readBacking(backgroundPath)]).toEqual([...expectedBackground]);
   const backgroundTab = page.getByRole("tab", { name: /forest\.bkg/ }).first();

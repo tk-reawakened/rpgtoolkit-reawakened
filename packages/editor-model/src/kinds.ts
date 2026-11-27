@@ -15,6 +15,7 @@ import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryD
 import { createSpecialMoveDocument, openSpecialMoveDocument, specialMoveCodec, type SpecialMoveCommand, type SpecialMoveDocument } from "./special-move-document.ts";
 import { createStatusEffectDocument, openStatusEffectDocument, statusEffectCodec, type StatusEffectCommand, type StatusEffectDocument } from "./status-effect-document.ts";
 import { createBattleBackgroundDocument, openBattleBackgroundDocument, battleBackgroundCodec, type BattleBackgroundCommand, type BattleBackgroundDocument } from "./battle-background-document.ts";
+import { createNativeSkinDocument, nativeSkinCodec, openNativeSkinDocument, type NativeSkinCommand } from "./skin-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -25,7 +26,7 @@ import { createBattleBackgroundDocument, openBattleBackgroundDocument, battleBac
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand | SpecialMoveCommand | StatusEffectCommand | BattleBackgroundCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | NativeSkinCommand | TerrainSceneCommand | NativeGeometryCommand | SpecialMoveCommand | StatusEffectCommand | BattleBackgroundCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -224,6 +225,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     recoveryMarker: () => null,
   },
   {
+    id: "skin",
+    label: "Native skin",
+    description: "A pair of window and button graphics with an honest editor-only preview.",
+    extensions: [".tkrskin"],
+    storage: "native-text",
+    open: openNativeSkinDocument,
+    create: createNativeSkinDocument,
+    summarise: (bytes, path) => {
+      const parsed = nativeSkinCodec.read(bytes, path);
+      return parsed.ok ? nativeSkinCodec.summary(parsed.value) : null;
+    },
+    isCommand: nativeSkinCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
     id: "terrain-scene",
     label: "Terrain scene",
     description: "Paint and reshape terrain while keeping manual tile touch-ups.",
@@ -356,6 +372,7 @@ export function asStatusEffectDocument(document: AnyDocument): StatusEffectDocum
   if (document.kind !== "status-effect") throw new Error(`${document.identity.path} is a ${document.kind} document, not a status effect.`);
   return document as unknown as StatusEffectDocument;
 }
+
 /** The document as a fight-background document (see `asMainDocument`). */
 export function asBattleBackgroundDocument(document: AnyDocument): BattleBackgroundDocument {
   if (document.kind !== "battle-background") throw new Error(`${document.identity.path} is a ${document.kind} document, not a fight background.`);

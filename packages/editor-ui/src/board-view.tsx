@@ -1,8 +1,10 @@
-import type { Colorref } from "@tk-reawakened/core";
+import { readTileset, type Colorref } from "@tk-reawakened/core";
 import {
     BOARD_TOOLS,
     DEFAULT_EDITOR_PREFERENCES,
     ZOOM_STEPS,
+    autotileSourceForTile,
+    normalizeAutotileSource,
     boardTileAt,
     cellOnBoard,
     createBoardEditor,
@@ -29,9 +31,10 @@ import {
     type BoardPreviewRequest,
     boardExtent,
     encodeScenePng,
+    legacyAutotileGaps,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, ClipboardService, DocumentEdited, ImageExportService } from "@tk-reawakened/platform-services";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
 import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-lighting-view.tsx";
@@ -184,7 +187,10 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [brushSelection, setBrushSelection] = useState<BrowserSelection | null>(browser?.session.getSnapshot().selection ?? null);
+  const [autotileMarks, setAutotileMarks] = useState<readonly string[]>(browser?.session.getSnapshot().autotileMarks ?? []);
+  const [brushSelection, setBrushSelection] = useState<BrowserSelection | null>(() => browser?.session.getSnapshot().selection ?? null);
+  const [autoTiling, setAutoTiling] = useState(false);
+  const [shiftHeld, setShiftHeld] = useState(false);
   const [stamp, setStamp] = useState<{ readonly path: string; readonly value: Stamp } | null>(null);
   const [stampError, setStampError] = useState<string | null>(null);
   const [historyNote, setHistoryNote] = useState<string | null>(null);
@@ -217,11 +223,28 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const focusCell = useRef(false);
   const [, setPreferenceRevision] = useState(0);
   useEffect(() => preferences?.subscribe(() => setPreferenceRevision((value) => value + 1)) ?? undefined, [preferences]);
+  // Shift decides what an autotile stroke reshapes, so the note about it follows the key, wherever the pointer is.
+  useEffect(() => {
+    const track = (event: KeyboardEvent | PointerEvent): void => setShiftHeld(event.shiftKey);
+    const release = (): void => setShiftHeld(false);
+    window.addEventListener("keydown", track);
+    window.addEventListener("keyup", track);
+    window.addEventListener("pointermove", track);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", track);
+      window.removeEventListener("keyup", track);
+      window.removeEventListener("pointermove", track);
+      window.removeEventListener("blur", release);
+    };
+  }, []);
 
-  // What the editor reads each time it acts is kept in refs, so one editor lives as long as the view.
-  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited });
+  const tileCountRequest = useRef(0);
+  const markedSources = useMemo(() => new Set(autotileMarks.map((path) => path.replaceAll("/", "\\"))), [autotileMarks]);
+  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling, markedSources });
   const brush = brushFor(brushSelection, stamp);
-  latest.current = { snapshot, brush, preferences, browser, doc, onEdited };
+  const autotileBrushSource = brush?.kind === "tile" ? autotileSourceForTile(brush.tile, markedSources) : null;
+  latest.current = { snapshot, brush, preferences, browser, doc, onEdited, autoTiling, markedSources };
 
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
   const applyAndReport = (command: Parameters<BoardViewDocument["apply"]>[0]): ApplyResult | Promise<ApplyResult> => {
@@ -287,6 +310,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       // Read from the source when the gesture happens, so a preference changed since the last render is the one used.
       preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
       ...(clipboard === undefined ? {} : { clipboard }),
+      autotileEnabled: () => latest.current.autoTiling,
+      markedAutotileSources: () => latest.current.markedSources,
       lightsActive: () => lightsOn.current,
       objectBounds: (kind, index) => {
         const current = pictureRef.current;
@@ -296,16 +321,32 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         const source = tileSourceOf(tile);
         const context = latest.current.browser;
         if (source === null || context === undefined) return false;
+        const selection = context.session.getSnapshot().selection;
+        const previousSource = selection?.boardTile == null ? null : tileSourceOf(selection.boardTile);
+        const normalizedSource = normalizeAutotileSource(source.file);
+        const sameSource = previousSource !== null && normalizeAutotileSource(previousSource.file) === normalizedSource;
         const picked = {
           kind: "tiles" as const,
           path: referencePath(context.layout, "tiles", source.file),
           reference: tile,
           label: source.label,
           boardTile: tile,
+          ...(sameSource && selection?.autotileTileCount !== undefined ? { autotileTileCount: selection.autotileTileCount } : {}),
           // The shared browser's selection says whether it is a stamp; a tile is not one.
           stamp: null,
         };
+        const request = ++tileCountRequest.current;
         context.session.update({ selection: picked });
+        if (picked.autotileTileCount === undefined) {
+          void context.fs.read(picked.path).then((result) => {
+            if (!result.ok || request !== tileCountRequest.current) return;
+            const parsed = readTileset(result.value, picked.path);
+            if (!parsed.ok) return;
+            const current = context.session.getSnapshot().selection;
+            if (current?.kind !== "tiles" || current.path !== picked.path || current.reference !== picked.reference) return;
+            context.session.update({ selection: { ...current, autotileTileCount: parsed.value.tiles.length } });
+          });
+        }
         return true;
       },
     }),
@@ -315,7 +356,17 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const objectMode = useRef<Exclude<BoardEditorState["mode"], "tiles">>("vectors");
   if (state.mode !== "tiles") objectMode.current = state.mode;
 
-  useEffect(() => browser?.session.subscribe(() => setBrushSelection(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
+  useEffect(() => {
+    if (browser === undefined) return;
+    const state = browser.session.getSnapshot();
+    setBrushSelection(state.selection);
+    setAutotileMarks(state.autotileMarks);
+    return browser.session.subscribe((patch) => {
+      const current = browser.session.getSnapshot();
+      if (patch.some((change) => change.field === "selection")) setBrushSelection(current.selection);
+      if (patch.some((change) => change.field === "autotileMarks")) setAutotileMarks(current.autotileMarks);
+    });
+  }, [browser]);
   useEffect(() => editor.sync(), [editor, snapshot]);
   useEffect(() => { setColourPicker(null); setPickingStart(false); }, [state.mode, state.objectSelection?.index]);
 
@@ -399,7 +450,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   // Object art and visual board data affect composition; region-only edits need no asset work.
   }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.lights, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
 
-  useEffect(() => {
+  // Move focus only after the new roving tab stop is committed, not in an older passive effect.
+  useLayoutEffect(() => {
     if (!focusCell.current) return;
     focusCell.current = false;
     grid.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
@@ -510,6 +562,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     } else if (event.key === "-") {
       event.preventDefault();
       editor.zoomOut();
+    } else if (event.key.toLowerCase() === "a" && state.mode === "tiles") {
+      event.preventDefault();
+      setAutoTiling((enabled) => !enabled);
     } else if (event.key.toLowerCase() === "g") {
       event.preventDefault();
       editor.toggleGrid();
@@ -769,6 +824,25 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           />
         ))}
       </div>
+      {state.mode === "tiles" ? <>
+        <button type="button" class="tkr-board-autotile-toggle" aria-keyshortcuts="A" aria-pressed={autoTiling}
+          disabled={readOnly || state.busy} onClick={() => setAutoTiling((enabled) => !enabled)}>
+          Autotile (A): {autoTiling ? "on" : "off"}
+        </button>
+        {autoTiling ? <p role="status" class="tkr-board-note tkr-board-autotile-note">
+          Autotiling is on for Draw and Erase, Fill and Rectangle on this board only. Each edit reshapes the 3 × 3 cells around it on the current layer{(snapshot.coordType & 1) !== 0 ? " (5 rows × 3 columns on a stacked isometric board)" : ""}, and one Undo takes it all back.
+          {shiftHeld ? " Shift is held: only cells of the set you are painting reshape, and erasing or painting an ordinary tile reshapes nothing." : " Hold Shift to reshape only the set you are painting."}
+        </p> : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource === null
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">Autotiling is on, but the chosen tileset is not an autotile set (its file name does not start with AUTOTILES_ and it is not marked in the tileset browser). Draw paints it as an ordinary tile; nearby autotile sets still reshape around it.</p>
+          : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource !== null && (/\.iso\d+$/i.test(brush.tile) !== ((snapshot.coordType & 3) !== 0))
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">This {/\.iso\d+$/i.test(brush.tile) ? "isometric" : "square"} autotile set is on a {(snapshot.coordType & 3) !== 0 ? "isometric" : "square"} board. Painting still works, but the set's edges were drawn for the other tile shape.</p>
+          : null}
+        {autoTiling && brush?.kind === "tile" && autotileBrushSource !== null && brushSelection?.autotileTileCount !== undefined && legacyAutotileGaps(brushSelection.autotileTileCount).length > 0
+          ? <p class="tkr-board-note tkr-board-autotile-note" role="note">This set has {brushSelection.autotileTileCount} tiles, fewer than 52, so shapes {legacyAutotileGaps(brushSelection.autotileTileCount).join(", ")} have no tile and will draw as gaps. The tileset browser shows which shapes are missing.</p>
+          : null}
+      </> : null}
       <div class="tkr-board-toolbar tkr-board-toolbar-view" role="toolbar" aria-label="Board view">
         {canHistory ? (
           <>
@@ -957,8 +1031,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
                         const step = event.key === "ArrowLeft" ? [-1, 0] : event.key === "ArrowRight" ? [1, 0] : event.key === "ArrowUp" ? [0, -1] : event.key === "ArrowDown" ? [0, 1] : null;
                         if (step !== null) {
                           event.preventDefault();
-                          focusCell.current = true;
+                          const before = editor.getState().cursor;
                           editor.moveCursor(step[0]!, step[1]!);
+                          focusCell.current ||= editor.getState().cursor !== before;
                         } else if (event.key === "Enter") {
                           event.preventDefault();
                           tileField.current?.focus();

@@ -14,6 +14,8 @@ export interface FileSystemService {
   list(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
   /** The whole file as bytes. */
   read(path: string): Promise<PlatformResult<Uint8Array>>;
+  /** Read at most the first `maxBytes` bytes. Hosts without a safe bounded read may omit this capability. */
+  readPrefix?(path: string, maxBytes: number): Promise<PlatformResult<Uint8Array>>;
   /** Read only from the identified project. The host binds the operation to that project through completion. */
   readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>>;
   /** Project-bound enumeration, metadata and deletion; accepted operations retain their original project. */
@@ -59,6 +61,7 @@ export function bindProjectFileSystem(
     write: (path, bytes) => fs.write(path, bytes),
     createFolder: (path) => fs.createFolder(path),
     stat: (path) => fs.stat(path),
+    ...(fs.readPrefix === undefined ? {} : { readPrefix: (path: string, maxBytes: number) => fs.readPrefix!(path, maxBytes) }),
     delete: (path) => fs.delete(path),
     rename: (from, to) => fs.rename(from, to),
     watch: (path, onChange) => fs.watch(path, onChange),

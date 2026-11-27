@@ -110,10 +110,12 @@ export {
   type Pixel,
   type Viewport,
 } from "./board-geometry.ts";
+export { autotileCells, autotileSource, autotileSourceForTile, normalizeAutotileSource, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, paintAutotileStroke } from "./board-autotile.ts";
 export {
   BOARD_TOOLS,
   cellRect,
   cellsBetween,
+  floodArea,
   floodFill,
   moveCells,
   paintCells,
@@ -204,6 +206,16 @@ export {
   type NativeClipOpenResult,
   type NativeClipSnapshot,
 } from "./native-clip-document.ts";
+export {
+  createNativeSkinDocument,
+  nativeSkinCodec,
+  openNativeSkinDocument,
+  type NativeSkinCommand,
+  type NativeSkinDocument,
+  type NativeSkinModel,
+  type NativeSkinOpenResult,
+  type NativeSkinSnapshot,
+} from "./skin-document.ts";
 export {
   createNativeGeometryDocument,
   nativeGeometryCodecs,
@@ -342,7 +354,8 @@ export {
   nextScenePackPlacementId, placeScenePackAsset, placementPointForCell, removeScenePackPlacement,
   scenePackPlacementMissing, type TerrainScenePack, type TerrainScenePackAsset,
 } from "./scene-pack-placements.ts";
-export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
+export { inspectTerrainRoles, type TerrainRoleReport } from "./terrain-matcher.ts";
+export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, terrainSceneAssets, terrainSceneTilesets, type TerrainSceneAssetsData, type TerrainSceneProjectInventory, type TerrainSceneTileset, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
 export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
 export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";
 export { registerTerrainSceneConflictReview } from "./terrain-scene-save.ts";
@@ -561,6 +574,7 @@ export {
   type AssetPickerSnapshot,
   type PickOutcome,
 } from "./asset-picker.ts";
+export { audioContentOf, matchesAssetContent, type AssetContent, type AudioContent } from "./audio-content.ts";
 export {
   copyIntoReservedFolder,
   linkFor,
@@ -621,6 +635,7 @@ export {
   type PreparedGamePackage,
 } from "./package-export.ts";
 export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
+export { prepareGameSetup, type GameSetupOutcome, type PreparedGameSetup } from "./game-setup.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {

@@ -92,19 +92,22 @@ export function cellsBetween(board: ToolBoard, from: Pixel, to: Pixel): Cell[] {
 }
 
 /**
- * Bounded flood fill (T-23). It replaces the cells connected to `start` that hold the same tile as `start`, on `layer`.
- * Cells are connected when they share an edge on the picture, which is the four neighbours of the stored grid on a
- * top-down or iso-rotated board and the four staggered neighbours on an iso-stacked one. With `acrossLayers` the fill
- * also continues to the same cell on every other layer that holds that tile (the preference "Flood fill across layers").
+ * The region a flood fill reaches (T-23): the cells connected to `start` that hold the same tile as `start`, on `layer`,
+ * and with `acrossLayers` the same cell on every other layer that holds that tile. Unfiltered: every reached cell is
+ * named with `tile`, including one that already shows it, so a caller that reshapes the neighbourhood sees the whole
+ * region. Cells are connected when they share an edge on the picture, which is the four neighbours of the stored grid on
+ * a top-down or iso-rotated board and the four staggered neighbours on an iso-stacked one.
  */
-export function floodFill(board: ToolBoard, layer: number, start: Cell, tile: string, acrossLayers: boolean): ToolOutcome {
+export type FloodArea =
+  | { readonly ok: true; readonly cells: readonly TileAssignment[] }
+  | { readonly ok: false; readonly message: string };
+
+export function floodArea(board: ToolBoard, layer: number, start: Cell, tile: string, acrossLayers: boolean): FloodArea {
   if (!cellOnBoard(board, start.x, start.y)) return fail("That place is not on the board.");
   const target = boardTileAt(board, layer, start.x, start.y);
   if (target === null) return fail("That place is not on the board.");
-  if (target === tile) return ok([]);
   const columns = board.grid.width;
-  const rows = board.grid.height;
-  const layerCells = columns * rows;
+  const layerCells = columns * board.grid.height;
   const reached = new Set<number>();
   const queue: number[] = [];
   const visit = (at: number): void => {
@@ -127,13 +130,25 @@ export function floodFill(board: ToolBoard, layer: number, start: Cell, tile: st
     for (const next of cellNeighbours(board, x, y)) visit(l * layerCells + next.y * columns + next.x);
     if (acrossLayers) for (let other = 0; other < board.layers; other += 1) if (other !== l) visit(other * layerCells + rest);
   }
-  const changes: TileAssignment[] = [];
+  const cells: TileAssignment[] = [];
   for (const at of [...reached].sort((a, b) => a - b)) {
     const l = Math.floor(at / layerCells);
     const rest = at - l * layerCells;
-    changes.push({ layer: l, x: rest % columns, y: Math.floor(rest / columns), tile });
+    cells.push({ layer: l, x: rest % columns, y: Math.floor(rest / columns), tile });
   }
-  return ok(changes);
+  return { ok: true, cells };
+}
+
+/** The Flood fill tool (T-23): `floodArea` painted with `tile`, leaving cells that already show it unchanged. */
+export function floodFill(board: ToolBoard, layer: number, start: Cell, tile: string, acrossLayers: boolean): ToolOutcome {
+  if (!cellOnBoard(board, start.x, start.y)) return fail("That place is not on the board.");
+  const target = boardTileAt(board, layer, start.x, start.y);
+  if (target === null) return fail("That place is not on the board.");
+  // A region that already holds the tile is nothing to fill: answer before the walk, which would visit every cell of it.
+  if (target === tile) return ok([]);
+  const area = floodArea(board, layer, start, tile, acrossLayers);
+  if (!area.ok) return area;
+  return ok(area.cells.filter(({ layer: l, x, y }) => boardTileAt(board, l, x, y) !== tile));
 }
 
 /**

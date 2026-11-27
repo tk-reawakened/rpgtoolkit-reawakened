@@ -271,6 +271,46 @@ function buildZip(entries: readonly PackageFile[]): Result<Uint8Array> {
 }
 
 /**
+ * Write a plain ZIP from files that are not a distribution package (for example the reviewed setup bundle). Paths,
+ * sizes and archive structure use the same bounded reader contract as game packages; no manifest is added.
+ */
+export function writeZipArchive(files: readonly PackageFile[]): Result<Uint8Array> {
+  if (!Array.isArray(files) || files.length === 0 || files.length > PACKAGE_LIMITS.maxEntries) {
+    return err(failure(0, `The archive needs 1–${PACKAGE_LIMITS.maxEntries} files (max entry count, L2).`));
+  }
+  const seen = new Set<string>();
+  let total = 0;
+  const ordered: PackageFile[] = [];
+  for (const file of files) {
+    if (typeof file.path !== "string" || !(file.bytes instanceof Uint8Array)) {
+      return err(failure(0, "Every ZIP entry must have a string path and Uint8Array bytes."));
+    }
+    const pathProblem = checkEntryPath(file.path);
+    if (pathProblem !== null || file.path.endsWith("/")) {
+      return err(failure(0, `${pathProblem ?? `ZIP entry "${file.path}" must name a file`}.`));
+    }
+    const path = toSlashes(file.path);
+    const folded = foldPath(path);
+    if (seen.has(folded)) return err(failure(0, `ZIP entry "${path}" duplicates another path (case-insensitive duplicates, L10).`));
+    seen.add(folded);
+    if (file.bytes.length > PACKAGE_LIMITS.maxEntryUncompressedBytes) {
+      return err(failure(0, `ZIP entry "${path}" exceeds the max entry size (L3).`));
+    }
+    total += file.bytes.length;
+    if (total > PACKAGE_LIMITS.maxTotalUncompressedBytes) {
+      return err(failure(0, "ZIP entries exceed the max total uncompressed size (L4)."));
+    }
+    ordered.push({ path, bytes: file.bytes });
+  }
+  ordered.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  const built = buildZip(ordered);
+  if (!built.ok) return built;
+  const reread = readZip(built.value, "the ZIP archive");
+  if (!reread.ok) return err(failure(0, `The writer produced a ZIP its reader rejects: ${reread.error.message}`));
+  return built;
+}
+
+/**
  * Write the project's distribution package (docs/spec/formats/packaging-and-paths.md, AD-6): a
  * `.tpk`-compatible ZIP carrying `input.files` plus `manifest.json` at the
  * archive root.

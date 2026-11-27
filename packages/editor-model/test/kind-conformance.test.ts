@@ -124,6 +124,13 @@ const CASES: readonly KindCase[] = [
     rejected: { type: "set-native-clip-property", path: ["delay"], value: -1 },
   },
   {
+    kind: "skin",
+    path: "Misc/stone.tkrskin",
+    bytes: utf8Encode("# skin\ncontract: skin\nversion: 1.0.0-pre.1\nlabel: Stone\nwindowImage: bitmap/window.png\nbuttonImage: bitmap/button.png # keep\n"),
+    accepted: { type: "set-native-skin-image", field: "windowImage", reference: "bitmap/new-window.png" },
+    rejected: { type: "set-native-skin-image", field: "windowImage", reference: "bitmap/bad.svg" },
+  },
+  {
     kind: "native-tile",
     path: "Tiles/fence.tkrtle",
     bytes: utf8Encode("contract: tile\nversion: 1.0.0-pre.1\nname: Fence\nprojection: 2d\nrole: wall\nvisual: {transparent: {mode: alpha}, sample: {file: Bitmap/fence.png, rect: [0, 0, 32, 32]}}\n"),

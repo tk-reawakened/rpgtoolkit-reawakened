@@ -242,6 +242,65 @@ deactivate
 
 While the environment is active, `pnpm oracle:check` finds its `python3` through `PATH`. On Windows, activate the environment with its `Scripts/Activate.ps1` instead. The other shell examples on this page use a POSIX shell, such as Bash or Git Bash.
 
+### Run CI locally with wrkflw
+
+Use the checked-out CI workflow to run a job in Linux without maintaining a second
+copy of its dependency versions or commands. This is an early check, not a substitute
+for GitHub's required gate. Start with the affected job rather than the whole matrix.
+
+Install [wrkflw](https://github.com/bahdotsh/wrkflw) and Docker or Podman. The initial
+project pilot used wrkflw 0.9.0 and Podman 6.2.1. On macOS, for example:
+
+```sh
+brew install wrkflw podman
+podman machine init --memory 6144 --cpus 4   # only if you have no machine yet
+podman machine start
+wrkflw doctor
+```
+
+Do not run `machine init` again for an existing VM. Size it for the available host
+memory; 6 GiB is the pilot configuration, not a guarantee every job will fit.
+
+```sh
+node tools/ci/local.mjs changes --fresh       # small first-run check
+node tools/ci/local.mjs editor-web --plan     # inspect selected steps without running
+node tools/ci/local.mjs editor-web            # browser lane, retaining installed dependencies
+node tools/ci/local.mjs editor-vscode --fresh # use an empty workspace for this run
+node tools/ci/local.mjs checks --runtime=docker
+```
+
+`pnpm ci:local` is the same launcher. Node itself is needed to launch it, but a host
+dependency install is not. Jobs are selected from `ci.yml`; browser lane names come
+from its matrix. The launcher writes only a generated workflow under `.cache/wrkflw/`,
+narrows the browser matrix when requested, and leaves the tracked workflow unchanged.
+It simulates a push to main so the classifier runs in full, not a particular PR's
+diff classification. It runs one job at a time and refuses a second launcher in the
+same checkout. Avoid simultaneous browser runs in other checkouts too.
+
+By default wrkflw retains each job's workspace, including dependencies and build
+outputs, under its user cache directory. A stable generated filename keeps that
+cache reusable within this checkout. `--fresh` uses an empty temporary workspace
+without removing the retained one; container images and other caches are separate.
+Never use `--reuse-results` when investigating flakes: a previous pass is not
+another test attempt.
+`wrkflw clean` removes idle retained workspaces across repositories, not just this
+checkout. Check its help before cleaning. Do not prune images or shared caches
+while another run uses them. No pre-push hook is installed.
+After interrupting a Podman run, check `podman ps` before retrying. wrkflw 0.9.0
+can leave its job container running; stop only the container from that run.
+
+Read the final JSON verdict and warnings, not just the exit code. In the 0.9.0 pilot,
+wrkflw skipped `actions/setup-node` in the Playwright job container and ignored
+`container.options` (`--ipc=host`). The image already contained Node 24.21.0, but
+that coincidence must be rechecked whenever versions change. Apple Silicon runs
+ARM64 Linux rather than GitHub's x86-64, and the local VM may have less memory.
+For non-container jobs, wrkflw 0.9.0 maps `ubuntu-24.04` to `ubuntu:latest`, not
+GitHub's Ubuntu 24.04 runner image. The `golden` job is excluded because its
+system-Python Pillow install is incompatible with that fallback.
+Windows/macOS desktop proofs and the mobile emulator are not offered by this launcher.
+A partial or unverified pass leaves those differences unproved; it must not clear
+a failing GitHub check. Keep failure logs and the exact revision when filing a bug.
+
 ## Where things are
 
 These packages exist today (`packages/`):

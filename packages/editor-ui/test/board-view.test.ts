@@ -5,6 +5,7 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { options as preactOptions } from "preact";
 import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPicture, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/editor-model/testing";
@@ -284,6 +285,34 @@ test("the grid is one tab stop that moves with the arrow keys and carries the se
     }
   });
   equal(cell(s.el, 1, 2).getAttribute("tabindex"), "0", "the selection stops at the board's edge");
+});
+
+test("board arrow focus follows the committed cell with older passive work still queued", async () => {
+  const s = await setup();
+  const view = await show(s);
+  const previous = preactOptions.requestAnimationFrame;
+  const held: Array<() => void> = [];
+  // Let Preact commit DOM changes, but hold the previous render's after-paint effects.
+  preactOptions.requestAnimationFrame = (run) => { held.push(run); return 0; };
+  try {
+    const second = cell(s.el, 2, 1);
+    second.click();
+    await nextTurn();
+    equal(second.tabIndex, 0);
+    ok(held.length > 0, "the previous commit must have queued passive work");
+    second.focus();
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    await nextTurn();
+    const third = cell(s.el, 3, 1);
+    equal(third.tabIndex, 0);
+    equal(document.activeElement === third, true, "the DOM focus must move with the selected cell");
+  } finally {
+    view.dispose();
+    if (previous === undefined) delete preactOptions.requestAnimationFrame;
+    else preactOptions.requestAnimationFrame = previous;
+    for (const run of held) run();
+    s.el.remove();
+  }
 });
 
 test("putting a tile edits the document, marks it unsaved and tells the host about the edit", async () => {
@@ -898,7 +927,7 @@ test("tile-reference matching folds ASCII path characters without conflating Uni
     ok(written.ok);
     return written.value;
   };
-  const s = await setup(exampleBoard(), createBrowserSession({ selection: null, path: "Bitmap/unicode.tbm", scrollTop: 0 }), {
+  const s = await setup(exampleBoard(), createBrowserSession({ selection: null, path: "Bitmap/unicode.tbm", scrollTop: 0, autotileMarks: [] }), {
     "Tiles/Ä.gph": single,
     "Tiles/FLOWER.GPH": single,
     "Bitmap/unicode.tbm": bitmapFor("ä.gph"),

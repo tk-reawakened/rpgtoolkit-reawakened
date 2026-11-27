@@ -1,13 +1,15 @@
 import * as vscode from "vscode";
-import { createDocumentWorkspace, prepareGamePackage } from "@tk-reawakened/editor-model";
-import { savePackageWithSaveAs, type PackageDestinationKind, type PackageSavePort } from "./package-save.ts";
+import { prepareGameSetup } from "@tk-reawakened/editor-model";
+import { savePackageWithSaveAs, type PackageSavePort } from "./package-save.ts";
+import { ensureExportParent, fileNameOf, preflightGamePackage, siblingUri, vscodeDestinationKind } from "./package-preflight.ts";
 import { validatePackageDestination } from "./package-destination.ts";
-import { createVscodeServices } from "./services.ts";
+import { replaceSetupFile, saveSetupWithSaveAs, type SetupSavePort } from "./setup-save.ts";
 
-const SAVE_LABEL = "Choose where to save…";
+const SAVE_PACKAGE_LABEL = "Choose where to save…";
+const SAVE_SETUP_LABEL = "Choose where to save the setup…";
+type SettleLiveMain = (uri: vscode.Uri) => Promise<string | null>;
 
 function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
-  const fileName = (uri: vscode.Uri): string => uri.path.slice(uri.path.lastIndexOf("/") + 1);
   return {
     chooseDestination: async (suggested) => await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.joinPath(projectRoot, ".tkr-exports", suggested),
@@ -15,24 +17,13 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
       title: "Save RPG Toolkit package",
       filters: { "RPG Toolkit package": ["tpk"] },
     }),
-    fileName,
-    sibling: (uri, name) => uri.with({ path: `${uri.path.slice(0, uri.path.lastIndexOf("/") + 1)}${name}` }),
+    fileName: fileNameOf,
+    sibling: siblingUri,
     describe: (uri) => vscode.workspace.asRelativePath(uri, false),
     validateDestination: async (uri) => validatePackageDestination(projectRoot, uri),
-    inspect: async (uri): Promise<PackageDestinationKind> => {
-      try {
-        const stat = await vscode.workspace.fs.stat(uri);
-        if ((stat.type & vscode.FileType.SymbolicLink) !== 0) return "link";
-        if ((stat.type & vscode.FileType.Directory) !== 0) return "directory";
-        if ((stat.type & vscode.FileType.File) !== 0) return "file";
-        return "other";
-      } catch (error) {
-        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") return "missing";
-        throw error;
-      }
-    },
+    inspect: vscodeDestinationKind,
     confirmReplace: async (existing) => {
-      const names = existing.map(fileName).join(", ");
+      const names = existing.map(fileNameOf).join(", ");
       const answer = await vscode.window.showWarningMessage(
         `${names} already exists in the chosen folder. Replace ${existing.length === 1 ? "it" : "them"}?`,
         { modal: true, detail: "Nothing is replaced unless you choose Replace." },
@@ -41,79 +32,122 @@ function vscodeSavePort(projectRoot: vscode.Uri): PackageSavePort<vscode.Uri> {
       return answer === "Replace";
     },
     write: async (uri, bytes) => {
-      const refusal = validatePackageDestination(projectRoot, uri);
-      if (refusal === undefined && uri.scheme === projectRoot.scheme && uri.authority === projectRoot.authority && uri.path.startsWith(`${projectRoot.path.replace(/\/$/, "")}/.tkr-exports/`)) {
-        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(projectRoot, ".tkr-exports"));
-      }
+      await ensureExportParent(projectRoot, uri);
       await vscode.workspace.fs.writeFile(uri, bytes);
     },
   };
 }
 
-/** Register the Explorer/command-palette entry that packages the selected project's main game. */
-export function registerPackageGameCommand(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGame", async (resource?: vscode.Uri, suppliedVersion?: string) => {
-    const mainUri = resource ?? (await vscode.window.showOpenDialog({
-      canSelectMany: false,
-      canSelectFiles: true,
-      canSelectFolders: false,
-      openLabel: "Choose game to package",
-      title: "Package RPG Toolkit game",
-      filters: { "RPG Toolkit game": ["gam"] },
-    }))?.[0];
-    if (mainUri === undefined) return;
-    const folder = vscode.workspace.getWorkspaceFolder(mainUri);
-    if (folder === undefined || !mainUri.path.toLowerCase().endsWith(".gam")) {
-      void vscode.window.showErrorMessage("Choose a .gam file inside an open RPG Toolkit project folder.");
-      return;
-    }
-    const rootPath = folder.uri.path.replace(/\/$/, "");
-    const mainPath = mainUri.path.slice(rootPath.length).replace(/^\/+/, "");
-    const releaseVersion = suppliedVersion ?? await vscode.window.showInputBox({
-      title: "Package RPG Toolkit game",
-      prompt: "Enter the release version for the install descriptor.",
-      placeHolder: "1.0.0",
-      ignoreFocusOut: true,
-      validateInput: (value) => value.trim().length === 0 ? "Enter a release version." : value.length > 128 ? "Use 128 characters or fewer." : undefined,
-    });
-    if (releaseVersion === undefined) return;
-    if (!await vscode.workspace.saveAll(true)) {
-      void vscode.window.showErrorMessage("Save open files before packaging the game.");
-      return;
-    }
-
-    const services = createVscodeServices(folder.uri, context, () => 0);
-    const workspace = createDocumentWorkspace({ projectId: folder.uri.toString(), services });
-    try {
-      const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
-      if (!prepared.ok) {
-        void vscode.window.showErrorMessage(prepared.message);
-        return;
-      }
-      const inventory = [
-        `Included (${prepared.value.includedFiles.length}):`,
-        ...prepared.value.includedFiles.map((path) => `  + ${path}`),
-        `Excluded (${prepared.value.excludedFiles.length}):`,
-        ...(prepared.value.excludedFiles.length === 0 ? ["  (none)"] : prepared.value.excludedFiles.map((path) => `  - ${path}`)),
-      ].join("\n");
-      const choice = await vscode.window.showInformationMessage(
-        `Preflight passed: ${prepared.value.includedFiles.length} files will be packaged. Review the inventory, then choose where to save the package and its install descriptor.`,
-        { modal: true, detail: `${inventory}\n\nThe package and descriptor are saved where you choose, through Save As. Files that already exist are replaced only if you confirm.` },
-        SAVE_LABEL,
+/**
+ * One setup ZIP, written in full beside the destination and only then swapped in, so a failed save keeps an earlier
+ * setup file (`docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery`).
+ */
+function vscodeSetupPort(projectRoot: vscode.Uri): SetupSavePort<vscode.Uri> {
+  return {
+    chooseDestination: async (suggested) => await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(projectRoot, ".tkr-exports", suggested),
+      saveLabel: "Save game setup",
+      title: "Save RPG Toolkit game setup",
+      filters: { "RPG Toolkit game setup": ["zip"] },
+    }),
+    fileName: fileNameOf,
+    describe: (uri) => vscode.workspace.asRelativePath(uri, false),
+    validateDestination: async (uri) => validatePackageDestination(projectRoot, uri),
+    inspect: vscodeDestinationKind,
+    confirmReplace: async (existing) => {
+      const answer = await vscode.window.showWarningMessage(
+        `${fileNameOf(existing)} already exists in the chosen folder. Replace it?`,
+        { modal: true, detail: "The previous setup file is kept unless you choose Replace." },
+        "Replace",
       );
-      if (choice !== SAVE_LABEL) return;
+      return answer === "Replace";
+    },
+    replace: async (uri, bytes, replaceExisting) => {
+      const refusal = validatePackageDestination(projectRoot, uri);
+      if (refusal !== undefined) throw new Error(refusal);
+      await ensureExportParent(projectRoot, uri);
+      return await replaceSetupFile({
+        write: async (staging, contents) => { await vscode.workspace.fs.writeFile(staging, contents); },
+        rename: async (staging, destination) => { await vscode.workspace.fs.rename(staging, destination, { overwrite: false }); },
+        remove: async (staging) => { await vscode.workspace.fs.delete(staging); },
+        stagingName: (destination) => `${fileNameOf(destination)}.partial-${crypto.randomUUID()}`,
+        sibling: siblingUri,
+        describe: (destination) => vscode.workspace.asRelativePath(destination, false),
+      }, uri, bytes, replaceExisting);
+    },
+  };
+}
 
-      const saved = await savePackageWithSaveAs(vscodeSavePort(folder.uri), prepared.value);
+function message(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unknown error";
+  return /symbolic.?link|symlink/i.test(detail)
+    ? `A symbolic link was detected in the project. Packaging will not follow it without safe containment support. ${detail}`
+    : `Package export failed: ${detail}`;
+}
+
+/** Register the Explorer/command-palette entry that packages the selected project's main game. */
+export function registerPackageGameCommand(context: vscode.ExtensionContext, settleLiveMain: SettleLiveMain): void {
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGame", async (resource?: vscode.Uri, suppliedVersion?: string) => {
+    try {
+      const accepted = await preflightGamePackage(context, resource, suppliedVersion, {
+        pickerTitle: "Package RPG Toolkit game",
+        pickerLabel: "Choose game to package",
+        versionTitle: "Package RPG Toolkit game",
+        acceptLabel: SAVE_PACKAGE_LABEL,
+        question: (includedFiles) => `Preflight passed: ${includedFiles} files will be packaged. Review the inventory, then choose where to save the package and its install descriptor.`,
+        detailSuffix: "The package and descriptor are saved where you choose, through Save As. Files that already exist are replaced only if you confirm.",
+      }, settleLiveMain);
+      if (accepted === undefined) return;
+      const saved = await savePackageWithSaveAs(vscodeSavePort(accepted.folder), accepted.prepared);
       if (saved.ok) void vscode.window.showInformationMessage(saved.message);
       else if (!saved.cancelled) void vscode.window.showErrorMessage(saved.message);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "unknown error";
-      const message = /symbolic.?link|symlink/i.test(detail)
-        ? `A symbolic link was detected in the project. Packaging will not follow it without safe containment support. ${detail}`
-        : `Package export failed: ${detail}`;
-      void vscode.window.showErrorMessage(`${message}. Nothing more was written.`);
-    } finally {
-      workspace.dispose();
+      void vscode.window.showErrorMessage(`${message(error)}. Nothing more was written.`);
+    }
+  }));
+}
+
+/**
+ * Register the command that builds the reviewed setup ZIP (T-72, ADR 0045 5C). The ZIP holds only the package, its
+ * install descriptor and the plain-text instructions; the player app installs and removes it.
+ */
+export function registerGameSetupCommand(context: vscode.ExtensionContext, settleLiveMain: SettleLiveMain): void {
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGameSetup", async (resource?: vscode.Uri, suppliedVersion?: string) => {
+    try {
+      const accepted = await preflightGamePackage(context, resource, suppliedVersion, {
+        pickerTitle: "Create RPG Toolkit game setup",
+        pickerLabel: "Choose game for its setup",
+        versionTitle: "Create RPG Toolkit game setup",
+        acceptLabel: SAVE_SETUP_LABEL,
+        question: (includedFiles) => `Preflight passed: ${includedFiles} game files will be bundled. Review the inventory, then choose the setup ZIP's destination.`,
+        detailSuffix: "The setup ZIP holds the reviewed package, its install descriptor and plain-text instructions. A browser can download it but cannot install it; the player app's Install and Remove do.",
+      }, settleLiveMain);
+      if (accepted === undefined) return;
+      const setup = prepareGameSetup(accepted.prepared);
+      if (!setup.ok) {
+        void vscode.window.showErrorMessage(setup.message);
+        return;
+      }
+      const contents = [
+        `Setup file: ${setup.value.artifact.fileName}`,
+        "It contains:",
+        ...["package", "descriptor", "instructions"].map((key) => `  + ${setup.value[key as "package" | "descriptor" | "instructions"].fileName}`),
+        "Dependencies: none outside these files. Nothing is signed and no installer runs.",
+      ].join("\n");
+      const reviewed = await vscode.window.showInformationMessage(
+        "Review the setup ZIP contents and dependencies before saving it.",
+        { modal: true, detail: contents },
+        SAVE_SETUP_LABEL,
+      );
+      if (reviewed !== SAVE_SETUP_LABEL) {
+        void vscode.window.showInformationMessage("Setup export was cancelled; nothing was written.");
+        return;
+      }
+      const saved = await saveSetupWithSaveAs(vscodeSetupPort(accepted.folder), setup.value);
+      if (saved.ok) void vscode.window.showInformationMessage(saved.message);
+      else if (!saved.cancelled) void vscode.window.showErrorMessage(saved.message);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`${message(error)}. Nothing more was written.`);
     }
   }));
 }

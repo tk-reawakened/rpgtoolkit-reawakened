@@ -17,6 +17,10 @@ export type DesktopHost = {
   openPackage(gameId?: string): Promise<{ readonly name: string; readonly bytes: Uint8Array; readonly descriptor: unknown } | null>;
   /** Which rule named the game, the rows to offer, and the sentence that says why nothing opened. */
   launchInfo(): Promise<LaunchInfo>;
+  /** Import a reviewed setup ZIP through the native file picker; no scripts or archive paths are executed. */
+  installSetup(): Promise<{ readonly ok: boolean; readonly cancelled?: boolean; readonly message?: string }>;
+  /** Remove a library registration and its package copy. Save blobs are preserved. */
+  removeGame(gameId: string): Promise<{ readonly ok: boolean; readonly message?: string }>;
   /** This run's overlay override and whether the diagnostics strip was asked for (E-05, main-file row 58). */
   debug(): Promise<DesktopDebugOptions>;
   readBlob(area: "saves" | "files", gameId: string, path: string): Promise<Uint8Array | null>;
@@ -31,6 +35,8 @@ export type DesktopHost = {
 contextBridge.exposeInMainWorld("desktop", {
   openPackage: (gameId?: string) => ipcRenderer.invoke("desktop:launch", gameId ?? null),
   launchInfo: () => ipcRenderer.invoke("desktop:launch.info"),
+  installSetup: () => ipcRenderer.invoke("desktop:setup.install"),
+  removeGame: (gameId: string) => ipcRenderer.invoke("desktop:library.remove", gameId),
   debug: () => ipcRenderer.invoke("desktop:debug"),
   readBlob: (area, gameId, path) => ipcRenderer.invoke("desktop:blob.read", area, gameId, path),
   writeBlob: (area, gameId, path, bytes) => ipcRenderer.invoke("desktop:blob.write", area, gameId, path, bytes),
@@ -38,3 +44,4 @@ contextBridge.exposeInMainWorld("desktop", {
   report: (value) => ipcRenderer.invoke("desktop:report", value),
   quit: () => ipcRenderer.invoke("desktop:quit"),
 } satisfies DesktopHost);
+
