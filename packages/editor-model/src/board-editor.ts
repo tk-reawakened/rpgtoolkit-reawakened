@@ -70,7 +70,7 @@ export interface Modifiers {
 
 /** What Draw and Flood put: one tile, or a whole tile bitmap as a stamp. */
 export type Brush =
-  | { readonly kind: "tile"; readonly tile: string; readonly label: string; readonly autotileSources?: ReadonlySet<string> }
+  | { readonly kind: "tile"; readonly tile: string; readonly label: string }
   | { readonly kind: "stamp"; readonly stamp: Stamp };
 
 export interface EditorPreferences {
@@ -110,6 +110,8 @@ export interface BoardEditorOptions {
   preferences(): EditorPreferences;
   /** Whether legacy Draw and Erase gestures reshape neighbouring autotile sets. */
   autotileEnabled?(): boolean;
+  /** The session's marked legacy sets, independent of the currently selected brush. */
+  markedAutotileSources?(): ReadonlySet<string>;
   /** The size of the canvas in screen pixels. */
   readonly viewSize?: { readonly width: number; readonly height: number };
   /** Actual graphic bounds when the preview has them; otherwise the documented 32×32 placeholder is selectable. */
@@ -369,11 +371,6 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     return start !== null && !isSameCellMove && cells[0] !== undefined && key(cells[0]) === key(start) ? cells.slice(1) : cells;
   };
 
-  /** The legacy-set marks in the shared session, so every marked set reshapes when a neighbor changes. */
-  const brushAutotileSources = (): ReadonlySet<string> | undefined => {
-    const brush = options.brush();
-    return brush?.kind === "tile" ? brush.autotileSources : undefined;
-  };
 
   const place = async (tool: BoardTool, cell: Cell, modifiers: Modifiers = {}): Promise<void> => {
     const board = options.board();
@@ -386,9 +383,9 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         await commit("stamp", stampCells(board, layer, brush.stamp, cell));
         return;
       }
-      await commit("draw", { ok: true, cells: paintAutotileStroke(board, layer, [cell], brush.tile, enabled, modifiers.shift === true, brush.autotileSources) });
+      await commit("draw", { ok: true, cells: paintAutotileStroke(board, layer, [cell], brush.tile, enabled, modifiers.shift === true, options.markedAutotileSources?.()) });
     } else if (tool === "erase") {
-      await commit("erase", { ok: true, cells: paintAutotileStroke(board, layer, [cell], "", enabled, modifiers.shift === true, brushAutotileSources()) });
+      await commit("erase", { ok: true, cells: paintAutotileStroke(board, layer, [cell], "", enabled, modifiers.shift === true, options.markedAutotileSources?.()) });
     } else if (tool === "flood") {
       const tile = needTile();
       if (tile === null) return;
@@ -408,7 +405,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         else { const list = others.get(at) ?? []; list.push({ x, y }); others.set(at, list); }
       }
       const cells = [
-        ...autotileCells(board, layer, own, tile, enabled, modifiers.shift === true, brushAutotileSources()),
+        ...autotileCells(board, layer, own, tile, enabled, modifiers.shift === true, options.markedAutotileSources?.()),
         ...[...others].flatMap(([at, list]) => paintCells(board, at, list, tile)),
       ];
       const changed = await commit("flood", { ok: true, cells });
@@ -438,7 +435,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     // Ctrl held when the rectangle is finished fills it (the modifier of the finishing click or Space).
     const board = options.board();
     const region = rectangleRegion(board, pending.anchor, current, modifiers.ctrl === true);
-    await commit("rectangle", { ok: true, cells: autotileCells(board, state.layer, region, tile, options.autotileEnabled?.() === true, modifiers.shift === true, brushAutotileSources()) });
+    await commit("rectangle", { ok: true, cells: autotileCells(board, state.layer, region, tile, options.autotileEnabled?.() === true, modifiers.shift === true, options.markedAutotileSources?.()) });
   };
 
   const startCorner = (cell: Cell, modifiers: Modifiers, keyboard: boolean): void => {
@@ -1105,7 +1102,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         for (const last of released) { strokeVisits.push(last); strokeShifts.push(modifiers.shift === true); }
         // The release position counts even when the pointer did not move after its last move event.
         if (released.length === 0 && at !== null && !strokeKeys.has(key(at))) { strokeVisits.push(at); strokeShifts.push(modifiers.shift === true); }
-        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintAutotileStroke(board, layer, strokeVisits, tile, options.autotileEnabled?.() === true, strokeShifts, brushAutotileSources()) });
+        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintAutotileStroke(board, layer, strokeVisits, tile, options.autotileEnabled?.() === true, strokeShifts, options.markedAutotileSources?.()) });
         strokeVisits = [];
         strokeShifts = [];
       } else if (pending.kind === "stamp") {

@@ -3,7 +3,7 @@
 import { after, before, test } from "node:test";
 import { equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { inspectTerrainRoles, type Scene, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
+import { inspectTerrainRoles, type Scene, type TerrainScenePack, type TerrainSceneTileset } from "@tk-reawakened/editor-model";
 import { createTerrainSceneAssets, type MutableTerrainSceneAssets } from "../src/terrain-assets.ts";
 
 let mountTerrainScene: typeof import("@tk-reawakened/editor-ui").mountTerrainScene;
@@ -170,4 +170,38 @@ test("a recipe change that leaves the roles the same still hides the preview bui
   // Same rules, same coverage, same roles - only a seed (or outside policy, or a variant weight) differs.
   await act(async () => { assets.set({ tilesets: [entry("complete", rules, "seed 7")], assetTiles: [], packs: [] }); await new Promise<void>((r) => setImmediate(r)); });
   ok(!(el.textContent ?? "").includes("Built with seed 0."), "the build of the old seed is not shown as current");
+});
+test("asset recovery keeps refresh available and restores manual tile selection", async () => {
+  const assets = createTerrainSceneAssets({ tilesets: [], assetTiles: [], packs: [], problems: ["Tiles/Pond.tkrtst: invalid recipe"] });
+  let refreshes = 0;
+  const recorded: { scene: Scene | null } = { scene: null };
+  const el = await show([], assets, { onRefreshAssets: () => { refreshes += 1; }, onChange: (next: Scene) => { recorded.scene = next; } });
+  const refresh = el.querySelector<HTMLButtonElement>("[data-tkr-terrain-rules-refresh]")!;
+  ok(refresh !== null, "retry is reachable when no terrain inventory loaded");
+  const alert = el.querySelector('[aria-label="Terrain rules unavailable"]');
+  ok(alert !== null);
+  match(alert.textContent ?? "", /invalid recipe/);
+  const manual = el.querySelector<HTMLSelectElement>("[data-tkr-manual-tile]")!;
+  equal(manual.disabled, true);
+  await act(() => { refresh.click(); });
+  equal(refreshes, 1);
+
+  const water = { label: "Tiles/water.tkrtle", tile: { tile: "Tiles/water.tkrtle" } } as const;
+  await act(async () => { assets.set({ tilesets: [], assetTiles: [water], packs: [] }); await new Promise<void>((resolve) => setImmediate(resolve)); });
+  equal(manual.disabled, false, "the recovered first tile becomes selectable");
+  await act(() => { el.querySelector<HTMLInputElement>('[data-tkr-tool="tile"]')!.click(); });
+  await act(() => { el.querySelector<HTMLButtonElement>('button[aria-label^="Cell 0, 0:"]')!.click(); });
+  const override = recorded.scene?.tileOverrides?.[0];
+  ok(override !== undefined && "tile" in override.tile);
+  equal(override.tile.tile, water.tile.tile);
+});
+
+test("a changed pack source revision expires the scene preview", async () => {
+  const pack: TerrainScenePack = { path: "Packs/props.tkrpack", name: "Props", projection: "2d", revision: "source-v1", assets: [] };
+  const assets = createTerrainSceneAssets({ tilesets: [], assetTiles: [], packs: [pack] });
+  const el = await show([], assets, { onPreview: async () => ({ ok: false, message: "Preview from old pack art." }) });
+  await act(async () => { el.querySelector<HTMLButtonElement>('button[aria-disabled]')!.click(); await new Promise<void>((resolve) => setImmediate(resolve)); });
+  match(el.textContent ?? "", /Preview from old pack art/);
+  await act(async () => { assets.set({ tilesets: [], assetTiles: [], packs: [{ ...pack, revision: "source-v2" }] }); await new Promise<void>((resolve) => setImmediate(resolve)); });
+  ok(!(el.textContent ?? "").includes("Preview from old pack art"), "the previous preview no longer matches current pack bytes");
 });

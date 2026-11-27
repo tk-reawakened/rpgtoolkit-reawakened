@@ -93,7 +93,11 @@ export function TerrainSceneView({ scene, assets, onRefreshAssets, onOpenAsset, 
       if (!chosen.terrains.some((entry) => entry.id === terrainId)) { setTerrainId(chosen.terrains[0]?.id ?? ""); setAnchor(null); }
     }
     // The chosen manual tile follows its own reference; a refresh that reorders the list must not silently repoint it.
-    if (tileReference !== null && !assetTiles.some((entry) => tileReferenceOf(entry.tile) === tileReference)) setTileReference(assetTiles[0] === undefined ? null : tileReferenceOf(assetTiles[0].tile));
+    if (tileReference === null) {
+      if (assetTiles[0] !== undefined) setTileReference(tileReferenceOf(assetTiles[0].tile));
+    } else if (!assetTiles.some((entry) => tileReferenceOf(entry.tile) === tileReference)) {
+      setTileReference(assetTiles[0] === undefined ? null : tileReferenceOf(assetTiles[0].tile));
+    }
   }, [tilesets, assetTiles, tilesetPath, terrainId, tileReference]);
   const tileIndex = Math.max(0, assetTiles.findIndex((entry) => tileReferenceOf(entry.tile) === tileReference));
   const choice = tileReference !== null && assetTiles[tileIndex] !== undefined && tileReferenceOf(assetTiles[tileIndex]!.tile) === tileReference ? assetTiles[tileIndex] : undefined;
@@ -179,9 +183,9 @@ export function TerrainSceneView({ scene, assets, onRefreshAssets, onOpenAsset, 
     {problems.length > 0 ? <div role="alert" aria-label="Terrain rules unavailable">
       Terrain rules could not be read, so none are shown as current: {problems.join("; ")}
     </div> : null}
+    {onRefreshAssets === undefined ? null : <button type="button" data-tkr-terrain-rules-refresh="true" disabled={disabled} onClick={onRefreshAssets}>Refresh terrain rules</button>}
     {terrain !== undefined ? <section aria-label="Native terrain roles" data-tkr-terrain-roles={terrain.id}>
       <h3>Native terrain rules: {terrain.label}</h3>
-      {onRefreshAssets === undefined ? null : <button type="button" data-tkr-terrain-rules-refresh="true" disabled={disabled} onClick={onRefreshAssets}>Refresh terrain rules</button>}
       <p>{terrain.roles.neighbours === "blob-8" ? "Eight neighbours" : "Four neighbours"}, {terrain.roles.coverage} coverage: {terrain.roles.situations - terrain.roles.missing.length} of {terrain.roles.situations} neighbourhoods have a tile. Native roles are these rules; they are not the legacy 52-slot order, and this terrain is not an original-format set.</p>
       <ul aria-label="Terrain rules">{terrain.roles.rules.map((rule) => <li key={rule.id}>
         {rule.id}: {rule.when} uses {rule.tiles.join(", ")} ({rule.situations} {rule.situations === 1 ? "neighbourhood" : "neighbourhoods"})

@@ -22,18 +22,32 @@ export function autotileSource(reference: string): string | null {
 }
 
 
+/** Source identity for marked sets, whose browser paths may omit the reserved Tiles/ root. */
+export function normalizeAutotileSource(source: string): string {
+  const path = source.replaceAll("/", "\\");
+  return (path.slice(0, 6).toLowerCase() === "tiles\\" ? path.slice(6) : path).toLowerCase();
+}
+
+function sourceForTileReference(reference: string, source: string): string {
+  const prefix = /^Tiles[\\/]/i.exec(reference)?.[0].replaceAll("/", "\\") ?? "";
+  const path = source.replaceAll("/", "\\");
+  return `${prefix}${path.slice(0, 6).toLowerCase() === "tiles\\" ? path.slice(6) : path}`;
+}
+
 /** Resolve a named or explicitly marked source for one tile reference. */
 export function autotileSourceForTile(reference: string, markedSources?: ReadonlySet<string>): string | null {
   const named = autotileSource(reference);
   if (named !== null) return named;
-  for (const source of markedSources ?? []) if (slotOf(reference, source) !== null) return source.replaceAll("/", "\\");
+  if (markedSources !== undefined) {
+    for (const source of markedSources) if (slotOf(reference, source) !== null) return sourceForTileReference(reference, source);
+  }
   return null;
 }
 
 function sameSource(reference: string | null, source: string): boolean {
   if (reference === null || reference === "") return false;
-  const normalized = reference.replaceAll("/", "\\");
-  const normalizedSource = source.replaceAll("/", "\\");
+  const normalized = normalizeAutotileSource(reference);
+  const normalizedSource = normalizeAutotileSource(source);
   return normalized.startsWith(normalizedSource) && /^\d+$/.test(normalized.slice(normalizedSource.length));
 }
 

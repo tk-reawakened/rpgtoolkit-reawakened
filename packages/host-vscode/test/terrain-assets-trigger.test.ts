@@ -1,19 +1,22 @@
-// When a scene's tilesets are read again in VS Code (#3533): a typing pause is bounded, and a save reads at once.
+// When native scene assets are read again in VS Code: text changes are debounced, and images and saves are observed.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { createLatestRead, createTilesetRefreshTrigger, isTilesetDocumentPath } from "../src/terrain-assets-trigger.ts";
+import { createLatestRead, createTerrainAssetRefreshTrigger, isTerrainAssetPath } from "../src/terrain-assets-trigger.ts";
 
-void test("only tileset documents trigger a read", () => {
-  ok(isTilesetDocumentPath("Tiles/pond.tkrtst"));
-  ok(isTilesetDocumentPath("Tiles/Water.TKRTLE"));
-  equal(isTilesetDocumentPath("Boards/pond.tkrscn"), false);
-  equal(isTilesetDocumentPath("Boards/map.brd"), false);
+void test("only files that can affect a scene asset trigger a read", () => {
+  ok(isTerrainAssetPath("Tiles/pond.tkrtst"));
+  ok(isTerrainAssetPath("Tiles/Water.TKRTLE"));
+  ok(isTerrainAssetPath("Packs/props.tkrpack"));
+  ok(isTerrainAssetPath("Tiles/roles-sheet.png"));
+  ok(isTerrainAssetPath("Tiles/roles-sheet.jpeg"));
+  equal(isTerrainAssetPath("Boards/pond.tkrscn"), false);
+  equal(isTerrainAssetPath("Boards/map.brd"), false);
 });
 
 void test("a save reads the just-saved recipe once and cancels the pending typing pause", async () => {
   let diskRecipe = "old";
   const reads: string[] = [];
-  const trigger = createTilesetRefreshTrigger(() => { reads.push(diskRecipe); }, 20);
+  const trigger = createTerrainAssetRefreshTrigger(() => { reads.push(diskRecipe); }, 20);
   trigger.edited("Tiles/pond.tkrtst");
   equal(trigger.pending, true);
   deepEqual(reads, [], "nothing is read while the author is still typing");
@@ -28,12 +31,13 @@ void test("a save reads the just-saved recipe once and cancels the pending typin
 
 void test("a pause with no save still reads once, and edits elsewhere read nothing", async () => {
   let reads = 0;
-  const trigger = createTilesetRefreshTrigger(() => { reads += 1; }, 10);
-  trigger.edited("Tiles/pond.tkrtst");
+  const trigger = createTerrainAssetRefreshTrigger(() => { reads += 1; }, 10);
+  trigger.edited("Tiles/roles-sheet.png");
   trigger.edited("Boards/pond.tkrscn");
   trigger.edited("Tiles/bank.tkrtle");
+  trigger.edited("Packs/props.tkrpack");
   await new Promise((resolve) => setTimeout(resolve, 30));
-  equal(reads, 1, "one read for the burst of tileset edits, none for the scene or a board");
+  equal(reads, 1, "one read for image, tile and pack changes in the burst, none for a scene");
   trigger.dispose();
 });
 
@@ -60,3 +64,4 @@ void test("startup latest-wins across a later refresh", async () => {
   equal(await latestRead, failure);
   deepEqual(published, [failure], "older startup and readiness reads never replace the failed latest read");
 });
+

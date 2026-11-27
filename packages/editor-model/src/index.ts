@@ -110,7 +110,7 @@ export {
   type Pixel,
   type Viewport,
 } from "./board-geometry.ts";
-export { autotileCells, autotileSource, autotileSourceForTile, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, paintAutotileStroke } from "./board-autotile.ts";
+export { autotileCells, autotileSource, autotileSourceForTile, normalizeAutotileSource, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, paintAutotileStroke } from "./board-autotile.ts";
 export {
   BOARD_TOOLS,
   cellRect,

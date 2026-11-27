@@ -12,12 +12,12 @@ import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, Settle
  * document per file in the extension host and answers the workbench's calls (ADR 0022 D2, AD-19).
  */
 
-/** Find the document's declared game from only the Main folder, so nested reserved names cannot change ownership. */
-export async function owningProjectLayout(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectLayout> {
+type ProjectOwner = { readonly mainPath: string | null; readonly layout: ProjectLayout };
+async function owningProjectOwner(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectOwner | null> {
   const mainFolder = await resolveReservedFolderPath(fs, "Main");
-  if (mainFolder.failure !== null) return { projectFolder: "" };
+  if (mainFolder.failure !== null) return null;
   const listing = await fs.list(mainFolder.path);
-  if (!listing.ok) return { projectFolder: "" };
+  if (!listing.ok) return null;
   const mainPaths = new Set<string>();
   if (selectedMain !== undefined) mainPaths.add(selectedMain);
   for (const entry of listing.value) {
@@ -27,7 +27,12 @@ export async function owningProjectLayout(fs: FileSystemService, projectId: stri
     mainPath,
     layout: await projectLayoutOfMain(fs, projectId, mainPath),
   })));
-  return projectLayoutOwnerForDocumentPath(path, owners)?.layout ?? { projectFolder: "" };
+  return projectLayoutOwnerForDocumentPath(path, owners) ?? null;
+}
+
+/** Find the document's declared game from only the Main folder, so nested reserved names cannot change ownership. */
+export async function owningProjectLayout(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectLayout> {
+  return (await owningProjectOwner(fs, projectId, path, selectedMain))?.layout ?? { projectFolder: "" };
 }
 /** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
 const SAVE_ROUNDS = 3;
@@ -660,7 +665,7 @@ export interface GameEditorProvider<Uri extends UriLike> {
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const fontOperations = new WeakMap<GameDocument<Uri>, Promise<void>>();
-  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
+  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSessions: Map<string, BrowserSession> }>();
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
   /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
   const openDocuments = new Map<string, GameDocument<Uri>>();
@@ -688,16 +693,25 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       },
     });
   };
-  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession; readonly path: string };
+  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSessions: Map<string, BrowserSession>; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
       const workspace = createWorkspace(folder, fs);
-      project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+      project = { fs, workspace, visits: createVisits(workspace), browserSessions: new Map() };
       workspaces.set(folder.key, project);
     }
     return { ...project, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
+  };
+  const browserSessionFor = (project: Pick<Project, "browserSessions">, folder: WorkspaceFolderLike<Uri>, owner: string | null): BrowserSession => {
+    const key = owner === null ? `workspace:${folder.key}` : createDocumentIdentity(folder.key, owner).key;
+    let session = project.browserSessions.get(key);
+    if (session === undefined) {
+      session = createBrowserSession();
+      project.browserSessions.set(key, session);
+    }
+    return session;
   };
   const nameOf = (uri: Uri): string => uri.path.split("/").at(-1) ?? uri.path;
   const folderOfDocument = (document: GameDocument<Uri>): WorkspaceFolderLike<Uri> => {
@@ -711,7 +725,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     if (existing !== undefined) return existing;
     const fs = port.fileSystem(folder);
     const workspace = createWorkspace(folder, fs);
-    const project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+    const project = { fs, workspace, visits: createVisits(workspace), browserSessions: new Map<string, BrowserSession>() };
     workspaces.set(folder.key, project);
     return project;
   };
@@ -914,7 +928,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     async openCustomDocument(uri, backupId) {
       const folder = port.folderOf(uri);
       if (folder === undefined) throw new Error(`${nameOf(uri)} is outside the open workspace`);
-      const { workspace, fs, path, browserSession } = projectIn(folder, uri);
+      const project = projectIn(folder, uri);
+      const { workspace, fs, path } = project;
       if (backupId !== undefined) {
         const resolved = await resolveDocumentPath(fs, path);
         if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `${nameOf(uri)}: ${resolved.error.message}`);
@@ -927,7 +942,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
         const sourceTile = pendingSourceTiles.get(identity.key);
         pendingSourceTiles.delete(identity.key);
-        const layout = await owningProjectLayout(fs, folder.key, recovered.document.identity.path, recovered.document.kind === "main" ? recovered.document.identity.path : undefined);
+        const owner = await owningProjectOwner(fs, folder.key, recovered.document.identity.path, recovered.document.kind === "main" ? recovered.document.identity.path : undefined);
+        const layout = owner?.layout ?? { projectFolder: "" };
+        const browserSession = browserSessionFor(project, folder, owner?.mainPath ?? null);
         const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession, () => {
           if (openDocuments.get(recovered.document.identity.key)?.model === recovered.document) openDocuments.delete(recovered.document.identity.key);
         }, sourceTile ?? null, layout);
@@ -946,7 +963,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
       const sourceTile = pendingSourceTiles.get(opened.document.identity.key);
-      const layout = await owningProjectLayout(fs, folder.key, opened.document.identity.path, opened.document.kind === "main" ? opened.document.identity.path : undefined);
+      const owner = await owningProjectOwner(fs, folder.key, opened.document.identity.path, opened.document.kind === "main" ? opened.document.identity.path : undefined);
+      const layout = owner?.layout ?? { projectFolder: "" };
+      const browserSession = browserSessionFor(project, folder, owner?.mainPath ?? null);
       pendingSourceTiles.delete(opened.document.identity.key);
       const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession, () => {
         if (openDocuments.get(opened.document.identity.key)?.model === opened.document) openDocuments.delete(opened.document.identity.key);

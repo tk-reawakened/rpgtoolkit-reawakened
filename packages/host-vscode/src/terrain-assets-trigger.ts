@@ -1,34 +1,33 @@
 /**
- * When a native scene's tilesets must be read again in VS Code. A tileset edit is read after the typing pause, but a save
- * is read at once: with autosave off the pause before saving reads the bytes on disk, which are still the old ones.
+ * When a native scene's assets must be read again in VS Code. Text changes are debounced; a save reads at once.
  */
-const RECIPE = /\.(?:tkrtst|tkrtle)$/i;
+const TERRAIN_ASSET = /\.(?:tkrtst|tkrtle|tkrpack|bmp|gif|jpe?g|png)$/i;
 
-export function isTilesetDocumentPath(path: string): boolean {
-  return RECIPE.test(path);
+export function isTerrainAssetPath(path: string): boolean {
+  return TERRAIN_ASSET.test(path);
 }
 
-export interface TilesetRefreshTrigger {
-  /** A text change in `path`: re-read once, after the typing pause, and only for a tileset. */
+export interface TerrainAssetRefreshTrigger {
+  /** A change in `path`: re-read once after the typing pause, but only for a scene asset. */
   edited(path: string): void;
-  /** A save of `path`: re-read now, cancelling the pending pause, and only for a tileset. */
+  /** A save of `path`: re-read now, cancelling the pending pause, but only for a scene asset. */
   saved(path: string): void;
   /** Whether a debounced read is waiting (for tests and for a clean dispose). */
   readonly pending: boolean;
   dispose(): void;
 }
 
-export function createTilesetRefreshTrigger(reload: () => void, delayMs = 250): TilesetRefreshTrigger {
+export function createTerrainAssetRefreshTrigger(reload: () => void, delayMs = 250): TerrainAssetRefreshTrigger {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = (): void => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
   return {
     edited(path) {
-      if (!isTilesetDocumentPath(path)) return;
+      if (!isTerrainAssetPath(path)) return;
       cancel();
       timer = setTimeout(() => { timer = undefined; reload(); }, delayMs);
     },
     saved(path) {
-      if (!isTilesetDocumentPath(path)) return;
+      if (!isTerrainAssetPath(path)) return;
       cancel();
       reload();
     },

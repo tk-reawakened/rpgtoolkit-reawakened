@@ -8,6 +8,7 @@ import {
   LEGACY_AUTOTILE_SLOTS,
   autotileSource,
   autotileSourceForTile,
+  normalizeAutotileSource,
   boardExtent,
   boardToScreen,
   boardTileAt,
@@ -38,6 +39,7 @@ const GROUND = "Tiles\\Grass.tst1";
 interface Rig {
   readonly doc: BoardDocument;
   readonly editor: BoardEditor;
+  markedSources: ReadonlySet<string>;
   brush: Brush | null;
   autotile: boolean;
   prefs: EditorPreferences;
@@ -49,7 +51,7 @@ function rig(coordSystem: BoardCoordSystem, width = 8, height = 8): Rig {
   const host = createMemoryPlatformServices({ files: { "Boards/t.brd": built.bytes } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), built.bytes);
   if (!opened.ok) throw new Error(JSON.stringify(opened.error));
-  const state = { doc: opened.document, brush: { kind: "tile", tile: water(14), label: "water" } as Brush | null, autotile: true, prefs: DEFAULT_EDITOR_PREFERENCES };
+  const state = { doc: opened.document, brush: { kind: "tile", tile: water(14), label: "water" } as Brush | null, markedSources: new Set<string>(), autotile: true, prefs: DEFAULT_EDITOR_PREFERENCES };
   const editor = createBoardEditor({
     board: () => state.doc.getSnapshot(),
     apply: (command) => state.doc.apply(command),
@@ -57,6 +59,7 @@ function rig(coordSystem: BoardCoordSystem, width = 8, height = 8): Rig {
     pickTile: () => true,
     preferences: () => state.prefs,
     autotileEnabled: () => state.autotile,
+    markedAutotileSources: () => state.markedSources,
   });
   return Object.assign(state, { editor });
 }
@@ -94,6 +97,8 @@ test("legacy slots, name recognition in any case and folder, and explicit marks 
   equal(autotileSourceForTile("terrain\\ordinary.tst1", new Set(["terrain\\ordinary.tst"])), "terrain\\ordinary.tst");
   equal(autotileSourceForTile("terrain\\ordinary.tan", new Set(["terrain\\ordinary.tst"])), null);
   equal(autotileSourceForTile("terrain\\ordinary.tst1"), null);
+  equal(normalizeAutotileSource("Tiles/grass.tst"), "grass.tst");
+  equal(autotileSourceForTile("Tiles\\grass.tst1", new Set(["grass.tst"])), "Tiles\\grass.tst");
 });
 
 test("a set shorter than 52 tiles names the shapes it cannot draw, and unused slots are never named", () => {
@@ -282,22 +287,27 @@ test("an explicitly marked set uses the legacy order under any name, and a strok
   deepEqual(paintAutotileStroke(s.doc.getSnapshot(), 0, [c], `${marked}7`, true), [{ layer: 0, x: c.x, y: c.y, tile: `${marked}7` }], "unmarked, the name is ordinary");
 });
 
-test("erasing with a different brush reshapes every marked neighbor", async () => {
-  const s = rig("2d");
-  const c = centreOf(s);
-  const marked = "Tiles\\grass.tst";
-  const marks = new Set([marked.replaceAll("\\", "/")]);
-  s.autotile = true;
-  s.brush = { kind: "tile", tile: `${marked}7`, label: "marked", autotileSources: marks };
-  await click(s, c);
-  await click(s, { x: c.x + 1, y: c.y });
-  equal(tile(s, c.x, c.y), `${marked}48`);
-
-  s.brush = { kind: "tile", tile: "Tiles\\AUTOTILES_Sand.tst7", label: "different brush", autotileSources: marks };
-  s.editor.setTool("erase");
-  await click(s, { x: c.x + 1, y: c.y });
-  equal(tile(s, c.x + 1, c.y), "");
-  equal(tile(s, c.x, c.y), `${marked}51`, "the remaining marked tile closes its edge after erasure");
+test("erasing with a different brush or no brush reshapes every marked neighbor", async () => {
+  const brushes: (Brush | null)[] = [
+    { kind: "tile", tile: "Tiles\\AUTOTILES_Sand.tst7", label: "different brush" },
+    { kind: "stamp", stamp: null as never },
+    null,
+  ];
+  for (const brush of brushes) {
+    const s = rig("2d");
+    const c = centreOf(s);
+    const marked = "Tiles\\grass.tst";
+    s.markedSources = new Set([marked.replaceAll("\\", "/")]);
+    s.brush = { kind: "tile", tile: `${marked}7`, label: "marked" };
+    await click(s, c);
+    await click(s, { x: c.x + 1, y: c.y });
+    equal(tile(s, c.x, c.y), `${marked}48`);
+    s.brush = brush;
+    s.editor.setTool("erase");
+    await click(s, { x: c.x + 1, y: c.y });
+    equal(tile(s, c.x + 1, c.y), "");
+    equal(tile(s, c.x, c.y), `${marked}51`, "the remaining marked tile closes its edge after erasure");
+  }
 });
 
 test("painting the spec example's water cell by cell, in any order, gives exactly the committed Marsh board", async () => {

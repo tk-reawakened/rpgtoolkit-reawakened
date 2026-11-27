@@ -1,4 +1,5 @@
 import { BinaryReader, readBoard, writeBoard } from "@tk-reawakened/core";
+import { encodeScenePng } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
@@ -153,7 +154,11 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
  * The recipe an open scene reads is edited and **saved** in VS Code, and the scene's role panel and preview must follow it
  * (#3533): the saved bytes are what the host re-reads, so a panel left on the pre-save rules would be stale advice.
  */
-export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
+export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>, writeBacking: (path: string, bytes: Uint8Array) => Promise<void>): Promise<void> {
+  const recipePath = "Tiles/roles.tkrtst";
+  const originalRecipe = await readBacking(recipePath);
+  // The failure exists before the provider creates the webview, so this proves its initialize message carries problems.
+  await writeBacking(recipePath, new TextEncoder().encode("not a tileset\n"));
   await openNativeQuickOpenFile(page, expect, NATIVE_ROLES_SCENE_PATH);
   // Two native scenes are open by now; the roles scene is the one with a 4 x 3 grid (the first is 2 x 2).
   const rolesScene = async (): Promise<Frame> => {
@@ -168,6 +173,26 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
     return found;
   };
   let view = await rolesScene();
+  const unavailable = view.getByRole("alert", { name: "Terrain rules unavailable" });
+  await expect(unavailable).toContainText(/roles\.tkrtst|tileset/i);
+  const refresh = view.getByRole("button", { name: "Refresh terrain rules", exact: true });
+  const manualTile = view.getByRole("combobox", { name: "Manual tile", exact: true });
+  await expect(refresh).toBeVisible();
+  await expect(manualTile).toBeDisabled();
+  await writeBacking(recipePath, originalRecipe);
+  await refresh.click();
+  const recoveredRoles = view.getByRole("region", { name: "Native terrain roles" });
+  await expect(recoveredRoles).toContainText("Native terrain rules: Shore", { timeout: 15_000 });
+  await expect(unavailable).toHaveCount(0);
+  await expect(view.getByRole("status").filter({ hasText: "roles.tkrtst" })).toHaveCount(0);
+  await expect(manualTile).toBeEnabled();
+  await expect(manualTile).toHaveValue("0");
+  await manualTile.selectOption({ label: "Tiles/roles-water.tkrtle" });
+  await view.getByRole("radio", { name: "Manual tile", exact: true }).check();
+  await view.getByRole("button", { name: /^Cell 0, 0:/ }).click();
+  await expect(view.getByRole("button", { name: /^Cell 0, 0:.*roles-water\.tkrtle/ })).toBeVisible();
+  await view.getByRole("radio", { name: "Clear override", exact: true }).check();
+  await view.getByRole("button", { name: /^Cell 0, 0:/ }).click();
   await view.getByRole("combobox", { name: "Tileset", exact: true }).selectOption("Tiles/roles.tkrtst");
   await view.getByRole("combobox", { name: "Terrain", exact: true }).selectOption({ label: "Shore" });
   const roles = view.getByRole("region", { name: "Native terrain roles" });
@@ -213,4 +238,14 @@ export async function runVscodeTerrainRoleRefreshProof(page: Page, expect: Expec
   await expect(rolesAgain).toContainText("Every neighbourhood has a tile");
   await expect(rolesAgain).not.toContainText("Missing role assignments");
   await expect(view.getByRole("status").filter({ hasText: "No tile rule matches ground" })).toHaveCount(0);
+  await view.getByRole("button", { name: "Preview build", exact: true }).click();
+  const previewImage = view.getByRole("img", { name: "Compiled scene preview" });
+  await expect(previewImage).toBeVisible({ timeout: 15_000 });
+  const imagePath = "Tiles/roles-sheet.png";
+  const originalImage = await readBacking(imagePath);
+  const changedPixels = new Uint8Array(64 * 32 * 4);
+  for (let offset = 0; offset < changedPixels.length; offset += 4) changedPixels.set([30, 160, 60, 255], offset);
+  await writeBacking(imagePath, encodeScenePng({ w: 64, h: 32, rgba: changedPixels }));
+  await expect(previewImage).toHaveCount(0, { timeout: 15_000 });
+  await writeBacking(imagePath, originalImage);
 }

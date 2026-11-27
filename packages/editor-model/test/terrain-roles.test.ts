@@ -177,7 +177,30 @@ terrains:
     rules: [{id: east, when: {e: same}, use: {tile: Tiles/water.tkrtle}}]
 outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles/water.tkrtle}]}
 `;
-  const load = (name: string, rectX: number, image: Uint8Array | null = new Uint8Array([1, 2, 3])) => {
+  const usedScene = `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors:
+  - id: ground
+    tiles: [[1, 1]]
+tilePalette: [{}, {}]
+terrainRegions:
+  - id: water
+    floor: ground
+    terrain: {tileset: Tiles/Pond.tkrtst, terrain: water}
+    coverage: {shape: tile-grid, spans: [[0, 0, 1]]}
+`;
+  const emptyScene = `contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: 1, height: 1}
+floors:
+  - id: ground
+    tiles: [[1, 1]]
+tilePalette: [{}, {}]
+`;
+  const load = (name: string, rectX: number, image: Uint8Array | null = new Uint8Array([1, 2, 3]), sceneText: string = usedScene) => {
     const files: Record<string, Uint8Array> = {
       "Tiles/Pond.tkrtst": new TextEncoder().encode(recipe),
       "Tiles/water.tkrtle": new TextEncoder().encode(JSON.stringify({
@@ -187,7 +210,7 @@ outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles
     };
     if (image !== null) files["Bitmap/water.bin"] = image;
     const storage = createMemoryPlatformServices({ files });
-    return loadTerrainSceneProjectInventory(storage.fs, "Boards/pond.tkrscn");
+    return loadTerrainSceneProjectInventory(storage.fs, "Boards/pond.tkrscn", sceneText);
   };
   const initial = await load("Water", 0);
   ok(initial.ok, JSON.stringify(initial));
@@ -198,15 +221,19 @@ outputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: Tiles
   const changedTile = await load("Updated water", 0);
   ok(changedTile.ok, JSON.stringify(changedTile));
   ok(terrainSceneAssets(changedTile).tilesets[0]!.revision !== base, "a tile document edit invalidates the recipe preview");
+  const changedCrop = await load("Water", 1);
+  ok(changedCrop.ok, JSON.stringify(changedCrop));
+  ok(terrainSceneAssets(changedCrop).tilesets[0]!.revision !== base, "the sample crop x coordinate invalidates the recipe preview");
   const changedSource = await load("Water", 0, new Uint8Array([1, 2, 4]));
   ok(changedSource.ok, JSON.stringify(changedSource));
   ok(terrainSceneAssets(changedSource).tilesets[0]!.revision !== base, "sample bytes changing at the same path invalidates the recipe preview");
+  const unrelatedMissingSource = await load("Water", 0, null, emptyScene);
+  ok(unrelatedMissingSource.ok, JSON.stringify(unrelatedMissingSource));
+  ok(terrainSceneAssets(unrelatedMissingSource).tilesets.length > 0, "an unused tileset's missing sample does not prevent scene inventory");
   const missingSource = await load("Water", 0, null);
   ok(!missingSource.ok);
   deepEqual(terrainSceneAssets(missingSource).tilesets, [], "a broken current inventory clears prior roles and recipe previews");
 });
-
-
 test("a failed inventory read clears the roles and says why, so older rules are never kept as current", () => {
   const cleared = terrainSceneAssets({ ok: false, problems: [{ path: "Tiles/pond.tkrtst", message: "rules[0] must name a palette member" }] });
   deepEqual(cleared.tilesets, []);

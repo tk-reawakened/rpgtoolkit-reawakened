@@ -219,3 +219,63 @@ test("an ordinary tileset mark is session-scoped, survives brush switches, and s
   equal(tileAt(s, s.centre), "village.tst1", "an unmarked ordinary neighbor is not reshaped");
   s.dispose();
 });
+test("a newly marked tileset immediately paints its shape previews", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  let painted = 0;
+  let patched = false;
+  let s: Setup | undefined;
+  try {
+    s = await setup();
+    await openSource(s, "Tiles/village.tst");
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value(this: HTMLCanvasElement, type: string) {
+        if (!this.hasAttribute("data-autotile-slot")) return descriptor?.value?.call(this, type);
+        return {
+          createImageData: (width: number, height: number) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+          putImageData: () => { painted += 1; },
+        } as unknown as CanvasRenderingContext2D;
+      },
+    });
+    patched = true;
+    const before = painted;
+    await act(() => { s!.session.update({ autotileMarks: ["village.tst"] }); });
+    await settle();
+    ok(painted > before, "the mark change repaints actual slot canvases from loaded source previews");
+  } finally {
+    s?.dispose();
+    if (patched) {
+      if (descriptor === undefined) Reflect.deleteProperty(HTMLCanvasElement.prototype, "getContext");
+      else Object.defineProperty(HTMLCanvasElement.prototype, "getContext", descriptor);
+    }
+  }
+});
+
+test("erase reshapes marked neighbors after the brush has been cleared", async () => {
+  const s = await setup();
+  await act(() => { s.session.update({ autotileMarks: ["village.tst"] }); });
+  await choose(s, "Tiles\\village.tst1", "Tiles/village.tst");
+  await keyboard(s, { key: "a" });
+  await click(s, s.centre);
+  const adjacent = { x: s.centre.x + 1, y: s.centre.y };
+  await click(s, adjacent);
+  equal(tileAt(s, s.centre), "Tiles\\village.tst48");
+  await act(() => { s.session.update({ selection: null }); });
+  await act(() => { s.el.querySelector<HTMLButtonElement>('[data-tool="erase"]')!.click(); });
+  await click(s, adjacent);
+  equal(tileAt(s, adjacent), "");
+  equal(tileAt(s, s.centre), "Tiles\\village.tst51", "the unselected marked set still closes around the erased cell");
+  s.dispose();
+});
+
+test("dropping a tile from the selected short set retains its warning metadata", async () => {
+  const s = await setup();
+  await choose(s, "AUTOTILES_village.tst1", undefined, { autotileTileCount: 9 });
+  await keyboard(s, { key: "a" });
+  await click(s, s.centre);
+  await act(() => { s.el.querySelector<HTMLButtonElement>('[data-tool="dropper"]')!.click(); });
+  await click(s, s.centre);
+  equal(s.session.getSnapshot().selection?.autotileTileCount, 9);
+  match(notes(s).join(" "), /fewer than 52/);
+  s.dispose();
+});

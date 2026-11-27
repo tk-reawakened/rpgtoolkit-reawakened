@@ -1,4 +1,4 @@
-import { autotileSource, createTileSourcePreviewer, kindForPath, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, listCandidates, type AssetCandidate, type ProjectLayout, type TilePreviewPixels } from "@tk-reawakened/editor-model";
+import { autotileSource, createTileSourcePreviewer, kindForPath, LEGACY_AUTOTILE_SLOTS, legacyAutotileGaps, legacyAutotileShape, listCandidates, normalizeAutotileSource, type AssetCandidate, type ProjectLayout, type TilePreviewPixels } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserSession, BrowserAssetKind, BrowserSelection } from "./brush.ts";
@@ -136,7 +136,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       image.data.set(preview.pixels);
       context2d.putImageData(image, 0, 0);
     }
-  }, [items, previews, brush]);
+  }, [items, previews, brush, autotileMarks]);
   useEffect(() => {
     if (list.current !== null && loadedPath === path) list.current.scrollTop = session.getSnapshot().scrollTop;
   }, [loadedPath, path, session]);
@@ -282,8 +282,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const tilesLoaded = loadedPath !== null && items.length > 0 && items.every((row) => row.kind === "tiles" && row.tile !== null);
   const setReference = tilesLoaded ? items[0]!.reference.replace(/\d+$/, "") : null;
   const markReference = setReference?.replaceAll("\\", "/") ?? null;
+  const markKey = markReference === null ? null : normalizeAutotileSource(markReference);
   const recognizedByName = tilesLoaded && autotileSource(items[0]!.reference) !== null;
-  const markedHere = markReference !== null && autotileMarks.includes(markReference);
+  const markedHere = markKey !== null && autotileMarks.some((mark) => normalizeAutotileSource(mark) === markKey);
 
   return (
     <section class="tkr-tileset-browser" aria-label="Tileset browser" ref={root} onKeyDown={keyboard}>
@@ -359,11 +360,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
           : markedHere ? "Marked as a legacy 52-slot autotile set. Tiles use the 52-slot shape table." : "Ordinary tileset."}</p>
           <label><input type="checkbox" checked={recognizedByName || markedHere} disabled={recognizedByName || items.length === 0}
             onChange={(event) => {
-              if (markReference === null) return;
+              if (markReference === null || markKey === null) return;
               const marks = session.getSnapshot().autotileMarks;
               session.update({ autotileMarks: event.currentTarget.checked
-                ? marks.includes(markReference) ? marks : [...marks, markReference]
-                : marks.filter((mark) => mark !== markReference) });
+                ? marks.some((mark) => normalizeAutotileSource(mark) === markKey) ? marks : [...marks, markReference]
+                : marks.filter((mark) => normalizeAutotileSource(mark) !== markKey) });
             }} />
           Use this set's tiles in the legacy 52-slot order{recognizedByName ? " (from its name)" : ""}</label>
         {recognizedByName || markedHere ? <>

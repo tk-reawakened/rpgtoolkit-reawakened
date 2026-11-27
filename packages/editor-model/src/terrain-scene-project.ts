@@ -134,10 +134,11 @@ async function inventory(fs: ProjectFs, gameFolder: string, readFile: (path: str
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, tilesets, files, nativeTiles };
 }
-async function tilesetContentRevisions(fs: ProjectFs, project: InventoryWithFiles): Promise<{ readonly ok: true; readonly revisions: ReadonlyMap<string, string> } | InventoryFailure> {
+async function tilesetContentRevisions(fs: ProjectFs, project: InventoryWithFiles, usedTilesets: ReadonlySet<string>): Promise<{ readonly ok: true; readonly revisions: ReadonlyMap<string, string> } | InventoryFailure> {
   const sampleHashes = new Map<string, string>();
   const revisions = new Map<string, string>();
   for (const [tilesetPath, tileset] of project.tilesets) {
+    const usedByScene = usedTilesets.has(identity(tilesetPath));
     const tileInputs: unknown[] = [];
     for (const { tile: reference } of tileset.tiles) {
       const tilePath = project.files.get(identity(reference));
@@ -149,11 +150,21 @@ async function tilesetContentRevisions(fs: ProjectFs, project: InventoryWithFile
       for (const sample of samples) {
         const referencePath = "file" in sample ? sample.file : sample.source;
         const samplePath = project.files.get(identity(referencePath));
-        if (samplePath === undefined) return { ok: false, problems: [{ path: referencePath, message: "Tile sample source does not exist in the project." }] };
+        if (samplePath === undefined) {
+          if (usedByScene) return { ok: false, problems: [{ path: referencePath, message: "Tile sample source does not exist in the project." }] };
+          sampleFiles.push([referencePath, "missing"]);
+          continue;
+        }
         let digest = sampleHashes.get(samplePath);
+        if (digest?.startsWith("unreadable:") && usedByScene) {
+          return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${digest.slice("unreadable:".length)}` }] };
+        }
         if (digest === undefined) {
           try { digest = await sha256Hex(await readProjectFile(fs, samplePath)); }
-          catch (error) { return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${message(error)}` }] }; }
+          catch (error) {
+            if (usedByScene) return { ok: false, problems: [{ path: samplePath, message: `Cannot read tile sample source: ${message(error)}` }] };
+            digest = `unreadable:${message(error)}`;
+          }
           sampleHashes.set(samplePath, digest);
         }
         sampleFiles.push([samplePath, digest]);
@@ -176,22 +187,23 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
   const { projectFolder } = projectLayoutForDocumentPath(scenePath);
   const result = await inventory(fs, projectFolder, (path) => readProjectFile(fs, path));
   if (!result.ok) return result;
-  const content = await tilesetContentRevisions(fs, result);
-  if (!content.ok) return content;
-  const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
-  const references = new Set<string>();
   let text = sceneText;
   if (text === undefined) {
     const saved = result.files.get(identity(scenePath)) ?? scenePath;
     try { text = utf8Decode(await readProjectFile(fs, saved)); }
     catch { text = undefined; }
   }
-  if (text !== undefined) {
-    const parsed = readScene(text);
-    if (parsed.ok) for (const placement of parsed.scene.placedPacks ?? []) references.add(identity(placement.pack));
-  }
+  const parsedScene = text === undefined ? null : readScene(text);
+  const usedTilesets = new Set<string>();
+  if (parsedScene?.ok) for (const region of parsedScene.scene.terrainRegions ?? []) usedTilesets.add(identity(region.terrain.tileset));
+  const content = await tilesetContentRevisions(fs, result, usedTilesets);
+  if (!content.ok) return content;
+  const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
+  const references = new Set<string>();
+  if (parsedScene?.ok) for (const placement of parsedScene.scene.placedPacks ?? []) references.add(identity(placement.pack));
   const packs: TerrainScenePack[] = [];
   const packProblems: Problem[] = [];
+  const sourceHashes = new Map<string, string>();
   const game = identity(projectFolder);
   for (const path of [...result.files.values()].sort()) {
     const key = identity(path);
@@ -199,10 +211,27 @@ export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath:
     const ownGame = tilesetGame(path) === game;
     if (!ownGame && !references.has(key)) continue;
     try {
-      const parsed = readAssetPack(utf8Decode(await readProjectFile(fs, path)));
+      const bytes = await readProjectFile(fs, path);
+      const parsed = readAssetPack(utf8Decode(bytes));
       if (parsed.ok) {
-        const { name, projection, assets } = parsed.assetPack;
-        packs.push({ path, name, projection, ...(ownGame ? {} : { external: true }), assets: assets.map(({ id, name, kind, anchor }) => ({ id, name, kind, anchor })) });
+        const { name, projection, assets, sources } = parsed.assetPack;
+        const sourceRevisions: [string, string][] = [];
+        for (const source of sources) {
+          const sourcePath = result.files.get(identity(source.file));
+          if (sourcePath === undefined) {
+            sourceRevisions.push([source.file, "missing"]);
+            continue;
+          }
+          let digest = sourceHashes.get(sourcePath);
+          if (digest === undefined) {
+            try { digest = await sha256Hex(await readProjectFile(fs, sourcePath)); }
+            catch (error) { digest = `unreadable:${message(error)}`; }
+            sourceHashes.set(sourcePath, digest);
+          }
+          sourceRevisions.push([sourcePath, digest]);
+        }
+        const revision = await sha256Hex(utf8Encode(JSON.stringify([await sha256Hex(bytes), sourceRevisions])));
+        packs.push({ path, name, projection, revision, ...(ownGame ? {} : { external: true }), assets: assets.map(({ id, name, kind, anchor }) => ({ id, name, kind, anchor })) });
       } else {
         for (const problem of parsed.problems) packProblems.push({ path, message: `${problem.path}: ${problem.message}` });
       }

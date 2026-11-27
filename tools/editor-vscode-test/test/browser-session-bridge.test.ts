@@ -91,7 +91,7 @@ test("a webview answers the extension host's settle request only after every edi
   const opened = createBoardDocument(storage.fs, createDocumentIdentity("shared-project", "Boards/village.brd"), boardBytes);
   ok(opened.ok);
   const outbound: EditorHostRequest[] = [];
-  const remote = new RemoteDocument("board", opened.document.getSnapshot(), { selection: null, path: null, scrollTop: 0 }, {
+  const remote = new RemoteDocument("board", opened.document.getSnapshot(), { selection: null, path: null, scrollTop: 0, autotileMarks: [] }, {
     postMessage: (message) => { outbound.push(message); },
     getState: () => undefined,
     setState: () => undefined,

@@ -554,7 +554,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     if (nativeSceneBytes !== undefined) {
       await runVscodeNativeSceneProof(page, expect, workbenchUrl, readBacking, writeBacking, nativeSceneBytes);
       console.log("vscode.dev native scene preview, terrain edit, save, recovery and play proof passed");
-      await runVscodeTerrainRoleRefreshProof(page, expect, workbenchUrl, readBacking);
+      await runVscodeTerrainRoleRefreshProof(page, expect, workbenchUrl, readBacking, writeBacking);
       console.log("vscode.dev native terrain roles refresh on a saved recipe, and stale preview invalidation proof passed");
       await runVscodeBoardImportProof(page, expect, readBacking, {
         listScenes: async () => {

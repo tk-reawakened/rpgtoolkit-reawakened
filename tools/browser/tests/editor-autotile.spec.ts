@@ -223,6 +223,7 @@ test("original autotile sets: recognised by name, previewed, painted, reshaped, 
   await expect(ordinary).toContainText("This set has 2 tiles, fewer than 52");
   await expect(ordinary.locator(".tkr-tileset-browser-autotile-gap")).toHaveCount(45);
   await expect(ordinary.locator("canvas[data-autotile-slot]")).toHaveCount(2);
+  await page.getByRole("region", { name: "Tileset browser" }).getByRole("button", { name: "Select brush" }).first().click();
   await expect(notes(page).filter({ hasText: "fewer than 52, so shapes 3, 4, 5" })).toHaveCount(1);
   await click(near(3, -2));
   await expect(tiles(page, "village.tst51")).toHaveCount(1);

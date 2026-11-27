@@ -10,12 +10,13 @@ import {
 const packs: readonly TerrainScenePack[] = [
   {
     path: "Packs/props.tkrpack", name: "Props", projection: "2d",
+    revision: "recipe-and-art",
     assets: [
       { id: "arch", name: "Arch", kind: "prop", anchor: { x: 1, y: 2, snap: "bottom-center" } },
       { id: "lantern", name: "Lantern", kind: "prop", anchor: { x: 4, y: 8, snap: "iso-diamond-center" } },
     ],
   },
-  { path: "Packs/iso.tkrpack", name: "Iso", projection: "iso-stacked", assets: [{ id: "crate", name: "Crate", kind: "stamp", anchor: { x: 0, y: 0, snap: "top-left" } }] },
+  { path: "Packs/iso.tkrpack", name: "Iso", projection: "iso-stacked", revision: "recipe-and-art", assets: [{ id: "crate", name: "Crate", kind: "stamp", anchor: { x: 0, y: 0, snap: "top-left" } }] },
 ];
 
 const scene = (placedPacks: NonNullable<Scene["placedPacks"]>): Scene => ({
@@ -71,7 +72,7 @@ void test("a missing pack or asset stays identifiable, and a resolved reference 
   equal(scenePackPlacementMissing(packs, { instanceId: "a", pack: "Packs/gone.tkrpack", asset: "arch", floor: "ground", x: 0, y: 0 }), "pack");
   equal(scenePackPlacementMissing(packs, { instanceId: "a", pack: "Packs/props.tkrpack", asset: "gone", floor: "ground", x: 0, y: 0 }), "asset");
   const linked: readonly TerrainScenePack[] = [
-    { path: "Game/Other/Packs/Props.tkrpack", name: "Linked", projection: "2d", external: true, assets: [{ id: "arch", name: "Arch", kind: "prop", anchor: { x: 0, y: 0, snap: "bottom-center" } }] },
+    { path: "Game/Other/Packs/Props.tkrpack", name: "Linked", projection: "2d", revision: "recipe-and-art", external: true, assets: [{ id: "arch", name: "Arch", kind: "prop", anchor: { x: 0, y: 0, snap: "bottom-center" } }] },
   ];
   equal(scenePackPlacementMissing(linked, { instanceId: "a", pack: "game/other/packs/PROPS.tkrpack", asset: "arch", floor: "ground", x: 0, y: 0 }), null, "document identity decides, not spelling");
   equal(findTerrainScenePack(linked, "GAME/OTHER/PACKS/props.TKRPACK")?.path, "Game/Other/Packs/Props.tkrpack", "the canonical inventory path is what an owner link opens");

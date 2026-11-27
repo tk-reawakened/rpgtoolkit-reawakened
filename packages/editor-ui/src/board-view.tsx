@@ -4,6 +4,7 @@ import {
     DEFAULT_EDITOR_PREFERENCES,
     ZOOM_STEPS,
     autotileSourceForTile,
+    normalizeAutotileSource,
     boardTileAt,
     cellOnBoard,
     createBoardEditor,
@@ -153,9 +154,9 @@ function textEntry(target: EventTarget | null): boolean {
 }
 
 /** The brush the retained selection makes: a tile or animation, or a loaded tile bitmap stamp. */
-function brushFor(selection: BrowserSelection | null, stamp: { readonly path: string; readonly value: Stamp } | null, autotileSources: ReadonlySet<string>): Brush | null {
+function brushFor(selection: BrowserSelection | null, stamp: { readonly path: string; readonly value: Stamp } | null): Brush | null {
   if (selection === null) return null;
-  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label, ...(autotileSources.size === 0 ? {} : { autotileSources }) };
+  if (selection.boardTile !== null) return { kind: "tile", tile: selection.boardTile, label: selection.label };
   if (selection.kind === "bitmaps" && stamp !== null && stamp.path === selection.path) return { kind: "stamp", stamp: stamp.value };
   return null;
 }
@@ -238,11 +239,11 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     };
   }, []);
 
-  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling });
   const markedSources = useMemo(() => new Set(autotileMarks.map((path) => path.replaceAll("/", "\\"))), [autotileMarks]);
-  const brush = brushFor(brushSelection, stamp, markedSources);
+  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited, autoTiling, markedSources });
+  const brush = brushFor(brushSelection, stamp);
   const autotileBrushSource = brush?.kind === "tile" ? autotileSourceForTile(brush.tile, markedSources) : null;
-  latest.current = { snapshot, brush, preferences, browser, doc, onEdited, autoTiling };
+  latest.current = { snapshot, brush, preferences, browser, doc, onEdited, autoTiling, markedSources };
 
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
   const applyAndReport = (command: Parameters<BoardViewDocument["apply"]>[0]): ApplyResult | Promise<ApplyResult> => {
@@ -309,6 +310,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
       ...(clipboard === undefined ? {} : { clipboard }),
       autotileEnabled: () => latest.current.autoTiling,
+      markedAutotileSources: () => latest.current.markedSources,
       lightsActive: () => lightsOn.current,
       objectBounds: (kind, index) => {
         const current = pictureRef.current;
@@ -318,12 +320,19 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         const source = tileSourceOf(tile);
         const context = latest.current.browser;
         if (source === null || context === undefined) return false;
+        const selected = context.session.getSnapshot().selection;
+        const previousSource = selected?.boardTile == null ? null : tileSourceOf(selected.boardTile);
+        const autotileTileCount = previousSource !== null
+          && normalizeAutotileSource(previousSource.file) === normalizeAutotileSource(source.file)
+          ? selected?.autotileTileCount
+          : undefined;
         const picked = {
           kind: "tiles" as const,
           path: referencePath(context.layout, "tiles", source.file),
           reference: tile,
           label: source.label,
           boardTile: tile,
+          ...(autotileTileCount === undefined ? {} : { autotileTileCount }),
           // The shared browser's selection says whether it is a stamp; a tile is not one.
           stamp: null,
         };
