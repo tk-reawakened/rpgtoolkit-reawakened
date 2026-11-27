@@ -65,6 +65,7 @@ import type { TextSurfaceFactory } from "./text-surface.ts";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { SpecialMoveView, type SpecialMoveViewDocument } from "./special-move-view.tsx";
 import { StatusEffectView, type StatusEffectViewDocument } from "./status-effect-view.tsx";
+import { VisualFixtureView } from "./visual-fixture-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
