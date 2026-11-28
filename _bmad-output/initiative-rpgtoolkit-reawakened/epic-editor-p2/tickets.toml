@@ -88,9 +88,9 @@ tracker_id = "#1751"
 type = "story"
 title = "Teach a first board in both hosts"
 description = "Adds tip-of-day and an accessible nine-step first-board tutorial with progress state using foundation help entry points, guiding creation, editing, saving and an explicitly scoped run in browser and VS Code without requiring visual programming."
-verify = "A new author follows the nine steps end to end in each host, controls tips and preserves tutorial progress on cancellation, and sees the difference between preview, board test and normal startup."
-covers = ["CAP-17"]
+verify = "Merged browser and VS Code exact-head technical proofs establish the tutorial, host entry points, tip preferences and persistence behavior; the genuine first-time-author walkthrough is separately owned by 14.15."
 after = ["11.4", "11.8", "11.10", "11.11", "12.3", "12.10"]
+covers = ["CAP-17"]
 hitl = true
 risk = "medium"
 
@@ -164,5 +164,17 @@ description = "Exercises the integrated visual event, skin, audio audition, medi
 verify = "The end-to-end suite demonstrates the epic outcomes with real saved assets and executable programs, negative cases and honest host limitations after the refactor sweep."
 covers = ["CAP-17"]
 after = [9]
+hitl = true
+risk = "high"
+
+[[entry]]
+id = 15
+tracker_id = "#3640"
+type = "story"
+title = "Observe a first-time author using beginner tools"
+description = "Closes the remaining human acceptance transferred from 14.8 by observing a genuine first-time author complete the nine-step first-board tutorial in browser and VS Code, then attempt a small integrated beginner-tools journey."
+verify = "Record build/date, host order, exact prompts and interventions, confusing or failing steps, and anonymized findings. The observed author must exercise keyboard navigation, tips, cancel/resume progress, and distinguish preview, Test Board, and normal startup. File bugs or fixes per repo rules; do not close until the genuine author walkthrough is observed and findings are recorded."
+covers = ["CAP-17"]
+after = [10]
 hitl = true
 risk = "high"
