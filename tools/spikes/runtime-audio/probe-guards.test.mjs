@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { loadPackage } from "@tk-reawakened/core";
 import { findProbeMedia } from "./probe-media.mjs";
-import { matchesNegativeLanes } from "./negative-oracle.mjs";
+import { matchesNegativeLanes, negativeCaptureSeconds } from "./negative-oracle.mjs";
 import { loopLandmarks, matchesLoop, matchesOverlap, mixContribution } from "./waveform-oracles.mjs";
 
 // Opt-in destructive-input runs use the same positive assertions; by design, each exits nonzero.
@@ -55,13 +55,35 @@ test("overlap guard requires both PCM voices even if both play markers remain", 
 
 test("negative oracle cannot pass if its page omits or duplicates a negative lane", () => {
   const evidence = {
-    nativeRejectsMalformed: true, missingAssetNotInMediaIndex: true, peak: 0,
-    diagnostics: ["source.failed", "format.malformed", "format.unsupported", "source.failed"].map((code, i) => ({ voice: 102 + i, codes: [code, "protocol.state"] })),
+    nativeRejectsMalformed: true, missingAssetNotInMediaIndex: true,
+    diagnostics: ["source.failed", "format.malformed", "format.unsupported", "source.failed"].map((code, i) => ({
+      voice: 102 + i, codes: [code, "protocol.state"], framesAfterPlay: rate * negativeCaptureSeconds, peak: 0,
+    })),
   };
   const positive = perturb === "missing-negative-lane" ? { ...evidence, diagnostics: evidence.diagnostics.slice(1) } : evidence;
-  assert.ok(matchesNegativeLanes(positive), "all four designated negative playback lanes must run");
-  assert.equal(matchesNegativeLanes({ ...evidence, diagnostics: [] }), false);
-  assert.equal(matchesNegativeLanes({ ...evidence, diagnostics: [evidence.diagnostics[0], ...evidence.diagnostics.slice(0, 3)] }), false);
+  assert.ok(matchesNegativeLanes(positive, rate), "all four designated negative playback lanes must run");
+  assert.equal(matchesNegativeLanes({ ...evidence, diagnostics: [] }, rate), false);
+  assert.equal(matchesNegativeLanes({ ...evidence, diagnostics: [evidence.diagnostics[0], ...evidence.diagnostics.slice(0, 3)] }, rate), false);
+});
+
+test("negative silence guard rejects the former short window and delayed waveform leakage", () => {
+  const source = reference(), frames = Math.round(rate * negativeCaptureSeconds);
+  const peak = (length) => source.subarray(0, length).reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+  const evidence = {
+    nativeRejectsMalformed: true, missingAssetNotInMediaIndex: true,
+    diagnostics: ["source.failed", "format.malformed", "format.unsupported", "source.failed"].map((code, i) => ({
+      voice: 102 + i, codes: [code, "protocol.state"], framesAfterPlay: frames, peak: 0,
+    })),
+  };
+  const withLeak = (lane) => ({ ...evidence, diagnostics: [...evidence.diagnostics.slice(0, 3), { ...evidence.diagnostics[3], ...lane }] });
+  const oldWindow = withLeak({ framesAfterPlay: rate / 5, peak: peak(rate / 5) });
+  const leaked = withLeak({ peak: peak(frames) });
+  assert.equal(oldWindow.diagnostics[3].peak, 0);
+  assert.ok(leaked.diagnostics[3].peak > 0.5);
+  const positive = perturb === "early-silence" ? oldWindow : perturb === "leaked-negative-audio" ? leaked : evidence;
+  assert.ok(matchesNegativeLanes(positive, rate), "every silent window must reach the authored impulse and reject audible leakage");
+  assert.equal(matchesNegativeLanes(oldWindow, rate), false);
+  assert.equal(matchesNegativeLanes(leaked, rate), false);
 });
 
 test("media lookup guard requires the canonical TPK asset key and exact returned bytes", () => {

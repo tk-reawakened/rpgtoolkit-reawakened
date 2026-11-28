@@ -182,7 +182,7 @@ async function runEncoding(page, expectedOrigin, encoding) {
     assertions.nativeStereoLayout = probe.nativeDecode?.channels === fixtureRecord.source.channels;
     assertions.granuleDurationWithinOneFrame = probe.nativeDecode?.matches48kGranuleOracleWithinOneFrame === true;
     assertions.workletReceivedConvertedPcm = probe.adapter?.workletReceipt?.bytes === probe.adapter?.transferBytes && probe.adapter?.transferBytes > 0;
-    assertions.negativeLanesSilent = matchesNegativeLanes(probe.negativeLanes);
+    assertions.negativeLanesSilent = matchesNegativeLanes(probe.negativeLanes, probe.playback.workletRateHz);
   } else {
     assertions.directProductionPcm = probe.nativeDecode === undefined && probe.adapter === null;
   }

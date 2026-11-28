@@ -2,6 +2,7 @@ import { loadPackage } from "@tk-reawakened/core";
 import { CuePlayer } from "@tk-reawakened/synth";
 import { findProbeMedia } from "./probe-media.mjs";
 import { loopLandmarks, mixContribution } from "./waveform-oracles.mjs";
+import { negativeCaptureSeconds } from "./negative-oracle.mjs";
 
 const configPromise = fetch("./probe-config.json", { cache: "no-store" }).then((response) => {
   if (!response.ok) throw new Error(`probe configuration HTTP ${response.status}`);
@@ -377,7 +378,7 @@ button.addEventListener("click", async (event) => {
       const malformed = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 0, 0, 0]);
       const nativeRejectsMalformed = await context.decodeAudioData(malformed.slice().buffer).then(() => false, () => true);
       const missing = findProbeMedia(loaded.value, "absent.opus.ogg");
-      const silenceCapture = captureAudio(0.2);
+      const silenceCapture = captureAudio(negativeCaptureSeconds);
       node.port.postMessage({ kind: "discard-prepared-opus" });
       for (const [voice, asset, bytes] of [
         [102, "media/absent.opus.ogg", new Uint8Array()],
@@ -389,12 +390,26 @@ button.addEventListener("click", async (event) => {
         node.port.postMessage({ kind: "message", message: { kind: "load", voice, track: "effects", asset, data: bytes } });
         node.port.postMessage({ kind: "message", message: { kind: "play", voice, cue: voice, positionTicks: 0, loop: false, volume: 100 } });
       }
-      const silence = waveformMetrics(await silenceCapture, context.sampleRate, null);
+      const capture = await silenceCapture;
       report.negativeLanes = {
-        nativeRejectsMalformed, missingAssetNotInMediaIndex: missing === null, peak: silence.peak,
-        diagnostics: [...negativeVoices].map((voice) => ({
-          voice, codes: events.filter((event) => event.kind === "error" && event.voice === voice).map((event) => event.code),
-        })),
+        nativeRejectsMalformed, missingAssetNotInMediaIndex: missing === null,
+        diagnostics: (() => {
+          const data = new Float32Array(capture.data);
+          return [...negativeVoices].map((voice) => {
+            const start = capture.starts.find((marker) => marker.cue === voice && marker.voice === voice);
+            const offset = start === undefined ? -1 : start.frame - capture.startFrame;
+            const framesAfterPlay = offset < 0 ? 0 : capture.frames - offset;
+            const framesToCheck = Math.min(framesAfterPlay, Math.ceil(context.sampleRate * 0.6));
+            let peak = 0;
+            for (let frame = Math.max(offset, 0); frame < Math.max(offset, 0) + framesToCheck; frame++) {
+              peak = Math.max(peak, Math.abs(data[frame * 2]), Math.abs(data[frame * 2 + 1]));
+            }
+            return {
+              voice, framesAfterPlay, peak,
+              codes: events.filter((event) => event.kind === "error" && event.voice === voice).map((event) => event.code),
+            };
+          });
+        })(),
       };
     }
     report.cspInlineBlocked = window.__runtimeAudioInlineRan !== true
