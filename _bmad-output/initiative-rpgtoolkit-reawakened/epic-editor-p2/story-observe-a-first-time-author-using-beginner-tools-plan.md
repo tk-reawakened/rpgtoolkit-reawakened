@@ -1,6 +1,7 @@
 ---
 type: feature
 title: "Observe a first-time author using beginner tools"
+ticket: 15
 tracker_id: "#3640"
 status: draft
 risk: high
@@ -22,7 +23,7 @@ A genuine first-time author completes the nine tutorial steps in both browser an
 
 ## Dependencies and decisions
 
-Runs after 14.10's integrated technical acceptance. Owner decision (2026-11-27) transfers the human-acceptance portion of 14.8 here; #1751 remains open until this observed task is complete. A blind independent-agent review may precede this but is not acceptance.
+Runs after 14.10's integrated technical acceptance. Owner decision (2026-11-27) transfers the human-acceptance portion of 14.8 here. After the planning PR merges, #1751 closes as technically complete on the existing proof, with no human walkthrough claimed; #3640 is the sole remaining human-acceptance gate, and Epic #1360 remains open. A blind independent-agent review may precede this but is not human acceptance.
 
 ## References
 

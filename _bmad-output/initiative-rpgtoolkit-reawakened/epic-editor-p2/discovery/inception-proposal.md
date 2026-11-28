@@ -38,7 +38,7 @@ The Epic 6 MP3/OGG and AVI import handoff belongs to 14.11–14.14, not audition
 
 The interaction design remains a proposal, not proof of installed providers or usability. No installer target, storage format, signer, arbitrary code conversion or browser OS capability is silently approved by this breakdown.
 
-Owner decision (2026-11-27): #1751's remaining real-first-time-author acceptance transfers to final Epic 14 task 14.15. This supersedes the earlier #1751 comment requiring the person to complete the walkthrough before #1751 could move forward; #1751 remains open until 14.15 is observed and closed. 14.8 may be marked done on its existing exact-head technical proofs, not on a human walkthrough. A blind independent-agent walkthrough may supply interim usability findings only; it is neither a human review nor a substitute for 14.15. Historical issue and PR text remain unchanged.
+Owner decision (2026-11-27): #1751's remaining real-first-time-author acceptance transfers to final Epic 14 task 14.15. This supersedes the earlier #1751 comment requiring the person to complete the walkthrough before #1751 could move forward. After this planning PR merges, #1751 closes as technically complete on existing proof, with no human walkthrough claimed. #3640 is the sole remaining human-acceptance gate; Epic #1360 remains open. 14.8 is done on its exact-head technical proof, not human acceptance. A blind independent-agent walkthrough may supply interim usability findings only; it is neither a human review nor a substitute for 14.15. Historical issue and PR text remain unchanged.
 
 ## Independent review
 
