@@ -337,15 +337,19 @@ test("compiler output for two raster cels plays at exact phase-zero boundaries i
   ];
   let currentTick = 0;
   for (const checkpoint of checkpoints) {
-    while (currentTick < checkpoint.tick) {
+    const delta = checkpoint.tick - currentTick;
+    for (let step = 0; step < delta; step += 1) {
+      const previousTick = currentTick;
       report = engine.advance(1, []);
       currentTick = report.tickAfter;
+      equal(currentTick, previousTick + 1, `engine advances at each tick before ${checkpoint.tick}`);
     }
     equal(currentTick, checkpoint.tick);
     const ordered = engine.drawList().commands.flatMap((command) => {
       if (command.kind !== "blit" || !("asset" in command.source) || command.source.asset !== tstAsset || command.source.tile === null) return [];
       return [{ x: command.dst.x, slot: command.source.tile }];
     }).sort((a, b) => a.x - b.x);
+    deepEqual(ordered.map(({ x }) => x), [0, 32], `cell positions at tick ${checkpoint.tick}`);
     equal(ordered.length, 2, `two independently drawn cells at tick ${checkpoint.tick}`);
     deepEqual(ordered.map(({ slot }) => slot), checkpoint.slots, `tile slots at tick ${checkpoint.tick}`);
     for (const [index, { slot }] of ordered.entries()) {
