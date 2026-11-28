@@ -1,6 +1,6 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
-import { BinaryReader, PACKAGE_ROOT, SCRIPT_SCREEN, assetKey, blitTexture, createAssetIndex, createEngine, createSurface, createSurfacesSection, readBoard, readSurfacePixels, readTileAnimation, readTileset, resolveTileReference, utf8Encode, writeBoard, type EnginePhaseRegistration, type GameState } from "@tk-reawakened/core";
+import { BinaryReader, PACKAGE_ROOT, SCRIPT_SCREEN, assetKey, blitTexture, createAssetIndex, createEmptyCharacter, createEmptyMainFile, createEngine, createSurface, createSurfacesSection, expandTileToRgba, readBoard, readSurfacePixels, readTileAnimation, readTileset, resolveTileReference, utf8Encode, writeBoard, writeCharacter, writeMainFile, type EnginePhaseRegistration, type GameState } from "@tk-reawakened/core";
 import { readScene, writeAssetPack, writeScene, writeTile as writeNativeTile, writeTileset as writeNativeTileset, type AssetPack, type NativeTile, type NativeTileSample, type Scene, type Tileset } from "@tk-reawakened/native-data";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { boardPreviewRootForPath, previewBoard } from "../src/board-preview.ts";
@@ -9,7 +9,7 @@ import { proposeSceneBuildRecovery } from "../src/scene-build-recovery.ts";
 import { asTerrainSceneDocument } from "../src/kinds.ts";
 import { buildScene } from "../src/scene-build.ts";
 import { encodeScenePng } from "../src/scene-png.ts";
-import { prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/terrain-scene-project.ts";
+import { compileSceneProject, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/terrain-scene-project.ts";
 import { createDocumentWorkspace } from "../src/workspace.ts";
 
 const scene: Scene = {
@@ -153,6 +153,205 @@ test("a nested project keeps tilesets, animation frames and PNGs inside its own 
   const generated = result.outputs.find((output) => output.path.startsWith("Game/Quest/Bitmap/.tkr-generated/"));
   ok(generated);
   equal(board.images[0]?.file, generated.path.slice("Game/Quest/Bitmap/".length).replaceAll("/", "\\"));
+});
+
+test("compiler output for two raster cels plays at exact phase-zero boundaries in the engine", async () => {
+  const project = "Game/Example";
+  const scenePath = `${project}/Boards/pond.tkrscn`;
+  const tilesetPath = `${project}/Tiles/pond.tkrtst`;
+  const westPath = `${project}/Tiles/west.tkrtle`;
+  const eastPath = `${project}/Tiles/east.tkrtle`;
+  const imagePath = `${project}/Bitmap/pond.png`;
+  const rgba = new Uint8Array(96 * 64 * 4);
+  const paint = (column: number, row: number, color: readonly [number, number, number, number]) => {
+    for (let y = row * 32; y < (row + 1) * 32; y += 1) {
+      for (let x = column * 32; x < (column + 1) * 32; x += 1) rgba.set(color, (y * 96 + x) * 4);
+    }
+  };
+  const colors = {
+    westFirst: [220, 20, 20, 255] as const,
+    westLast: [20, 220, 20, 255] as const,
+    eastFirst: [20, 20, 220, 255] as const,
+    eastMiddle: [220, 220, 20, 255] as const,
+    eastLast: [220, 20, 220, 255] as const,
+    clear: [0, 0, 0, 0] as const,
+  };
+  paint(0, 0, colors.westFirst);
+  paint(1, 0, colors.clear);
+  paint(2, 0, colors.westLast);
+  paint(0, 1, colors.eastFirst);
+  paint(1, 1, colors.eastMiddle);
+  paint(2, 1, colors.eastLast);
+  const png = encodeScenePng({ w: 96, h: 64, rgba });
+  const sample = (column: number, row: number): NativeTileSample => ({ file: imagePath, rect: [column * 32, row * 32, 32, 32] });
+  const timeline = { frames: [{ cel: "first", ms: 200 }, { cel: "middle", ms: 200 }, { cel: "last", ms: 200 }] };
+  const tile = (name: string, row: number): NativeTile => ({
+    contract: "tile", version: "1.0.0-pre.1", name, projection: "2d", role: "floor",
+    visual: {
+      transparent: { mode: "alpha" },
+      cels: [
+        { id: "first", sample: sample(0, row) },
+        { id: "middle", sample: sample(1, row) },
+        { id: "last", sample: sample(2, row) },
+      ],
+      timeline,
+    },
+  });
+  const west = tile("West water", 0);
+  const east = tile("East water", 1);
+  const authoredScene = writeScene({
+    ...scene,
+    size: { width: 2, height: 1 },
+    floors: [{ id: "ground", tiles: [[1, 1], [1, 2]] }],
+    tilePalette: [{}, { tile: westPath }, { tile: eastPath }],
+    placedPacks: [],
+  });
+  const authoredTileset = writeNativeTileset({
+    contract: "tileset", version: "1.0.0-pre.2", name: "Pond",
+    expects: { projection: "2d", cellSize: [32, 32] },
+    tiles: [{ tile: westPath }, { tile: eastPath }],
+    outputBinding: {
+      target: "Tiles/pond.tst", detail: 1,
+      slots: [
+        { slot: 1, tile: westPath, cel: "first" },
+        { slot: 2, tile: westPath, cel: "middle" },
+        { slot: 3, tile: westPath, cel: "last" },
+        { slot: 4, tile: eastPath, cel: "first" },
+        { slot: 5, tile: eastPath, cel: "middle" },
+        { slot: 6, tile: eastPath, cel: "last" },
+      ],
+    },
+  });
+  const authoredWest = writeNativeTile(west);
+  const authoredEast = writeNativeTile(east);
+  ok(authoredScene.ok, authoredScene.ok ? "" : JSON.stringify(authoredScene.problems));
+  ok(authoredTileset.ok, authoredTileset.ok ? "" : JSON.stringify(authoredTileset.problems));
+  ok(authoredWest.ok, authoredWest.ok ? "" : JSON.stringify(authoredWest.problems));
+  ok(authoredEast.ok, authoredEast.ok ? "" : JSON.stringify(authoredEast.problems));
+  const host = createMemoryPlatformServices({ files: {
+    [scenePath]: utf8Encode(authoredScene.text),
+    [tilesetPath]: utf8Encode(authoredTileset.text),
+    [westPath]: utf8Encode(authoredWest.text),
+    [eastPath]: utf8Encode(authoredEast.text),
+    [imagePath]: png,
+  } });
+  const compiled = await compileSceneProject({ fs: host.fs, scenePath });
+  ok(compiled.ok, compiled.ok ? "" : compiled.problems.map(({ path, message }) => `${path}: ${message}`).join("; "));
+  const boardOutput = compiled.built.outputs.find((output) => output.path === `${project}/Boards/pond.brd`);
+  const tilesetOutput = compiled.built.outputs.find((output) => output.path === `${project}/Tiles/pond.tst`);
+  const tanOutputs = compiled.built.outputs.filter((output) => output.path.endsWith(".tan"));
+  ok(boardOutput && tilesetOutput);
+  equal(tanOutputs.length, 2, "the compiler emits a distinct TAN for each animated source tile");
+  const runtimeFiles = new Map(compiled.built.outputs.map((output) => [
+    assetKey(output.path.slice(`${project}/`.length)), output.bytes,
+  ] as const));
+  const main = writeMainFile({
+    ...createEmptyMainFile(), major: 2, minor: 9, startupPrg: "", initBoard: "pond.brd", initChar: "hero.tem",
+  });
+  ok(main.ok);
+  const character = writeCharacter({
+    ...createEmptyCharacter(), minor: 5, name: "Hero",
+    movementAnimations: Array(8).fill(""), battleStances: Array(6).fill(""),
+  });
+  ok(character.ok);
+  runtimeFiles.set(assetKey("main.gam"), main.value);
+  runtimeFiles.set(assetKey("chrs/hero.tem"), character.value);
+  const assetIndex = createAssetIndex([...runtimeFiles.keys()]);
+  const board = readBoard(new BinaryReader(boardOutput.bytes, boardOutput.path));
+  ok(board.ok);
+  const tanReferences = board.value.lut.filter((reference) => reference.toLowerCase().endsWith(".tan"));
+  equal(tanReferences.length, 2, "the built board references both compiled animations");
+  const resolvedTans = tanReferences.map((reference) => {
+    const resolved = resolveTileReference(assetIndex, PACKAGE_ROOT, reference);
+    ok(resolved.ok && resolved.value.kind === "animatedTile", reference);
+    return resolved.value.asset;
+  });
+  deepEqual(resolvedTans.slice().sort(), tanOutputs.map((output) => assetKey(output.path.slice(`${project}/`.length))).sort());
+
+  const decodedTileset = readTileset(tilesetOutput.bytes);
+  ok(decodedTileset.ok);
+  const pixelForSlot = (slot: number): number[] => {
+    const expanded = expandTileToRgba(decodedTileset.value, slot - 1);
+    ok(expanded.ok, `expanded output slot ${slot}`);
+    return [...expanded.value.subarray(0, 4)];
+  };
+  const assertPixel = (actual: readonly number[], expected: readonly number[], message: string) => {
+    equal(actual[3], expected[3], `${message} alpha`);
+    if (expected[3] !== 0) deepEqual(actual, expected, message);
+  };
+  const expectedSlots = [
+    [1, 2, 3],
+    [4, 5, 6],
+  ];
+  const actualFrameSlots = tanOutputs.map((output) => {
+    const animation = readTileAnimation(new BinaryReader(output.bytes, output.path));
+    ok(animation.ok, output.path);
+    equal(animation.value.speed, 5, output.path);
+    return animation.value.frames;
+  });
+  deepEqual(actualFrameSlots.slice().sort((a, b) => a[0]!.localeCompare(b[0]!)), [
+    ["pond.tst1", "pond.tst2", "pond.tst3"],
+    ["pond.tst4", "pond.tst5", "pond.tst6"],
+  ]);
+  const expectedCelPixels = [
+    colors.westFirst, colors.clear, colors.westLast,
+    colors.eastFirst, colors.eastMiddle, colors.eastLast,
+  ];
+  for (const [index, slot] of expectedSlots.flat().entries()) {
+    assertPixel(pixelForSlot(slot), expectedCelPixels[index]!, `compiled raster in slot ${slot}`);
+  }
+
+  const engine = createEngine({
+    seed: 7,
+    assetIndex,
+    assetRoot: PACKAGE_ROOT,
+    mainFile: "main.gam",
+    gameIdentity: "compiled-animation-output",
+    width: 64,
+    height: 32,
+    maxTicks: 36,
+    startup: {
+      presence: { hasPlayer: () => true },
+      savedGame: { load: () => ({ kind: "missing" }), restored: () => false },
+    },
+  });
+  let report = engine.advance(0, []);
+  for (let guard = 0; guard < 20 && (report.loading || report.requests.length > 0); guard += 1) {
+    const events = report.requests.map((request) => {
+      ok(request.kind === "asset", `unexpected engine request ${request.kind}`);
+      const bytes = runtimeFiles.get(request.key);
+      ok(bytes !== undefined, `compiled output exists for ${request.key}`);
+      return { tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes } };
+    });
+    report = engine.advance(0, events);
+  }
+  equal(report.loading, false, "the held board and its compiled assets load in the real engine");
+  equal(report.tickAfter, 0);
+  const tstAsset = assetKey("Tiles/pond.tst");
+  const checkpoints = [
+    { tick: 0, slots: [1, 4], pixels: [colors.westFirst, colors.eastFirst] },
+    { tick: 11, slots: [1, 4], pixels: [colors.westFirst, colors.eastFirst] },
+    { tick: 12, slots: [2, 5], pixels: [colors.clear, colors.eastMiddle] },
+    { tick: 24, slots: [3, 6], pixels: [colors.westLast, colors.eastLast] },
+    { tick: 36, slots: [1, 4], pixels: [colors.westFirst, colors.eastFirst] },
+  ];
+  let currentTick = 0;
+  for (const checkpoint of checkpoints) {
+    while (currentTick < checkpoint.tick) {
+      report = engine.advance(1, []);
+      currentTick = report.tickAfter;
+    }
+    equal(currentTick, checkpoint.tick);
+    const ordered = engine.drawList().commands.flatMap((command) => {
+      if (command.kind !== "blit" || !("asset" in command.source) || command.source.asset !== tstAsset || command.source.tile === null) return [];
+      return [{ x: command.dst.x, slot: command.source.tile }];
+    }).sort((a, b) => a.x - b.x);
+    equal(ordered.length, 2, `two independently drawn cells at tick ${checkpoint.tick}`);
+    deepEqual(ordered.map(({ slot }) => slot), checkpoint.slots, `tile slots at tick ${checkpoint.tick}`);
+    for (const [index, { slot }] of ordered.entries()) {
+      assertPixel(pixelForSlot(slot), checkpoint.pixels[index]!, `raster at tick ${checkpoint.tick}, cell ${index}`);
+    }
+  }
 });
 
 test("one project scene build keeps terrain, pack art, and traced boundaries in preview, Save and the engine", async () => {
