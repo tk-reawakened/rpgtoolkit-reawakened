@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import { existsSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { test } from "node:test";
+import { assertOwnedDevice, assertOwnedProcessTreeListeners, assertPrivateAdbAlive, assertPrivateOwnedTransport, createPrivateAdbBridge } from "../private-adb.mjs";
+
+const serial = "127.0.0.1:5567";
+const device = (id = "9", name = serial, state = "device") => ({ serial: name, state, transport: id });
+
+test("private ADB admits only its sole owned online emulator and stable transport", () => {
+  assert.deepEqual(assertOwnedDevice([device()], serial), device());
+  assert.throws(() => assertOwnedDevice([], serial), /exactly one/u);
+  assert.throws(() => assertOwnedDevice([device(), device("10", "other")], serial), /exactly one/u);
+  assert.throws(() => assertOwnedDevice([device("9", "other")], serial), /owned emulator/u);
+  assert.throws(() => assertOwnedDevice([device("9", serial, "offline")], serial), /online owned emulator/u);
+  assert.throws(() => assertOwnedDevice([device("10")], serial, "9"), /transport changed/u);
+});
+test("every listener on each emulator port must belong to the launched emulator process tree", () => {
+  const processRows = [{ pid: 200, ppid: 100 }, { pid: 201, ppid: 200 }, { pid: 300, ppid: 1 }];
+  assert.equal(assertOwnedProcessTreeListeners(100, { 5554: [200], 5555: [201] }, processRows).has(201), true);
+  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [200, 300], 5555: [201] }, processRows), /exclusively own listening port 5554/u);
+  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [], 5555: [201] }, processRows), /exclusively own listening port 5554/u);
+});
+
+test("a recycled transport id from a restarted daemon cannot satisfy the old binding", () => {
+  const bridge = { daemon: { exitCode: 1, signalCode: null }, server: { listening: true } };
+  assert.throws(() => assertPrivateOwnedTransport(bridge, [device("1")], serial, "1"), /refusing device access/u);
+});
+
+test("private ADB loses its write gate when the daemon or guarded endpoint is lost", () => {
+  const bridge = { daemon: { exitCode: null, signalCode: null }, server: { listening: true }, emulatorServer: { listening: true } };
+  assert.equal(assertPrivateAdbAlive(bridge), undefined);
+  bridge.daemon.exitCode = 0;
+  assert.throws(() => assertPrivateAdbAlive(bridge), /refusing device access/u);
+  bridge.daemon.exitCode = null;
+  bridge.daemon.signalCode = "SIGTERM";
+  assert.throws(() => assertPrivateAdbAlive(bridge), /refusing device access/u);
+  bridge.daemon.signalCode = null;
+  bridge.server.listening = false;
+  assert.throws(() => assertPrivateAdbAlive(bridge), /refusing device access/u);
+  bridge.server.listening = true;
+  bridge.emulatorServer.listening = false;
+  assert.throws(() => assertPrivateAdbAlive(bridge), /refusing device access/u);
+});
+
+const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? join(process.env.HOME ?? "", "Library", "Android", "sdk");
+const adbPath = join(sdk, "platform-tools", "adb");
+test("lost private ADB cannot auto-restart behind the guarded loopback endpoint", { skip: !existsSync(adbPath), timeout: 10_000 }, async () => {
+  const bridge = await createPrivateAdbBridge(adbPath, process.cwd());
+  try {
+    assert.equal(bridge.env.ADB_USB, "0");
+    assert.equal(bridge.env.ADB_EMU, "0");
+    assert.equal(bridge.env.ADB_MDNS, "0");
+    assert.equal(bridge.env.ANDROID_ADB_SERVER_PORT, String(bridge.emulatorServer.address().port));
+    assert.equal(bridge.env.ADB_SERVER_SOCKET, `localfilesystem:${bridge.socketPath}`);
+    assert.equal(statSync(dirname(bridge.socketPath)).mode & 0o222, 0);
+    assert.match(execFileSync(adbPath, ["devices", "-l"], { encoding: "utf8", env: bridge.env, timeout: 3000 }), /List of devices attached/u);
+    const exited = new Promise((resolve) => bridge.daemon.once("exit", resolve));
+    bridge.daemon.kill("SIGTERM");
+    await exited;
+    assert.throws(() => assertPrivateAdbAlive(bridge), /refusing device access/u);
+    assert.throws(() => execFileSync(adbPath, ["devices"], { encoding: "utf8", env: bridge.env, timeout: 3000, stdio: "ignore" }));
+    assert.throws(() => assertPrivateOwnedTransport(bridge, [device("1")], serial, "1"), /refusing device access/u);
+    assert.equal(bridge.server.listening, true);
+    assert.equal(bridge.emulatorServer.listening, true);
+    assert.equal(statSync(dirname(bridge.socketPath)).mode & 0o222, 0);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("inherited ADB selectors cannot redirect the private daemon or emulator", { skip: !existsSync(adbPath), timeout: 10_000 }, async () => {
+  const inherited = {
+    ADBHOST: "192.0.2.1",
+    ADB_SERVER_SOCKET: "tcp:192.0.2.1:5037",
+    ANDROID_ADB_SERVER_ADDRESS: "192.0.2.1",
+    ANDROID_ADB_SERVER_PORT: "5037",
+    ADB_SERVER_PORT: "5037",
+  };
+  const previous = Object.fromEntries(Object.keys(inherited).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, inherited);
+  let bridge;
+  try {
+    bridge = await createPrivateAdbBridge(adbPath, process.cwd());
+    assert.equal(bridge.env.ADBHOST, undefined);
+    assert.equal(bridge.env.ADB_SERVER_SOCKET, `localfilesystem:${bridge.socketPath}`);
+    assert.equal(bridge.env.ANDROID_ADB_SERVER_ADDRESS, undefined);
+    assert.equal(bridge.env.ANDROID_ADB_SERVER_PORT, String(bridge.emulatorServer.address().port));
+    assert.equal(bridge.env.ADB_SERVER_PORT, undefined);
+    assert.match(execFileSync(adbPath, ["devices", "-l"], { encoding: "utf8", env: bridge.env, timeout: 3000 }), /List of devices attached/u);
+  } finally {
+    await bridge?.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("a missing ADB executable is reported and cleaned up without an unhandled spawn error", { timeout: 10_000 }, async () => {
+  await assert.rejects(
+    createPrivateAdbBridge(join(process.cwd(), "missing-private-adb-binary"), process.cwd()),
+    /private Android ADB daemon failed to spawn:.*ENOENT/u,
+  );
+});

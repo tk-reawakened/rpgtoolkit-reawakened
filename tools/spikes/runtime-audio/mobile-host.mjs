@@ -1,18 +1,15 @@
 import { createHash } from "node:crypto";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
-import { execFile, spawn, spawnSync } from "node:child_process";
+import net from "node:net";
+import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { promisify } from "node:util";
 import { stopChild } from "../../desktop/child-process.mjs";
 import { attachPage, boundedAttach, closeDevice, selectDevice } from "../../mobile/proof-android.mjs";
+import { createPrivateAdbBridge, assertOwnedDevice, assertOwnedProcessTreeListeners, assertPrivateAdbAlive, assertPrivateOwnedTransport } from "../../mobile/private-adb.mjs";
 
-const require = createRequire(import.meta.url), exec = promisify(execFile);
-const localAdb = { host: "127.0.0.1", port: 5037 };
-const localAdbArgs = ["-H", localAdb.host, "-P", String(localAdb.port)];
-const localAdbEnv = { ...process.env };
-for (const key of ["ADB_SERVER_SOCKET", "ANDROID_ADB_SERVER_ADDRESS", "ANDROID_ADB_SERVER_PORT", "ADB_SERVER_PORT"]) delete localAdbEnv[key];
+const require = createRequire(import.meta.url);
 
 const command = (bin, argv, { cwd, timeout = 60_000, env = process.env } = {}) => {
   const result = spawnSync(bin, argv, { cwd, encoding: "utf8", timeout, maxBuffer: 64 * 1024 * 1024, env });
@@ -31,6 +28,40 @@ function adbDevices(adb) {
 
 function isAlive(child) {
   return child !== undefined && child.exitCode === null && child.signalCode === null;
+}
+function assertOwnedEmulatorPorts(child, ports) {
+  const processRows = command("ps", ["-A", "-o", "pid=,ppid="]).split(/\r?\n/u).map((line) => {
+    const [pid, ppid] = line.trim().split(/\s+/u).map(Number);
+    return { pid, ppid };
+  });
+  const listenersByPort = Object.fromEntries([ports.consolePort, ports.adbPort].map((port) => [
+    port,
+    command("lsof", ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"]).split(/\r?\n/u).map(Number),
+  ]));
+  const owned = assertOwnedProcessTreeListeners(child.pid, listenersByPort, processRows);
+  return Object.fromEntries(Object.entries(listenersByPort).map(([port, pids]) => [port, pids.filter((pid) => owned.has(pid))]));
+}
+async function freeEmulatorPorts() {
+  for (let consolePort = 5554; consolePort <= 5682; consolePort += 2) {
+    const listeners = [];
+    try {
+      for (const port of [consolePort, consolePort + 1]) {
+        const listener = net.createServer();
+        listeners.push(listener);
+        await new Promise((resolve, reject) => {
+          listener.once("error", reject);
+          listener.listen(port, "127.0.0.1", resolve);
+        });
+      }
+      return { consolePort, adbPort: consolePort + 1 };
+    } catch {
+      // Keep searching; the selected pair is checked again by the emulator process.
+    } finally {
+      await Promise.all(listeners.filter((listener) => listener.listening)
+        .map((listener) => new Promise((resolve) => listener.close(resolve))));
+    }
+  }
+  throw new Error("no free Android emulator console/ADB port pair in 5554–5683");
 }
 
 function sleep(ms) {
@@ -78,7 +109,13 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
   const stage = copyProbeBundle({ root, bundleDir, files, packagePath });
   const appId = JSON.parse(readFileSync(join(stage, "capacitor.config.json"), "utf8")).appId;
   if (typeof appId !== "string" || appId.length === 0) throw new Error("Capacitor config has no appId");
-  const adb = (args, options) => command(adbPath, [...localAdbArgs, ...args], { ...options, env: localAdbEnv });
+  let privateAdb;
+  const adb = (args, options) => {
+    assertPrivateAdbAlive(privateAdb);
+    const output = command(adbPath, [...privateAdb.args, ...args], { ...options, env: privateAdb.env });
+    assertPrivateAdbAlive(privateAdb);
+    return output;
+  };
 
   const close = () => {
     if (closePromise) return closePromise;
@@ -107,6 +144,14 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
           }
         }
       }
+      if (privateAdb) {
+        try {
+          await privateAdb.close();
+        } catch (error) {
+          errors.push(new Error(`Could not stop private Android ADB daemon: ${String(error)}`));
+        }
+        privateAdb = undefined;
+      }
       if (errors.length) throw new AggregateError(errors, "Android probe cleanup failed");
     })();
     return closePromise;
@@ -129,59 +174,75 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
 
     const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? join(process.env.HOME ?? "", "Library", "Android", "sdk");
     const emulator = join(sdk, "emulator", "emulator");
-    const devicesBefore = adbDevices(adb);
-    const occupied = devicesBefore.filter(({ serial: deviceSerial }) => /^emulator-\d+$/u.test(deviceSerial));
-    if (occupied.length) throw new Error(`Refusing to reuse existing Android emulator(s), including offline devices: ${occupied.map(({ serial: deviceSerial }) => deviceSerial).join(", ")}`);
-    if (devicesBefore.length) throw new Error(`Refusing to use an external Android device: ${devicesBefore.map(({ serial: deviceSerial, state }) => `${deviceSerial} (${state})`).join(", ")}`);
     const avds = command(emulator, ["-list-avds"]).split(/\r?\n/u).filter(Boolean);
     if (!avds.includes(avdName)) throw new Error(`Android SDK has no configured AVD named ${avdName}`);
-    serial = "emulator-5566";
+    command("lsof", ["-v"]);
+    const ports = await freeEmulatorPorts();
+    serial = `emulator-${ports.consolePort}`;
     emulatorData = join(bundleDir, "android-userdata");
     mkdirSync(emulatorData, { recursive: true });
-    const logFd = openSync(join(bundleDir, "emulator.log"), "w");
+    privateAdb = await createPrivateAdbBridge(adbPath, bundleDir, ports.consolePort);
+    const emulatorLog = join(bundleDir, "emulator.log");
+    const logFd = openSync(emulatorLog, "w");
     try {
       ownEmulator = spawn(emulator, [
-        "-avd", avdName, "-port", "5566", "-datadir", emulatorData, "-sdcard", join(emulatorData, "sdcard.img"), "-no-cache",
+        "-avd", avdName, "-ports", `${ports.consolePort},${ports.adbPort}`, "-datadir", emulatorData, "-sdcard", join(emulatorData, "sdcard.img"), "-no-cache",
         "-partition-size", "4096", "-no-snapshot", "-no-window", "-no-boot-anim", "-gpu", "swiftshader_indirect",
-      ], { env: localAdbEnv, stdio: ["ignore", logFd, logFd] });
+      ], { env: privateAdb.env, stdio: ["ignore", logFd, logFd] });
     } finally {
       closeSync(logFd);
     }
+    await retry("private Android ADB server socket", () => {
+      assertPrivateAdbAlive(privateAdb);
+      return existsSync(privateAdb.socketPath) ? true : Promise.reject(new Error("private adb socket is not ready"));
+    }, 5000);
     const transport = await retry(`Android AVD ${avdName} boot`, () => {
       if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited during startup");
-      const listed = adbDevices(adb).find(({ serial: listedSerial }) => listedSerial === serial);
-      if (listed?.state !== "device" || listed.transport === null) throw new Error(`owned emulator ${serial} has no online ADB transport`);
-      const observedAvd = adb(["-s", serial, "emu", "avd", "name"]);
-      if (observedAvd.split(/\r?\n/u)[0] !== avdName) throw new Error(`serial ${serial} belongs to unexpected AVD ${observedAvd}`);
+      assertOwnedEmulatorPorts(ownEmulator, ports);
+      if (readFileSync(emulatorLog, "utf8").includes("Unable to connect to adb daemon on port: 5037")) {
+        throw new Error("emulator attempted the shared default ADB server port instead of its private relay");
+      }
+      const listed = assertOwnedDevice(adbDevices(adb), serial);
+      const observedAvd = adb(["-s", serial, "emu", "avd", "name"]).split(/\r?\n/u)[0];
+      if (observedAvd !== avdName) throw new Error(`emulator console reported unexpected AVD ${observedAvd}`);
+      if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited during boot verification");
       if (adb(["-t", listed.transport, "shell", "getprop", "sys.boot_completed"]) !== "1") throw new Error("Android is booting");
       return listed.transport;
     }, 240_000);
-    if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited before APK install");
-    const ownership = adb(["-s", serial, "emu", "avd", "name"]);
-    const binding = adbDevices(adb).find((listed) => listed.serial === serial && listed.state === "device" && listed.transport === transport);
-    if (ownership.split(/\r?\n/u)[0] !== avdName || binding === undefined) throw new Error(`ADB console and transport no longer identify the same owned emulator`);
-    const deviceArgs = (parts) => ["-t", transport, ...parts];
-    result.androidDataPartition = adb(deviceArgs(["shell", "df", "-k", "/data"]));
-    adb(deviceArgs(["install", apk]), { timeout: 120_000 });
-    adb(deviceArgs(["shell", "am", "start", "-n", `${appId}/.MainActivity`]));
+    const verifyTransport = () => {
+      if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited; refusing device access");
+      assertOwnedEmulatorPorts(ownEmulator, ports);
+      const devices = adbDevices(adb);
+      const owned = assertPrivateOwnedTransport(privateAdb, devices, serial, transport);
+      const observedAvd = adb(["-s", serial, "emu", "avd", "name"]).split(/\r?\n/u)[0];
+      if (observedAvd !== avdName || !isAlive(ownEmulator)) {
+        throw new Error("owned emulator process or console identity changed; refusing device access");
+      }
+      return ["-t", owned.transport];
+    };
+    result.androidDataPartition = adb([...verifyTransport(), "shell", "df", "-k", "/data"]);
+    adb([...verifyTransport(), "install", apk], { timeout: 120_000 });
+    adb([...verifyTransport(), "shell", "am", "start", "-n", `${appId}/.MainActivity`]);
     const pid = await retry("Capacitor player process", () => {
       if (!isAlive(ownEmulator)) throw new Error("owned emulator exited while launching player");
-      const found = adb(deviceArgs(["shell", "pidof", appId])).split(/\s+/u)[0];
+      const found = adb([...verifyTransport(), "shell", "pidof", appId]).split(/\s+/u)[0];
       if (!found) throw new Error("player process not available");
       return found;
     }, 60_000);
     const { _android } = await import("@playwright/test");
-    androidDevice = await selectDevice(_android, serial, 15_000, localAdb);
+    androidDevice = await selectDevice(_android, serial, 15_000, privateAdb.client);
     const page = await attachPage(androidDevice, appId, pid, 45_000);
     const ready = await boundedAttach("reading Android probe button readiness", () => page.evaluate(() => document.querySelector("#unlock") !== null && window.__runtimeAudioProbe !== undefined), 4000);
     if (!ready) throw new Error("packaged Android probe button is not ready");
     result.device = {
-      serial, transport,
-      api: adb(deviceArgs(["shell", "getprop", "ro.build.version.sdk"])),
-      release: adb(deviceArgs(["shell", "getprop", "ro.build.version.release"])),
-      model: adb(deviceArgs(["shell", "getprop", "ro.product.model"])),
+      serial, transport, consolePort: ports.consolePort, adbPort: ports.adbPort,
+      emulatorProcessAlive: isAlive(ownEmulator),
+      emulatorListenerPids: assertOwnedEmulatorPorts(ownEmulator, ports),
+      api: adb([...verifyTransport(), "shell", "getprop", "ro.build.version.sdk"]),
+      release: adb([...verifyTransport(), "shell", "getprop", "ro.build.version.release"]),
+      model: adb([...verifyTransport(), "shell", "getprop", "ro.product.model"]),
     };
-    const sampleMemory = async () => (await exec(adbPath, [...localAdbArgs, ...deviceArgs(["shell", "dumpsys", "meminfo", appId])], { env: localAdbEnv, timeout: 5000 })).stdout;
+    const sampleMemory = async () => adb([...verifyTransport(), "shell", "dumpsys", "meminfo", appId], { timeout: 5000 });
     return { page, sampleMemory, close };
   } catch (error) {
     try {
