@@ -3,7 +3,7 @@ title: "Teach a first board in both hosts"
 type: feature
 ticket: 8
 created: "2026-11-25"
-status: built
+status: done
 baseline_revision: "2e7a7c9579c569657095a0a9d2888fc98bb1402b"
 route: full
 route_source: auto
@@ -88,3 +88,7 @@ The browser and VS Code offer the same guide and tip using the existing Help and
 - The packaged VS Code Web proof passed on the branch with current main `5ec33c3728f490f5ef0399e708f7be93918e9d51`. It checks the selected game editor remains the only visible webview for the automatic tip, then drives all five actions from the native palette, checks unavailable actions are absent, and verifies resume and the persisted `editor.showTips` setting. The build, scoped test typecheck, targeted lint, BMAD store validation and ADR numbering check passed. This rerun did not run the unrelated live board-snapshot proof (#2922).
 - The earlier exact-head `browser (editor-web)` failure was the recurring geometry test `NotReadableError` already tracked in [#3349](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3349#issuecomment-7197596278). Geometry coverage was not changed or rerun for the focus repair. The three focused Chromium Help tests passed with one worker.
 - **Human acceptance pending:** a genuine new author still needs to perform all nine steps in each host. The automated proofs do not close that gate.
+
+## Scope transfer — owner decision (2026-11-27)
+
+The prior human-acceptance-pending note above records the state at the time and remains unchanged. The owner later approved completing 14.8 on existing exact-head technical proof, transferring the genuine first-time-author acceptance to final Epic 14 HITL task 14.15 (#3640). PR #3474 merged exact head `10e5ecd4aa16be91edecfe7f87b68b1f2aaab192` as `0b99fce2a91eba2b40ea41617c63373386b7fd58`; its recorded CI, browser proofs and packaged native VS Code Web proof passed. These establish technical behavior, not usability acceptance. #1751 remains open until a genuine first-time author is observed in both hosts under 14.15. A blind independent-agent walkthrough may be interim usability evidence only; no AI or staff surrogate counts as human acceptance.
