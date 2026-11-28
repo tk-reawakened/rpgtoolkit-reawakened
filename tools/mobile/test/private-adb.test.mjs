@@ -16,10 +16,11 @@ test("private ADB admits only its sole owned online emulator and stable transpor
   assert.throws(() => assertOwnedDevice([device("9", serial, "offline")], serial), /online owned emulator/u);
   assert.throws(() => assertOwnedDevice([device("10")], serial, "9"), /transport changed/u);
 });
-test("an occupied emulator port must be owned by the launched emulator process tree", () => {
+test("every listener on each emulator port must belong to the launched emulator process tree", () => {
   const processRows = [{ pid: 200, ppid: 100 }, { pid: 201, ppid: 200 }, { pid: 300, ppid: 1 }];
   assert.equal(assertOwnedProcessTreeListeners(100, { 5554: [200], 5555: [201] }, processRows).has(201), true);
-  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [200], 5555: [300] }, processRows), /does not own listening port 5555/u);
+  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [200, 300], 5555: [201] }, processRows), /exclusively own listening port 5554/u);
+  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [], 5555: [201] }, processRows), /exclusively own listening port 5554/u);
 });
 
 test("a recycled transport id from a restarted daemon cannot satisfy the old binding", () => {
@@ -67,4 +68,39 @@ test("lost private ADB cannot auto-restart behind the guarded loopback endpoint"
   } finally {
     await bridge.close();
   }
+});
+
+test("inherited ADB selectors cannot redirect the private daemon or emulator", { skip: !existsSync(adbPath), timeout: 10_000 }, async () => {
+  const inherited = {
+    ADBHOST: "192.0.2.1",
+    ADB_SERVER_SOCKET: "tcp:192.0.2.1:5037",
+    ANDROID_ADB_SERVER_ADDRESS: "192.0.2.1",
+    ANDROID_ADB_SERVER_PORT: "5037",
+    ADB_SERVER_PORT: "5037",
+  };
+  const previous = Object.fromEntries(Object.keys(inherited).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, inherited);
+  let bridge;
+  try {
+    bridge = await createPrivateAdbBridge(adbPath, process.cwd());
+    assert.equal(bridge.env.ADBHOST, undefined);
+    assert.equal(bridge.env.ADB_SERVER_SOCKET, `localfilesystem:${bridge.socketPath}`);
+    assert.equal(bridge.env.ANDROID_ADB_SERVER_ADDRESS, undefined);
+    assert.equal(bridge.env.ANDROID_ADB_SERVER_PORT, String(bridge.emulatorServer.address().port));
+    assert.equal(bridge.env.ADB_SERVER_PORT, undefined);
+    assert.match(execFileSync(adbPath, ["devices", "-l"], { encoding: "utf8", env: bridge.env, timeout: 3000 }), /List of devices attached/u);
+  } finally {
+    await bridge?.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("a missing ADB executable is reported and cleaned up without an unhandled spawn error", { timeout: 10_000 }, async () => {
+  await assert.rejects(
+    createPrivateAdbBridge(join(process.cwd(), "missing-private-adb-binary"), process.cwd()),
+    /private Android ADB daemon failed to spawn:.*ENOENT/u,
+  );
 });

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
+import { stopChild } from "../desktop/child-process.mjs";
 
 export function assertOwnedDevice(devices, serial, transport) {
   if (!Array.isArray(devices) || devices.length !== 1) {
@@ -43,8 +44,8 @@ export function assertOwnedProcessTreeListeners(rootPid, listenersByPort, proces
     }
   } while (changed);
   for (const [port, pids] of Object.entries(listenersByPort)) {
-    if (!Array.isArray(pids) || !pids.some((pid) => owned.has(pid))) {
-      throw new Error(`emulator process tree does not own listening port ${port}`);
+    if (!Array.isArray(pids) || pids.length === 0 || !pids.every((pid) => owned.has(pid))) {
+      throw new Error(`emulator process tree does not exclusively own listening port ${port}`);
     }
   }
   return owned;
@@ -54,8 +55,8 @@ export async function createPrivateAdbBridge(adbPath, bundleDir, maxLocalTranspo
   const tempDir = mkdtempSync(join(tmpdir(), "tkr-adb-"));
   const socketPath = join(tempDir, "s");
   const env = { ...process.env, ADB_USB: "0", ADB_EMU: "0", ADB_MDNS: "0", ADB_LOCAL_TRANSPORT_MAX_PORT: String(maxLocalTransportPort) };
-  for (const key of ["ADB_SERVER_SOCKET", "ANDROID_ADB_SERVER_ADDRESS", "ANDROID_ADB_SERVER_PORT", "ADB_SERVER_PORT"]) delete env[key];
-  let daemon, server, emulatorServer, closing;
+  for (const key of ["ADBHOST", "ADB_SERVER_SOCKET", "ANDROID_ADB_SERVER_ADDRESS", "ANDROID_ADB_SERVER_PORT", "ADB_SERVER_PORT"]) delete env[key];
+  let daemon, server, emulatorServer, closing, spawnError;
   const sockets = new Set();
   const relay = () => net.createServer((client) => {
     if (!daemon || daemon.exitCode !== null || daemon.signalCode !== null) {
@@ -88,10 +89,12 @@ export async function createPrivateAdbBridge(adbPath, bundleDir, maxLocalTranspo
     daemon = spawn(adbPath, ["-L", `localfilesystem:${socketPath}`, "server", "nodaemon"], {
       env, cwd: bundleDir, stdio: "ignore",
     });
+    daemon.once("error", (error) => { spawnError = error; });
     const deadline = Date.now() + 5000;
-    while (!existsSync(socketPath) && daemon.exitCode === null && daemon.signalCode === null && Date.now() < deadline) {
+    while (!existsSync(socketPath) && !spawnError && daemon.exitCode === null && daemon.signalCode === null && Date.now() < deadline) {
       await delay(25);
     }
+    if (spawnError) throw new Error(`private Android ADB daemon failed to spawn: ${spawnError.message}`);
     if (!existsSync(socketPath) || daemon.exitCode !== null || daemon.signalCode !== null) {
       throw new Error("private Android ADB daemon did not start");
     }
@@ -107,12 +110,9 @@ export async function createPrivateAdbBridge(adbPath, bundleDir, maxLocalTranspo
           for (const socket of sockets) socket.destroy();
           await closeListener(server);
           await closeListener(emulatorServer);
-          if (daemon.exitCode === null && daemon.signalCode === null) {
-            daemon.kill("SIGTERM");
-            await new Promise((resolve) => {
-              if (daemon.exitCode !== null || daemon.signalCode !== null) resolve();
-              else daemon.once("exit", resolve);
-            });
+          if (daemon?.pid !== undefined && daemon.exitCode === null && daemon.signalCode === null) {
+            const stopped = await stopChild(daemon);
+            if (!stopped.exited) throw new Error("private Android ADB daemon did not stop after bounded shutdown");
           }
           chmodSync(tempDir, 0o700);
           rmSync(tempDir, { recursive: true, force: true });
@@ -125,9 +125,11 @@ export async function createPrivateAdbBridge(adbPath, bundleDir, maxLocalTranspo
     for (const socket of sockets) socket.destroy();
     await closeListener(server);
     await closeListener(emulatorServer);
-    if (daemon && daemon.exitCode === null && daemon.signalCode === null) {
-      daemon.kill("SIGTERM");
-      await new Promise((resolve) => daemon.once("exit", resolve));
+    if (daemon?.pid !== undefined && daemon.exitCode === null && daemon.signalCode === null) {
+      const stopped = await stopChild(daemon);
+      if (!stopped.exited) {
+        throw new AggregateError([error, new Error("private Android ADB daemon did not stop after bounded startup cleanup")], "private Android ADB startup and cleanup failed");
+      }
     }
     chmodSync(tempDir, 0o700);
     rmSync(tempDir, { recursive: true, force: true });
