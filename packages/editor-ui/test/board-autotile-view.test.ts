@@ -1,6 +1,7 @@
 // Autotiling in the real views (story 8, T-25): the H toggle and its visible state, the warnings the original never gave,
 // the 47-shape preview drawn from the chosen set's own tiles, an explicit mark, and a Shift note that follows the key.
 import { after, before, test } from "node:test";
+import { readFileSync } from "node:fs";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
@@ -26,6 +27,7 @@ import type { mount as MountFn } from "../src/index.ts";
 import { exampleTileset } from "./fixtures.ts";
 
 const PATH = "Boards/map.brd";
+const ISO_TILESET = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_iso.iso", import.meta.url)));
 let mount: typeof MountFn;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
 
@@ -56,6 +58,7 @@ async function setup(system: BoardCoordSystem = "2d"): Promise<Setup> {
     [PATH]: built.bytes,
     "Tiles/village.tst": exampleTileset(),
     "Tiles/AUTOTILES_village.tst": exampleTileset(),
+    "Tiles/AUTOTILES_village.iso": ISO_TILESET,
     "Tiles/nested/autotiles_Marsh.tst": exampleTileset(),
   } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", PATH), built.bytes);
@@ -157,15 +160,24 @@ test("a set in a sub-folder is recognised in any letter case, and a short set na
   s.dispose();
 });
 
-test("a square set on an isometric board is warned about and still paints", async () => {
-  const s = await setup("iso-stacked");
-  await keyboard(s, { key: "a" });
-  await choose(s, "Tiles\\AUTOTILES_village.tst1", undefined, { autotileTileCount: 52 });
-  match(notes(s).join(" "), /square autotile set is on a isometric board/);
-  await click(s, s.centre);
-  equal(tileAt(s, s.centre), "Tiles\\AUTOTILES_village.tst51");
-  s.dispose();
-});
+for (const { name, system, source, extension } of [
+  { name: "square set on an isometric board", system: "iso-stacked", source: "Tiles/AUTOTILES_village.tst", extension: "tst" },
+  { name: "isometric set on a square board", system: "2d", source: "Tiles/AUTOTILES_village.iso", extension: "iso" },
+] as const) {
+  test(`${name} is warned about and remains paintable`, async () => {
+    const s = await setup(system);
+    await keyboard(s, { key: "a" });
+    await openSource(s, source);
+    const firstTile = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser .tkr-tileset-browser-source");
+    ok(firstTile, "the real source metadata is loaded into the tileset browser");
+    await act(() => { firstTile.click(); });
+    await settle();
+    match(notes(s).join(" "), new RegExp(`${extension === "iso" ? "isometric" : "square"} autotile set is on a ${system === "2d" ? "square" : "isometric"} board`));
+    await click(s, s.centre);
+    ok(tileAt(s, s.centre).endsWith(`AUTOTILES_village.${extension}51`), "the warning does not disable paint");
+    s.dispose();
+  });
+}
 
 test("the tileset browser says whether a set is an autotile set and previews its 47 shapes from its own tiles, gaps included", async () => {
   const s = await setup();
