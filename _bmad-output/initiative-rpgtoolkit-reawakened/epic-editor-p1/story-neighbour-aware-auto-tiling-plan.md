@@ -2,7 +2,7 @@
 type: feature
 title: "Neighbour aware auto tiling"
 ticket: 8
-status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | built | done | blocked | dropped
+status: 'done' # draft | ready-for-dev | in-progress | in-review | built | done | blocked | dropped
 created: '2026-11-26'
 baseline_revision: '3337932d06b075bcccb24f7d394b24037c4c44f8'
 route: 'full'
@@ -60,11 +60,11 @@ Preserve the existing uncommitted same-cell Shift fix and its regression while c
 
 **Execution:**
 
-- [ ] `packages/editor-model/src/board-autotile.ts`, `board-editor.ts`, `packages/editor-ui/src/brush.ts`, `tileset-browser.tsx`, `board-view.tsx`, `packages/host-vscode/src/document-bridge.ts` and their targeted tests — keep an explicit-mark set in the existing project browser session, carry it through the VS Code browser-state bridge and use it when recognizing every affected neighbour after switching brushes or erasing. Preserve name recognition, isolation, unmarking, project separation, Shift and undo. Audit all session initializers, validators, literals and bridge consumers for the changed contract.
-- [ ] `packages/editor-model/src/terrain-scene-project.ts`, `packages/editor-ui/src/terrain-assets.ts`, related UI and host tests — fingerprint content actually used by a scene build: parsed native tile content plus each referenced sample image's bytes and crop, not merely paths. Same-path content edits make an old preview non-current; unchanged reads remain no-ops. Preserve failed-read clearing and update every snapshot producer and consumer.
-- [ ] `packages/host-vscode/src/native-terrain-text-editor.ts` and focused host/webview tests — order initialization and refresh so the latest successful or failed inventory is authoritative at ready, including reads started before readiness, out-of-order completions and disposal. Preserve scene state and do not allow old initialization or reads to replace newer assets.
-- [ ] `packages/editor-model/test/board-autotile.test.ts`, `packages/editor-model/test/terrain-roles.test.ts`, `packages/editor-model/test/scene-pack-placement-build.test.ts`, `packages/editor-ui/test/board-autotile-view.test.ts`, `packages/editor-ui/test/terrain-scene-roles-view.test.ts`, and focused host proof/tests — add consumer-level regressions: same-cell Shift transition; marked-set overwrite and persistence across brush switches; changed same-path tile/sample preview pixels; startup delivery of newest assets.
-- [ ] Update `CHANGELOG.md` for user-visible fixes. Add exact reproductions to existing #3530 and #3533 (the review found relevant open trackers) rather than duplicating them; verify any additional defect's tracker before creating one.
+- [x] `packages/editor-model/src/board-autotile.ts`, `board-editor.ts`, `packages/editor-ui/src/brush.ts`, `tileset-browser.tsx`, `board-view.tsx`, `packages/host-vscode/src/document-bridge.ts` and their targeted tests — keep an explicit-mark set in the existing project browser session, carry it through the VS Code browser-state bridge and use it when recognizing every affected neighbour after switching brushes or erasing. Preserve name recognition, isolation, unmarking, project separation, Shift and undo. Audit all session initializers, validators, literals and bridge consumers for the changed contract.
+- [x] `packages/editor-model/src/terrain-scene-project.ts`, `packages/editor-ui/src/terrain-assets.ts`, related UI and host tests — fingerprint content actually used by a scene build: parsed native tile content plus each referenced sample image's bytes and crop, not merely paths. Same-path content edits make an old preview non-current; unchanged reads remain no-ops. Preserve failed-read clearing and update every snapshot producer and consumer.
+- [x] `packages/host-vscode/src/native-terrain-text-editor.ts` and focused host/webview tests — order initialization and refresh so the latest successful or failed inventory is authoritative at ready, including reads started before readiness, out-of-order completions and disposal. Preserve scene state and do not allow old initialization or reads to replace newer assets.
+- [x] `packages/editor-model/test/board-autotile.test.ts`, `packages/editor-model/test/terrain-roles.test.ts`, `packages/editor-model/test/scene-pack-placement-build.test.ts`, `packages/editor-ui/test/board-autotile-view.test.ts`, `packages/editor-ui/test/terrain-scene-roles-view.test.ts`, and focused host proof/tests — add consumer-level regressions: same-cell Shift transition; marked-set overwrite and persistence across brush switches; changed same-path tile/sample preview pixels; startup delivery of newest assets.
+- [x] Update `CHANGELOG.md` for user-visible fixes. Add exact reproductions to existing #3530 and #3533 (the review found relevant open trackers) rather than duplicating them; verify any additional defect's tracker before creating one.
 
 **Acceptance criteria:**
 
@@ -91,3 +91,19 @@ After implementation, compile the affected TypeScript projects and run the compl
 - `node --test packages/editor-model/test/board-autotile.test.ts packages/editor-model/test/terrain-roles.test.ts packages/editor-model/test/scene-pack-placement-build.test.ts packages/editor-ui/test/board-autotile-view.test.ts packages/editor-ui/test/terrain-scene-roles-view.test.ts packages/host-vscode/test/terrain-assets-trigger.test.ts packages/host-web/test/terrain-scene-mount.test.ts` — expected: all affected file tests pass; include any new focused bridge/startup test file.
 - Exercise the VS Code native-scene proof for saved recipe refresh and add a focused consumer proof for startup/read ordering and changed tile/sample pixels; do not claim either passed unless actually run.
 - Where practical, remove each new guard in an isolated copy and run its focused consumer test; record the failing assertion and restored result. Never weaken tests or mutate the preserved handoff to make a check pass.
+
+## Acceptance closure evidence
+
+This closure is recorded in a follow-up to merged implementation PR [#3521](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3521), merge commit `ba2c32efe916653b5ae1c8564dc1682d9ab60b2f` (implementation tree `b8914355dc7e0fbc9ed1200f6aefeb15f707f4d0`). The pinned audit base `9f2008fe95e95fdb70d2c3a3ab9ac838135f0519` contains that merge.
+
+| Acceptance | Assertions |
+|---|---|
+| Legacy slot table, eight-neighbour corner gating, 3 × 3 / stacked-isometric reshape, board-edge isolation, Shift isolation, and one-edit undo | `packages/editor-model/test/board-autotile.test.ts`: hand-read table/mask/edge tests and whole-edit undo; `tools/browser/tests/editor-autotile.spec.ts`: real-board 47-shape/reshape/erase/undo proof. |
+| Original set recognition, ordinary/short/mismatched-set warnings without refusing paint, plus the 47-shape preview and missing-shape gaps | `packages/editor-ui/test/board-autotile-view.test.ts` and the browser proof. This follow-up adds both square-set/isometric-board and isometric-set/square-board cases against the actual board view, loading the committed `.tst` and `.iso` examples from the tileset browser, asserting the warning, then painting. |
+| Native terrain-role coverage and refusal explanations use native rules, not legacy ordering | `packages/editor-model/test/terrain-roles.test.ts` and `packages/editor-ui/test/terrain-scene-roles-view.test.ts`: complete/partial coverage, uncovered neighbourhoods, located refusal, authored rule display, refresh and stale-preview assertions. |
+| Placed-scene source identity and normal undo/redo/save behavior | `packages/editor-model/test/scene-pack-placement-build.test.ts`, `packages/editor-model/test/terrain-scene-document.test.ts`, and `packages/editor-model/test/terrain-scene-save.test.ts`: identity-based placement resolution/build, single-edit undo/redo, and saved-scene behavior. |
+
+On the pinned base, the focused acceptance audit passed **69/69 Node tests** across `board-autotile.test.ts`, `board-autotile-view.test.ts`, `terrain-roles.test.ts`, `terrain-scene-roles-view.test.ts`, `terrain-scene-document.test.ts`, and `terrain-scene-save.test.ts`; `tools/browser/tests/editor-autotile.spec.ts` passed **2/2** in Chromium. This follow-up’s final scoped run, `pnpm exec tsc -b packages/editor-ui && node --test packages/editor-ui/test/board-autotile-view.test.ts`, passed **11/11**. As a disposable sensitivity probe, restricting the warning predicate to square-on-isometric made the new reverse-direction test fail at its visible-warning assertion; the production predicate was restored before the passing run.
+
+PR #3521's final integration verification record for `b8914355dc` reports `pnpm typecheck`, 11 focused Node test files, generated-help and bundle checks, the dependency graph, and ticket-store validation passing. Its Linux run `20261127-173016505-5bb9fa` reports four Chromium cases and the native VS Code scene proof passing; the subsequent macOS check covered the narrowed browser-host fix and existing fight-background editor proof. No implementation or Project state is changed by this closure follow-up.
+
