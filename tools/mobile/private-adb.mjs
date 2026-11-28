@@ -30,6 +30,25 @@ export function assertPrivateOwnedTransport(bridge, devices, serial, transport) 
   assertPrivateAdbAlive(bridge);
   return assertOwnedDevice(devices, serial, transport);
 }
+export function assertOwnedProcessTreeListeners(rootPid, listenersByPort, processRows) {
+  const owned = new Set([rootPid]);
+  let changed;
+  do {
+    changed = false;
+    for (const { pid, ppid } of processRows) {
+      if (owned.has(ppid) && !owned.has(pid)) {
+        owned.add(pid);
+        changed = true;
+      }
+    }
+  } while (changed);
+  for (const [port, pids] of Object.entries(listenersByPort)) {
+    if (!Array.isArray(pids) || !pids.some((pid) => owned.has(pid))) {
+      throw new Error(`emulator process tree does not own listening port ${port}`);
+    }
+  }
+  return owned;
+}
 
 export async function createPrivateAdbBridge(adbPath, bundleDir, maxLocalTransportPort = 5554) {
   const tempDir = mkdtempSync(join(tmpdir(), "tkr-adb-"));

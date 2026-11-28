@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
-import { assertOwnedDevice, assertPrivateAdbAlive, assertPrivateOwnedTransport, createPrivateAdbBridge } from "../private-adb.mjs";
+import { assertOwnedDevice, assertOwnedProcessTreeListeners, assertPrivateAdbAlive, assertPrivateOwnedTransport, createPrivateAdbBridge } from "../private-adb.mjs";
 
 const serial = "127.0.0.1:5567";
 const device = (id = "9", name = serial, state = "device") => ({ serial: name, state, transport: id });
@@ -15,6 +15,11 @@ test("private ADB admits only its sole owned online emulator and stable transpor
   assert.throws(() => assertOwnedDevice([device("9", "other")], serial), /owned emulator/u);
   assert.throws(() => assertOwnedDevice([device("9", serial, "offline")], serial), /online owned emulator/u);
   assert.throws(() => assertOwnedDevice([device("10")], serial, "9"), /transport changed/u);
+});
+test("an occupied emulator port must be owned by the launched emulator process tree", () => {
+  const processRows = [{ pid: 200, ppid: 100 }, { pid: 201, ppid: 200 }, { pid: 300, ppid: 1 }];
+  assert.equal(assertOwnedProcessTreeListeners(100, { 5554: [200], 5555: [201] }, processRows).has(201), true);
+  assert.throws(() => assertOwnedProcessTreeListeners(100, { 5554: [200], 5555: [300] }, processRows), /does not own listening port 5555/u);
 });
 
 test("a recycled transport id from a restarted daemon cannot satisfy the old binding", () => {

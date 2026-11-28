@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { stopChild } from "../../desktop/child-process.mjs";
 import { attachPage, boundedAttach, closeDevice, selectDevice } from "../../mobile/proof-android.mjs";
-import { createPrivateAdbBridge, assertOwnedDevice, assertPrivateAdbAlive, assertPrivateOwnedTransport } from "../../mobile/private-adb.mjs";
+import { createPrivateAdbBridge, assertOwnedDevice, assertOwnedProcessTreeListeners, assertPrivateAdbAlive, assertPrivateOwnedTransport } from "../../mobile/private-adb.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -28,6 +28,18 @@ function adbDevices(adb) {
 
 function isAlive(child) {
   return child !== undefined && child.exitCode === null && child.signalCode === null;
+}
+function assertOwnedEmulatorPorts(child, ports) {
+  const processRows = command("ps", ["-A", "-o", "pid=,ppid="]).split(/\r?\n/u).map((line) => {
+    const [pid, ppid] = line.trim().split(/\s+/u).map(Number);
+    return { pid, ppid };
+  });
+  const listenersByPort = Object.fromEntries([ports.consolePort, ports.adbPort].map((port) => [
+    port,
+    command("lsof", ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"]).split(/\r?\n/u).map(Number),
+  ]));
+  const owned = assertOwnedProcessTreeListeners(child.pid, listenersByPort, processRows);
+  return Object.fromEntries(Object.entries(listenersByPort).map(([port, pids]) => [port, pids.filter((pid) => owned.has(pid))]));
 }
 async function freeEmulatorPorts() {
   for (let consolePort = 5554; consolePort <= 5682; consolePort += 2) {
@@ -164,6 +176,7 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
     const emulator = join(sdk, "emulator", "emulator");
     const avds = command(emulator, ["-list-avds"]).split(/\r?\n/u).filter(Boolean);
     if (!avds.includes(avdName)) throw new Error(`Android SDK has no configured AVD named ${avdName}`);
+    command("lsof", ["-v"]);
     const ports = await freeEmulatorPorts();
     serial = `emulator-${ports.consolePort}`;
     emulatorData = join(bundleDir, "android-userdata");
@@ -185,6 +198,7 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
     }, 5000);
     const transport = await retry(`Android AVD ${avdName} boot`, () => {
       if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited during startup");
+      assertOwnedEmulatorPorts(ownEmulator, ports);
       if (readFileSync(emulatorLog, "utf8").includes("Unable to connect to adb daemon on port: 5037")) {
         throw new Error("emulator attempted the shared default ADB server port instead of its private relay");
       }
@@ -197,6 +211,7 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
     }, 240_000);
     const verifyTransport = () => {
       if (!isAlive(ownEmulator)) throw new Error("owned emulator process exited; refusing device access");
+      assertOwnedEmulatorPorts(ownEmulator, ports);
       const devices = adbDevices(adb);
       const owned = assertPrivateOwnedTransport(privateAdb, devices, serial, transport);
       const observedAvd = adb(["-s", serial, "emu", "avd", "name"]).split(/\r?\n/u)[0];
@@ -222,6 +237,7 @@ export async function launchAndroidProbe({ root, bundleDir, files, packagePath, 
     result.device = {
       serial, transport, consolePort: ports.consolePort, adbPort: ports.adbPort,
       emulatorProcessAlive: isAlive(ownEmulator),
+      emulatorListenerPids: assertOwnedEmulatorPorts(ownEmulator, ports),
       api: adb([...verifyTransport(), "shell", "getprop", "ro.build.version.sdk"]),
       release: adb([...verifyTransport(), "shell", "getprop", "ro.build.version.release"]),
       model: adb([...verifyTransport(), "shell", "getprop", "ro.product.model"]),
